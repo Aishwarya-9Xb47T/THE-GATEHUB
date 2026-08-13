@@ -1,0 +1,11 @@
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "ollamaHost": "http://localhost:11434",
+  "temperature": 0.7,
+  "topP": 0.9,
+  "topK": 40,
+  "maxTokens": 4096,
+  "timeoutMs": 120000,
+  "streamingEnabled": true
+}

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "course": {
+    "title": "Final Compilation Test Course",
+    "description": "This is the ultimate test of our fixes!",
+    "difficulty": "Beginner",
+    "estimatedHours": 4,
+    "skills": [
+      "test",
+      "full-pipeline"
+    ],
+    "category": "Programming",
+    "modules": [
+      {
+        "id": "module-01",
+        "title": "Test Module 1",
+        "description": "Module Description",
+        "lessons": [
+          {
+            "id": "lesson-01",
+            "title": "Lesson 1: The Basics",
+            "durationMinutes": 45,
+            "overview": "Welcome to Lesson 1: The Basics.",
+            "objectives": [
+              "Learn what a variable is",
+              "Understand basic data types",
+              "Write your first function"
+            ],
+            "topics": [
+              {
+                "id": "topics",
+                "title": "Core Content",
+                "body": "Variables are the building blocks of programming."
+              },
+              {
+                "id": "analogy",
+                "title": "Real-World Analogy",
+                "body": "Think of variables like containers that hold things."
+              },
+              {
+                "id": "concepts",
+                "title": "Concept Explanation",
+                "body": "1. Variables store data.\n2. Data types tell the program what kind of data it is."
+              },
+              {
+                "id": "common-mistakes",
+                "title": "Common Mistakes",
+                "body": "1. Forgetting to declare variables\n2. Using the wrong data type"
+              },
+              {
+                "id": "best-practices",
+                "title": "Best Practices",
+                "body": "1. Use descriptive variable names\n2. Comment your code"
+              },
+              {
+                "id": "industry-notes",
+                "title": "Industry Notes",
+                "body": "Professional developers follow these practices every day."
+              },
+              {
+                "id": "key-takeaways",
+                "title": "Key Takeaways",
+                "body": "1. Variables are containers\n2. Data types matter"
+              },
+              {
+                "id": "examples",
+                "title": "Examples",
+                "body": "Example 1: Variables in action\nExample 2: Working with data types"
+              },
+              {
+                "id": "summary",
+                "title": "Summary",
+                "body": "You've learned the basics of variables and data types!"
+              }
+            ],
+            "videos": [],
+            "checkpointMessage": "Excellent work completing Lesson 1: The Basics!"
+          }
+        ]
+      }
+    ]
+  }
+}

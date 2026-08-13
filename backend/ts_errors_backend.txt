@@ -1,0 +1,2 @@
+﻿src/ws/yjsServer.ts(3,41): error TS7016: Could not find a declaration file for module 'y-websocket/bin/utils'. 'C:/Users/texta/OneDrive/Desktop/Learning Website/node_modules/y-websocket/bin/utils.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/y-websocket` if it exists or add a new declaration (.d.ts) file containing `declare module 'y-websocket/bin/utils';`

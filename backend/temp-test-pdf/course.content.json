@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "course": {
+    "title": "Final Compilation Test",
+    "description": "This course exists solely to prove compilation works.",
+    "difficulty": "Beginner",
+    "estimatedHours": 4,
+    "skills": [
+      "final-test"
+    ],
+    "category": "Programming",
+    "modules": [
+      {
+        "id": "module-01",
+        "title": "Test Module",
+        "description": "Module for testing",
+        "lessons": [
+          {
+            "id": "lesson-01",
+            "title": "Lesson 1",
+            "durationMinutes": 45,
+            "overview": "Welcome to Lesson 1.",
+            "objectives": [
+              "Pass compilation",
+              "Prove the system works",
+              "Generate a PDF"
+            ],
+            "topics": [
+              {
+                "id": "topics",
+                "title": "Core Content",
+                "body": "The compilation process works when all paths are correct."
+              },
+              {
+                "id": "analogy",
+                "title": "Real-World Analogy",
+                "body": "This is like testing a new car before selling it."
+              },
+              {
+                "id": "concepts",
+                "title": "Concept Explanation",
+                "body": "1. All files must exist\n2. Paths must be relative\n3. Content must be valid"
+              },
+              {
+                "id": "common-mistakes",
+                "title": "Common Mistakes",
+                "body": "1. Using absolute paths\n2. Missing files"
+              },
+              {
+                "id": "best-practices",
+                "title": "Best Practices",
+                "body": "1. Use relative paths\n2. Test compilation often"
+              },
+              {
+                "id": "industry-notes",
+                "title": "Industry Notes",
+                "body": "All professional LaTeX projects use relative paths."
+              },
+              {
+                "id": "key-takeaways",
+                "title": "Key Takeaways",
+                "body": "1. Relative paths are crucial"
+              },
+              {
+                "id": "examples",
+                "title": "Examples",
+                "body": "Example 1: Working paths\nExample 2: Missing file paths"
+              },
+              {
+                "id": "summary",
+                "title": "Summary",
+                "body": "We fixed all issues and now compilation will work!"
+              }
+            ],
+            "videos": [],
+            "checkpointMessage": "Excellent work completing Lesson 1!"
+          }
+        ]
+      }
+    ]
+  }
+}

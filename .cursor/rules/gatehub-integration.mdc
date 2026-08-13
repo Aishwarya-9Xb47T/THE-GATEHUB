@@ -1,0 +1,46 @@
+---
+description: THE GATEHUB unified platform — reuse existing systems, zero regressions, full integration for every new feature
+alwaysApply: true
+---
+
+# THE GATEHUB — Global Stability & Integration
+
+Treat THE GATEHUB as **one application**, not isolated pages.
+
+## Before building anything new
+
+1. Search the codebase for similar features (player, editor, publish, preview, quiz, PDF, video, cards, forms).
+2. **Reuse** existing components, hooks, services, APIs, layouts, and utilities.
+3. **Extend** shared logic — never duplicate business rules.
+4. Verify the change does not regress auth, routing, refresh, back/forward, dashboards, player, payments, progress, or permissions.
+
+## Single sources of truth (prefer these)
+
+| Concern | Use |
+|--------|-----|
+| Course player (student + instructor preview) | `CoursePlayerPage` + `buildInstructorCoursePreviewPath` |
+| Uploaded video | `VideoPlayer` → `UploadedVideoPlayer` + `courseMediaUrls` |
+| Notes PDF | `CoursePdfViewer` + `/api/lectures/:id/notes-pdf` |
+| Media URLs | `resolveCourseMediaUrl`, `resolveLectureVideoUrl` |
+| Preview return navigation | `instructorPreview.ts` |
+| Cache after curriculum/notes/quiz edits | `invalidateCourseContentCaches()` |
+
+## New content must work end-to-end
+
+When instructors create or update courses, sections, lectures (video / notes / quiz / file), or captions:
+
+- **Student view** and **instructor preview** must use the same player and APIs.
+- Invalidate `course-learn` + `sections` caches after saves (via `invalidateCourseContentCaches`).
+- Notes require `compiledPdfUrl` (compile + attach) before PDF shows in player.
+- Upload videos need `videoType: "upload"` and relative `/uploads/...` URLs.
+- Do not add parallel renderers (e.g. separate preview components) unless extending the shared one.
+
+## UI / responsive
+
+- No fixed widths that break mobile or ultrawide.
+- Match existing typography, spacing, cards, buttons, and theme.
+- Immersive content (video, notes) uses full viewport; sidebar toggles via shared pattern.
+
+## Definition of done
+
+Complete only when: existing features still work, new content appears in preview and student view without manual refresh tricks, no console/TS errors, and behavior matches the rest of the platform.

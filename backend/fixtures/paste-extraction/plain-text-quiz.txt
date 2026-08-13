@@ -1,0 +1,23 @@
+Question 1:
+What is the capital of France?
+
+A. Paris
+B. London
+C. Berlin
+D. Rome
+
+Correct Answer: A
+Marks: 2
+Difficulty: Easy
+
+Question 2:
+Which planet is known as the Red Planet?
+
+A. Earth
+B. Mars
+C. Jupiter
+D. Venus
+
+Correct Answer: B
+Marks: 2
+Difficulty: Easy

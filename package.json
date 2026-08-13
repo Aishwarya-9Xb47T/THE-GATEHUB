@@ -1,0 +1,35 @@
+{
+  "name": "lms-platform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "World-class Learning Management System",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "docker:up": "docker-compose -f docker-compose.dev.yml up -d postgres redis minio latex_engine",
+    "docker:down": "docker-compose -f docker-compose.dev.yml down",
+    "docker:prod:build": "docker compose -f docker-compose.production.yml build",
+    "docker:prod:up": "docker compose -f docker-compose.production.yml up -d",
+    "docker:prod:down": "docker compose -f docker-compose.production.yml down",
+    "backup:db": "bash scripts/ops/backup-database.sh",
+    "backup:uploads": "bash scripts/ops/backup-uploads.sh",
+    "backup:validate": "bash scripts/ops/validate-backup.sh",
+    "regression": "npm run pipeline:guard --workspace=backend && npm run test --workspace=frontend",
+    "wait:db": "node -e \"setTimeout(() => process.exit(0), 5000)\"",
+    "dev": "npm run docker:up && npm run wait:db && concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:backend": "npm run dev --workspace=backend",
+    "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
+    "seed": "npm run db:seed --workspace=backend",
+    "install:all": "npm install && npm install --workspace=frontend && npm install --workspace=backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "react-markdown": "^10.1.0",
+    "y-websocket": "^1.5.0"
+  }
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cmqnkt1fn000qwyp5t1famfpu",
+    "title": "TensorFlow Documentation",
+    "type": "website",
+    "url": "https://tensorflow.org",
+    "lessonId": "cmqnkt1fm000owyp5gxqmbp22"
+  },
+  {
+    "id": "cmqnkt1fn000rwyp5mxabfzv8",
+    "title": "PyTorch Documentation",
+    "type": "website",
+    "url": "https://pytorch.org",
+    "lessonId": "cmqnkt1fm000owyp5gxqmbp22"
+  },
+  {
+    "id": "cmqnkt1fn000swyp52l09d0n4",
+    "title": "Hugging Face",
+    "type": "website",
+    "url": "https://huggingface.co",
+    "lessonId": "cmqnkt1fm000owyp5gxqmbp22"
+  },
+  {
+    "id": "cmqnkt1fn000twyp5dqhsuzxq",
+    "title": "Deep Learning Cheat Sheet",
+    "type": "download",
+    "url": "https://example.com/deep-learning-cheatsheet.pdf",
+    "lessonId": "cmqnkt1fm000owyp5gxqmbp22"
+  }
+]

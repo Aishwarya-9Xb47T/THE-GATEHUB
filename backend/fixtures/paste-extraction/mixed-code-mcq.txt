@@ -1,0 +1,28 @@
+Question 1:
+What does this code print?
+
+```python
+def add(a, b):
+    return a + b
+
+print(add(2, 3))
+```
+
+A. 2
+B. 3
+C. 5
+D. 6
+
+Correct Answer: C
+Marks: 2
+
+Question 2:
+Select the correct option for a constant in JS.
+
+A. `var x = 10;`
+B. `let x = 10;`
+C. `const x = 10;`
+D. `static x = 10;`
+
+Correct Answer: C
+Marks: 2

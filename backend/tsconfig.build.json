@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noCheck": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/scripts/**/*",
+    "src/tests/**/*",
+    "src/**/__tests__/**/*",
+    "src/assessment-platform/scripts/**/*",
+    "src/find-error-file.ts",
+    "src/compile-user-project.ts",
+    "src/inspect-target-project.ts",
+    "scripts/**/*",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}

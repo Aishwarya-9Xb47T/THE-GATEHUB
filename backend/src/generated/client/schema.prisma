@@ -1,0 +1,382 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String              @id @default(cuid())
+  email               String              @unique
+  passwordHash        String              @map("password_hash")
+  firstName           String              @map("first_name")
+  lastName            String              @map("last_name")
+  avatar              String?
+  profileImage        String?             @map("profile_image")
+  role                String              @default("student")
+  suspended           Boolean             @default(false)
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+  certificates        Certificate[]
+  coursesCreated      Course[]            @relation("InstructorCourses")
+  enrollments         Enrollment[]
+  latexCollaborations LatexCollaborator[]
+  latexProjects       LatexProject[]      @relation("ProjectOwner")
+  payments            Payment[]
+  quizAttempts        QuizAttempt[]
+  notes               StudentNote[]
+  wishlist            WishlistItem[]
+  reviews             Review[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  image       String?
+  groupName   String?  @map("group_name") // e.g., "Computer Science", "Development"
+  icon        String? // Lucide icon name or emoji
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  courses     Course[]
+
+  @@index([slug])
+  @@index([groupName])
+}
+
+model Course {
+  id            String         @id @default(cuid())
+  title         String
+  subtitle      String?
+  description   String?
+  price         Float          @default(0)
+  thumbnail     String?
+  difficulty    String?
+  language      String         @default("en")
+  status        String         @default("draft")
+  averageRating Float          @default(0) @map("average_rating")
+  reviewCount   Int            @default(0) @map("review_count")
+  publishedAt   DateTime?      @map("published_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  instructorId  String         @map("instructor_id")
+  categoryId    String?        @map("category_id")
+  aiLandingData String?        @map("ai_landing_data")
+  certificates  Certificate[]
+  category      Category?      @relation(fields: [categoryId], references: [id])
+  instructor    User           @relation("InstructorCourses", fields: [instructorId], references: [id], onDelete: Cascade)
+  enrollments   Enrollment[]
+  payments      Payment[]
+  sections      Section[]
+  wishlist      WishlistItem[]
+  reviews       Review[]
+
+  @@index([instructorId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  amount        Float
+  currency      String   @default("USD")
+  status        String   @default("pending")
+  transactionId String?  @unique @map("transaction_id")
+  userId        String   @map("user_id")
+  courseId      String   @map("course_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([transactionId])
+}
+
+model Certificate {
+  id            String   @id @default(cuid())
+  certificateId String   @unique @map("certificate_id")
+  userId        String   @map("user_id")
+  courseId      String   @map("course_id")
+  issuedAt      DateTime @default(now()) @map("issued_at")
+  url           String?
+  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+  @@index([certificateId])
+}
+
+model Section {
+  id        String    @id @default(cuid())
+  title     String
+  order     Int       @default(0)
+  courseId  String    @map("course_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  lectures  Lecture[]
+  course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([courseId, order])
+}
+
+model Lecture {
+  id           String            @id @default(cuid())
+  title        String
+  type         String            @default("video")
+  content      String?
+  videoUrl     String?           @map("video_url")
+  duration     Int?
+  order        Int               @default(0)
+  sectionId    String            @map("section_id")
+  quizId       String?           @map("quiz_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  attachments  Attachment[]
+  latexProject LatexProject?
+  quiz         Quiz?             @relation(fields: [quizId], references: [id])
+  section      Section           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  progress     LectureProgress[]
+  notes        StudentNote[]
+
+  @@index([sectionId])
+  @@index([sectionId, order])
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  type      String
+  size      Int?
+  lectureId String   @map("lecture_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  lecture   Lecture  @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+
+  @@index([lectureId])
+}
+
+model Quiz {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  totalMarks  Int           @default(0) @map("total_marks")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  lectures    Lecture[]
+  questions   Question[]
+  attempts    QuizAttempt[]
+
+  @@index([id])
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  text        String
+  type        String
+  marks       Int      @default(1)
+  order       Int      @default(0)
+  explanation String?
+  quizId      String   @map("quiz_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  options     Option[]
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+  @@index([quizId, order])
+}
+
+model Option {
+  id         String   @id @default(cuid())
+  text       String
+  isCorrect  Boolean  @default(false) @map("is_correct")
+  order      Int      @default(0)
+  questionId String   @map("question_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+model QuizAttempt {
+  id         String   @id @default(cuid())
+  score      Float
+  totalMarks Int      @map("total_marks")
+  answers    String
+  userId     String   @map("user_id")
+  quizId     String   @map("quiz_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  quiz       Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quizId])
+  @@index([userId, quizId])
+}
+
+model Enrollment {
+  id          String          @id @default(cuid())
+  userId      String          @map("user_id")
+  courseId    String          @map("course_id")
+  enrolledAt  DateTime        @default(now()) @map("enrolled_at")
+  completedAt DateTime?       @map("completed_at")
+  progress    CourseProgress?
+  course      Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+}
+
+model CourseProgress {
+  id              String            @id @default(cuid())
+  enrollmentId    String            @unique @map("enrollment_id")
+  percent         Int               @default(0)
+  lastAccessed    DateTime?         @map("last_accessed")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  enrollment      Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lectureProgress LectureProgress[]
+
+  @@index([enrollmentId])
+}
+
+model LectureProgress {
+  id               String         @id @default(cuid())
+  completed        Boolean        @default(false)
+  completedAt      DateTime?      @map("completed_at")
+  progressPercent  Int            @default(0) @map("progress_percent")
+  courseProgressId String         @map("course_progress_id")
+  lectureId        String         @map("lecture_id")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  courseProgress   CourseProgress @relation(fields: [courseProgressId], references: [id], onDelete: Cascade)
+  lecture          Lecture        @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+
+  @@unique([courseProgressId, lectureId])
+  @@index([courseProgressId])
+  @@index([lectureId])
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  rating     Int
+  reviewText String?  @map("review_text")
+  studentId  String   @map("student_id")
+  courseId   String   @map("course_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  hidden     Boolean  @default(false)
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+  @@index([courseId])
+  @@index([studentId])
+  @@map("course_reviews")
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  courseId  String   @map("course_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+}
+
+model StudentNote {
+  id        String   @id @default(cuid())
+  content   String
+  userId    String   @map("user_id")
+  lectureId String   @map("lecture_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  lecture   Lecture  @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lectureId])
+  @@index([userId])
+  @@index([lectureId])
+}
+
+model LatexProject {
+  id            String              @id @default(cuid())
+  title         String
+  ownerId       String              @map("owner_id")
+  lectureId     String?             @unique @map("lecture_id")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+  collaborators LatexCollaborator[]
+  files         LatexFile[]
+  lecture       Lecture?            @relation(fields: [lectureId], references: [id])
+  owner         User                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+}
+
+model LatexFile {
+  id        String       @id @default(cuid())
+  projectId String       @map("project_id")
+  name      String
+  path      String
+  isFolder  Boolean      @default(false) @map("is_folder")
+  content   String?
+  s3Url     String?      @map("s3_url")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  project   LatexProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, path])
+  @@index([projectId])
+}
+
+model LatexCollaborator {
+  id        String       @id @default(cuid())
+  projectId String       @map("project_id")
+  userId    String       @map("user_id")
+  role      String       @default("editor")
+  createdAt DateTime     @default(now()) @map("created_at")
+  project   LatexProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+model YjsUpdate {
+  id        String   @id @default(cuid())
+  docName   String   @map("doc_name")
+  update    Bytes
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([docName])
+  @@index([createdAt])
+}
+
+model YjsSnapshot {
+  id        String   @id @default(cuid())
+  docName   String   @map("doc_name")
+  state     Bytes
+  version   Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([docName, version])
+}

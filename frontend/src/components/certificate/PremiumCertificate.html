@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GATEHUB Professional Certificate</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Montserrat:wght@300;400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy: #0a1d37;
+            --gold-light: #f9e29c;
+            --gold-mid: #d4af37;
+            --gold-dark: #af8b2d;
+            --paper: #fdfdfd;
+        }
+
+        @media print {
+            body { margin: 0; padding: 0; }
+            .certificate-container { 
+                box-shadow: none !important; 
+                margin: 0 !important;
+                border: none !important;
+            }
+        }
+
+        body {
+            background-color: #e5e7eb;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        /* A4 Landscape Dimensions */
+        .certificate-container {
+            width: 297mm;
+            height: 210mm;
+            background-color: var(--paper);
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            border: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            padding: 40px;
+            box-sizing: border-box;
+        }
+
+        /* Subtle Paper Texture */
+        .certificate-container::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("https://www.transparenttextures.com/patterns/natural-paper.png");
+            opacity: 0.4;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Watermark Adjusted: Scaled to fit inside golden borders */
+        .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-30deg);
+            font-size: 90px;
+            font-weight: 900;
+            color: rgba(10, 29, 55, 0.04);
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 2;
+            user-select: none;
+            text-transform: uppercase;
+            font-family: 'Montserrat', sans-serif;
+            letter-spacing: 15px;
+        }
+
+        /* Gold Border System */
+        .border-outer {
+            position: absolute;
+            top: 20px; left: 20px; right: 20px; bottom: 20px;
+            border: 2px solid var(--gold-mid);
+            z-index: 5;
+        }
+
+        .border-inner {
+            position: absolute;
+            top: 35px; left: 35px; right: 35px; bottom: 35px;
+            border: 8px double var(--gold-dark);
+            z-index: 5;
+        }
+
+        /* Decorative Corners */
+        .corner {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            z-index: 10;
+        }
+        .corner-tl { top: 15px; left: 15px; }
+        .corner-tr { top: 15px; right: 15px; transform: rotate(90deg); }
+        .corner-bl { bottom: 15px; left: 15px; transform: rotate(-90deg); }
+        .corner-br { bottom: 15px; right: 15px; transform: rotate(180deg); }
+
+        .gold-text {
+            background: linear-gradient(to right, #af8b2d 0%, #d4af37 50%, #f9e29c 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .navy-bg { background-color: var(--navy); }
+        .gold-bg { background: linear-gradient(135deg, var(--gold-dark), var(--gold-light), var(--gold-dark)); }
+
+        .serif { font-family: 'Playfair Display', serif; }
+        .script { font-family: 'Great Vibes', cursive; }
+
+        .divider-flourish {
+            width: 300px;
+            height: 2px;
+            background: linear-gradient(to right, transparent, var(--gold-mid), transparent);
+            margin: 15px auto;
+            position: relative;
+        }
+        .divider-flourish::after {
+            content: "◆";
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--gold-mid);
+            background: var(--paper);
+            padding: 0 10px;
+            font-size: 14px;
+        }
+
+        .seal-ribbon {
+            position: absolute;
+            width: 35px;
+            height: 80px;
+            background: #991b1b;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 85%, 0 100%);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="certificate-container">
+        <!-- Watermark -->
+        <div class="watermark">THE GATEHUB</div>
+
+        <!-- Decorative Borders -->
+        <div class="border-outer"></div>
+        <div class="border-inner"></div>
+
+        <!-- Decorative Corners (SVG) -->
+        <svg class="corner corner-tl" viewBox="0 0 100 100">
+            <path d="M0 0 L100 0 L100 10 L10 10 L10 100 L0 100 Z" fill="#af8b2d"/>
+            <path d="M20 20 L80 20 L80 25 L25 25 L25 80 L20 80 Z" fill="#d4af37"/>
+        </svg>
+        <svg class="corner corner-tr" viewBox="0 0 100 100">
+            <path d="M0 0 L100 0 L100 10 L10 10 L10 100 L0 100 Z" fill="#af8b2d"/>
+            <path d="M20 20 L80 20 L80 25 L25 25 L25 80 L20 80 Z" fill="#d4af37"/>
+        </svg>
+        <svg class="corner corner-bl" viewBox="0 0 100 100">
+            <path d="M0 0 L100 0 L100 10 L10 10 L10 100 L0 100 Z" fill="#af8b2d"/>
+            <path d="M20 20 L80 20 L80 25 L25 25 L25 80 L20 80 Z" fill="#d4af37"/>
+        </svg>
+        <svg class="corner corner-br" viewBox="0 0 100 100">
+            <path d="M0 0 L100 0 L100 10 L10 10 L10 100 L0 100 Z" fill="#af8b2d"/>
+            <path d="M20 20 L80 20 L80 25 L25 25 L25 80 L20 80 Z" fill="#d4af37"/>
+        </svg>
+
+        <!-- Header Section -->
+        <div class="relative z-10 flex flex-col items-center mt-8">
+            <div class="navy-bg px-10 py-3 rounded-sm border-2 border-[#d4af37] shadow-xl flex items-center gap-4">
+                <img src="/logo.png" alt="THE GATEHUB Logo" class="w-12 h-12 object-contain">
+                <div class="text-center">
+                    <h1 class="text-white font-bold text-2xl tracking-[0.2em]">THE GATEHUB</h1>
+                    <p class="text-[#d4af37] text-[10px] tracking-[0.4em] uppercase font-semibold">Learn • Grow • Excel</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Title -->
+        <div class="relative z-10 flex flex-col items-center mt-6">
+            <h2 class="serif text-5xl font-bold tracking-wider text-[#0a1d37]">CERTIFICATE</h2>
+            <h3 class="serif text-2xl tracking-[0.3em] text-[#af8b2d] mt-1 italic">OF COMPLETION</h3>
+            <div class="w-64 h-[2px] bg-gradient-to-r from-transparent via-[#d4af37] to-transparent mt-3"></div>
+        </div>
+
+        <!-- Recipient Section -->
+        <div class="relative z-10 flex flex-col items-center mt-6 text-center">
+            <p class="uppercase tracking-[0.2em] text-[10px] text-slate-500 font-semibold">This is to certify that</p>
+            <h4 class="script text-7xl text-[#0a1d37] my-3 px-12">N S Komala</h4>
+            <div class="divider-flourish"></div>
+        </div>
+
+        <!-- Course Details -->
+        <div class="relative z-10 flex flex-col items-center mt-3 text-center">
+            <p class="text-slate-600 italic text-[13px]">has successfully completed the course</p>
+            <h5 class="gold-text text-3xl font-bold tracking-widest mt-2 uppercase">OPERATING SYSTEM</h5>
+            <p class="text-slate-500 text-xs mt-3 max-w-2xl leading-relaxed">
+                Demonstrating exceptional proficiency in system architecture, process management, memory optimization, and file systems through rigorous academic evaluation and practical training.
+            </p>
+        </div>
+
+        <!-- Footer Section (Balanced and clear of borders) -->
+        <div class="relative z-10 mt-auto mb-48 w-full px-24">
+            
+            <div class="flex justify-between items-end w-full">
+                <!-- Instructor Details (Left) -->
+                <div class="flex flex-col items-center flex-1">
+                    <p class="text-[#0a1d37] font-bold text-sm tracking-wide">N S Aishwarya</p>
+                    <div class="w-48 h-[1px] bg-gradient-to-r from-transparent via-[#af8b2d] to-transparent mt-1"></div>
+                    <p class="text-[9px] uppercase tracking-widest text-[#af8b2d] font-bold mt-2">Course Instructor</p>
+                </div>
+
+                <!-- Academic Seal & Date (Center) -->
+                <div class="flex flex-col items-center px-4">
+                    <div class="relative mb-2">
+                        <div class="seal-ribbon"></div>
+                        <div class="seal-ribbon" style="transform: translateX(-40%) rotate(15deg); opacity: 0.8;"></div>
+                        <div class="w-24 h-24 gold-bg rounded-full border-4 border-white shadow-lg flex items-center justify-center relative z-20">
+                            <div class="w-20 h-20 border-2 border-dashed border-white/50 rounded-full flex flex-col items-center justify-center text-center p-2">
+                                <span class="text-[8px] font-bold text-[#4c3b10] uppercase leading-tight">Completion<br>Achieved</span>
+                                <div class="w-full h-[1px] bg-[#4c3b10]/30 my-1"></div>
+                                <span class="text-[10px] font-bold text-[#4c3b10]">2026</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Date at Middle -->
+                    <p class="font-bold text-[#0a1d37] text-sm mt-4">26 April 2026</p>
+                    <p class="text-[8px] uppercase tracking-widest text-slate-400 font-bold">Date of Issue</p>
+                </div>
+
+                <!-- Founder Details (Right) -->
+                <div class="flex flex-col items-center flex-1">
+                    <p class="text-[#0a1d37] font-bold text-sm tracking-wide">Shoeb Ahmad</p>
+                    <div class="w-48 h-[1px] bg-gradient-to-r from-transparent via-[#af8b2d] to-transparent mt-1"></div>
+                    <p class="text-[9px] uppercase tracking-widest text-[#af8b2d] font-bold mt-2">Founder</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,337 @@
+/**
+ * THE GATEHUB V6 — Design Tokens (Primitives + Semantic)
+ * Implementation order: Tokens → Theme → Typography → Spacing → Grid →
+ * Elevation → Radius → Motion → Components
+ */
+
+@layer base {
+  :root {
+    /* ═══════════════════════════════════════
+       PRIMITIVES — theme-independent
+       ═══════════════════════════════════════ */
+
+    /* Spacing — 8pt grid only */
+    --space-0: 0;
+    --space-1: 0.25rem;   /* 4 */
+    --space-2: 0.5rem;    /* 8 */
+    --space-3: 0.75rem;   /* 12 */
+    --space-4: 1rem;      /* 16 */
+    --space-5: 1.25rem;   /* 20 */
+    --space-6: 1.5rem;    /* 24 */
+    --space-8: 2rem;      /* 32 */
+    --space-10: 2.5rem;   /* 40 */
+    --space-12: 3rem;     /* 48 */
+    --space-16: 4rem;     /* 64 */
+    --space-20: 5rem;     /* 80 */
+    --space-24: 6rem;     /* 96 */
+    --space-32: 8rem;     /* 128 */
+
+    /* Radius */
+    --radius-xs: 0.25rem;
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+    --radius-2xl: 1.25rem;
+    --radius-pill: 9999px;
+
+    /* Motion */
+    --duration-instant: 100ms;
+    --duration-fast: 150ms;
+    --duration-normal: 250ms;
+    --duration-slow: 400ms;
+    --duration-loading: 1200ms;
+    --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+    --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Grid widths */
+    --width-container: 80rem;
+    --width-section: 72rem;
+    --width-card: 24rem;
+    --width-panel: 20rem;
+    --width-dialog-sm: 24rem;
+    --width-dialog-md: 32rem;
+    --width-dialog-lg: 48rem;
+    --width-drawer: 24rem;
+    --width-editor: 90rem;
+    --width-dashboard: 96rem;
+    --width-landing: 112rem;
+    --width-player: 100%;
+    --reading-width: 72ch;
+    --reading-width-wide: 80ch;
+
+    /* Typography scale — fluid */
+    --type-display-xxl: clamp(3.25rem, 6vw, 5.5rem);
+    --type-display-xl: clamp(3rem, 5.5vw, 4.75rem);
+    --type-display-lg: clamp(2.25rem, 4vw, 3.5rem);
+    --type-h1: clamp(2rem, 3.5vw, 3.25rem);
+    --type-h2: clamp(1.625rem, 2.5vw, 2.5rem);
+    --type-h3: clamp(1.25rem, 1.5vw, 1.75rem);
+    --type-h4: clamp(1rem, 1vw, 1.25rem);
+    --type-h5: clamp(0.9375rem, 0.8vw, 1.0625rem);
+    --type-body-xl: 1.25rem;
+    --type-body-lg: 1.125rem;
+    --type-body-md: 1rem;
+    --type-body-sm: 0.875rem;
+    --type-caption: 0.75rem;
+    --type-label: 0.6875rem;
+
+    /* Font stacks */
+    --font-display: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+    --font-body: "Inter", "Plus Jakarta Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* ═══════════════════════════════════════
+       LIGHT THEME — semantic colors
+       Apple / Notion / Stripe inspired
+       ═══════════════════════════════════════ */
+
+    --theme-background: 210 25% 98%;
+    --theme-surface: 210 22% 96%;
+    --theme-surface-elevated: 0 0% 100%;
+    --theme-surface-secondary: 210 20% 94%;
+    --theme-sidebar: 210 22% 97%;
+    --theme-header: 210 25% 99%;
+    --theme-footer: 210 22% 96%;
+    --theme-card: 0 0% 100%;
+    --theme-card-hover: 210 20% 99%;
+    --theme-border: 214 22% 88%;
+    --theme-divider: 214 20% 91%;
+    --theme-text-primary: 222 47% 11%;
+    --theme-text-secondary: 215 18% 38%;
+    --theme-text-muted: 215 14% 50%;
+    --theme-accent: 42 65% 48%;
+    --theme-accent-fg: 0 0% 100%;
+    --theme-primary: 42 65% 48%;
+    --theme-primary-fg: 0 0% 100%;
+    --theme-secondary: 210 20% 94%;
+    --theme-secondary-fg: 215 18% 38%;
+    --theme-success: 142 64% 36%;
+    --theme-warning: 38 92% 50%;
+    --theme-error: 0 72% 51%;
+    --theme-info: 217 91% 53%;
+    --theme-selection: 42 65% 48% / 0.18;
+    --theme-focus-ring: 243 75% 59%;
+    --theme-hover: 210 20% 94%;
+    --theme-pressed: 210 18% 90%;
+    --theme-disabled: 215 16% 47% / 0.45;
+    --theme-skeleton: 210 18% 92%;
+    --theme-overlay: 222 47% 11% / 0.42;
+    --theme-code-bg: 210 20% 95%;
+    --theme-input-bg: 0 0% 100%;
+    --theme-input-border: 214 22% 86%;
+    --theme-table-header: 210 20% 96%;
+    --theme-table-row-hover: 210 22% 97%;
+    --theme-chart-1: 42 65% 48%;
+    --theme-chart-2: 217 91% 53%;
+    --theme-chart-3: 142 64% 36%;
+    --theme-chart-4: 252 75% 60%;
+    --theme-chart-5: 0 72% 51%;
+    --theme-syntax-keyword: 252 75% 55%;
+    --theme-syntax-string: 142 55% 32%;
+    --theme-syntax-number: 217 80% 45%;
+    --theme-syntax-comment: 215 14% 55%;
+    --theme-scrollbar-track: 210 20% 95%;
+    --theme-scrollbar-thumb: 215 16% 78%;
+
+    /* Semantic aliases (ds-*) */
+    --ds-background: var(--theme-background);
+    --ds-surface: var(--theme-surface);
+    --ds-surface-elevated: var(--theme-surface-elevated);
+    --ds-surface-secondary: var(--theme-surface-secondary);
+    --ds-sidebar: var(--theme-sidebar);
+    --ds-header: var(--theme-header);
+    --ds-footer: var(--theme-footer);
+    --ds-card: var(--theme-card);
+    --ds-card-hover: var(--theme-card-hover);
+    --ds-border: var(--theme-border);
+    --ds-divider: var(--theme-divider);
+    --ds-text-primary: var(--theme-text-primary);
+    --ds-text-secondary: var(--theme-text-secondary);
+    --ds-text-muted: var(--theme-text-muted);
+    --ds-accent: var(--theme-accent);
+    --ds-primary: var(--theme-primary);
+    --ds-primary-fg: var(--theme-primary-fg);
+    --ds-secondary: var(--theme-secondary);
+    --ds-success: var(--theme-success);
+    --ds-warning: var(--theme-warning);
+    --ds-error: var(--theme-error);
+    --ds-info: var(--theme-info);
+    --ds-success-bg: 142 64% 36% / 0.08;
+    --ds-success-border: 142 64% 36% / 0.24;
+    --ds-warning-bg: 38 92% 50% / 0.1;
+    --ds-warning-border: 38 92% 50% / 0.26;
+    --ds-error-bg: 0 72% 51% / 0.08;
+    --ds-error-border: 0 72% 51% / 0.24;
+    --ds-info-bg: 217 91% 53% / 0.08;
+    --ds-info-border: 217 91% 53% / 0.22;
+    --ds-definition: 252 75% 60%;
+    --ds-definition-bg: 252 75% 60% / 0.08;
+    --ds-definition-border: 252 75% 60% / 0.22;
+    --ds-example-bg: 210 20% 96% / 0.9;
+    --ds-example-border: 214 22% 86%;
+    --ds-selection: var(--theme-selection);
+    --ds-focus-ring: var(--theme-focus-ring);
+    --ds-hover: var(--theme-hover);
+    --ds-pressed: var(--theme-pressed);
+    --ds-disabled: var(--theme-disabled);
+    --ds-skeleton: var(--theme-skeleton);
+    --ds-overlay: var(--theme-overlay);
+    --ds-code-bg: var(--theme-code-bg);
+    --ds-input-bg: var(--theme-input-bg);
+    --ds-input-border: var(--theme-input-border);
+    --ds-table-header: var(--theme-table-header);
+    --ds-table-row-hover: var(--theme-table-row-hover);
+    --ds-scrollbar-track: var(--theme-scrollbar-track);
+    --ds-scrollbar-thumb: var(--theme-scrollbar-thumb);
+
+    /* Elevation — light */
+    --shadow-0: none;
+    --shadow-1: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 4px rgb(15 23 42 / 0.03);
+    --shadow-2: 0 2px 8px rgb(15 23 42 / 0.05), 0 1px 3px rgb(15 23 42 / 0.04);
+    --shadow-3: 0 8px 24px rgb(15 23 42 / 0.07), 0 2px 6px rgb(15 23 42 / 0.04);
+    --shadow-4: 0 16px 48px rgb(15 23 42 / 0.1), 0 4px 12px rgb(15 23 42 / 0.05);
+    --soft-shadow: var(--shadow-2);
+    --premium-shadow: var(--shadow-3);
+  }
+
+  .dark {
+    /* ═══════════════════════════════════════
+       DARK THEME — semantic colors
+       Linear / GitHub / Vercel inspired
+       ═══════════════════════════════════════ */
+
+    --theme-background: 220 15% 6%;
+    --theme-surface: 220 13% 9%;
+    --theme-surface-elevated: 220 13% 11%;
+    --theme-surface-secondary: 220 12% 13%;
+    --theme-sidebar: 220 14% 7%;
+    --theme-header: 220 14% 7%;
+    --theme-footer: 220 14% 7%;
+    --theme-card: 220 13% 10%;
+    --theme-card-hover: 220 13% 12%;
+    --theme-border: 220 11% 18%;
+    --theme-divider: 220 11% 16%;
+    --theme-text-primary: 220 25% 96%;
+    --theme-text-secondary: 220 14% 74%;
+    --theme-text-muted: 220 10% 56%;
+    --theme-accent: 45 66% 52%;
+    --theme-accent-fg: 220 15% 7%;
+    --theme-primary: 45 66% 52%;
+    --theme-primary-fg: 220 15% 7%;
+    --theme-secondary: 220 12% 14%;
+    --theme-secondary-fg: 220 14% 74%;
+    --theme-success: 142 60% 48%;
+    --theme-warning: 38 90% 56%;
+    --theme-error: 0 68% 58%;
+    --theme-info: 217 95% 68%;
+    --theme-selection: 45 66% 52% / 0.22;
+    --theme-focus-ring: 217 95% 68%;
+    --theme-hover: 220 12% 14%;
+    --theme-pressed: 220 11% 16%;
+    --theme-disabled: 220 14% 74% / 0.38;
+    --theme-skeleton: 220 12% 14%;
+    --theme-overlay: 0 0% 0% / 0.62;
+    --theme-code-bg: 220 14% 8%;
+    --theme-input-bg: 220 13% 9%;
+    --theme-input-border: 220 11% 20%;
+    --theme-table-header: 220 12% 12%;
+    --theme-table-row-hover: 220 12% 13%;
+    --theme-chart-1: 45 70% 58%;
+    --theme-chart-2: 217 95% 68%;
+    --theme-chart-3: 142 60% 52%;
+    --theme-chart-4: 252 85% 72%;
+    --theme-chart-5: 0 68% 62%;
+    --theme-syntax-keyword: 252 85% 75%;
+    --theme-syntax-string: 142 55% 58%;
+    --theme-syntax-number: 217 90% 72%;
+    --theme-syntax-comment: 220 10% 52%;
+    --theme-scrollbar-track: 220 14% 7%;
+    --theme-scrollbar-thumb: 220 10% 24%;
+
+    --ds-success-bg: 142 60% 48% / 0.12;
+    --ds-success-border: 142 60% 48% / 0.28;
+    --ds-warning-bg: 38 90% 56% / 0.12;
+    --ds-warning-border: 38 90% 56% / 0.28;
+    --ds-error-bg: 0 68% 58% / 0.12;
+    --ds-error-border: 0 68% 58% / 0.28;
+    --ds-info-bg: 217 95% 68% / 0.1;
+    --ds-info-border: 217 95% 68% / 0.26;
+    --ds-definition: 252 85% 72%;
+    --ds-definition-bg: 252 85% 72% / 0.1;
+    --ds-definition-border: 252 85% 72% / 0.26;
+    --ds-example-bg: 220 12% 13% / 0.9;
+    --ds-example-border: 220 11% 20%;
+
+    --shadow-1: 0 1px 2px rgb(0 0% 0% / 0.32), 0 2px 6px rgb(0 0% 0% / 0.22);
+    --shadow-2: 0 4px 14px rgb(0 0% 0% / 0.36), 0 1px 4px rgb(0 0% 0% / 0.28);
+    --shadow-3: 0 8px 28px rgb(0 0% 0% / 0.42), 0 2px 8px rgb(0 0% 0% / 0.32);
+    --shadow-4: 0 16px 48px rgb(0 0% 0% / 0.52), 0 4px 16px rgb(0 0% 0% / 0.38);
+    --soft-shadow: var(--shadow-2);
+    --premium-shadow: var(--shadow-3);
+  }
+
+  /* Bridge shadcn/ui variables to theme tokens */
+  :root,
+  .dark {
+    color-scheme: light dark;
+  }
+
+  :root {
+    --background: var(--theme-background);
+    --surface: var(--theme-surface);
+    --foreground: var(--theme-text-primary);
+    --card: var(--theme-card);
+    --card-foreground: var(--theme-text-primary);
+    --primary: var(--theme-primary);
+    --primary-foreground: var(--theme-primary-fg);
+    --secondary: var(--theme-secondary);
+    --secondary-foreground: var(--theme-secondary-fg);
+    --muted: var(--theme-surface-secondary);
+    --muted-foreground: var(--theme-text-muted);
+    --accent: var(--theme-hover);
+    --accent-foreground: var(--theme-text-primary);
+    --border: var(--theme-border);
+    --input: var(--theme-input-border);
+    --ring: var(--theme-focus-ring);
+    --text-primary: var(--theme-text-primary);
+    --text-secondary: var(--theme-text-secondary);
+    --text-muted: var(--theme-text-muted);
+    --radius: var(--radius-lg);
+  }
+
+  ::selection {
+    background: hsl(var(--ds-selection));
+    color: hsl(var(--ds-text-primary));
+  }
+
+  html {
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    background-color: hsl(var(--ds-background));
+    color: hsl(var(--ds-text-secondary));
+  }
+
+  body {
+    background-color: hsl(var(--ds-background));
+    color: hsl(var(--ds-text-secondary));
+  }
+
+  /* Scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--ds-scrollbar-thumb)) hsl(var(--ds-scrollbar-track));
+  }
+
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: hsl(var(--ds-scrollbar-track)); }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--ds-scrollbar-thumb));
+    border-radius: var(--radius-pill);
+  }
+  *::-webkit-scrollbar-thumb:hover { background: hsl(var(--ds-text-muted)); }
+}

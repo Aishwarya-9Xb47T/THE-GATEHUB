@@ -1,0 +1,107 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Custom Learning Universe Commands (Ignored by PDF Renderer)
+\newcommand{\learninguniverse}[1]{}
+\newcommand{\lesson}[1]{}
+\newcommand{\video}[1]{}
+\newcommand{\practice}[1]{}
+\newcommand{\quiz}[1]{}
+\newcommand{\project}[1]{}
+\newcommand{\resource}[1]{}
+
+\title{AI & Machine Learning Mastery}
+\author{Instructor Name}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% Learning Universe Metadata
+\learninguniverse{
+title={AI & Machine Learning Mastery},
+category={Artificial Intelligence},
+difficulty={Intermediate}
+}
+
+\tableofcontents
+
+\section{Introduction to Machine Learning}
+
+\lesson{
+title={Introduction to Machine Learning}
+}
+
+\subsection{What is Machine Learning?}
+Machine Learning is a subset of Artificial Intelligence that enables systems to learn and improve from experience without being explicitly programmed.
+
+\video{
+type={youtube},
+url={https://www.youtube.com/watch?v=HcqpanDadyQ}
+}
+
+\subsection{Your First ML Code}
+Let's write a simple Python program that demonstrates a basic ML concept!
+
+\practice{
+language={python},
+startercode={
+import numpy as np
+
+# Create a simple dataset
+X = np.array([1, 2, 3, 4, 5])
+y = np.array([2, 4, 6, 8, 10])
+
+# Print the data
+print("Features:", X)
+print("Labels:", y)
+},
+expectedoutput={
+Features: [1 2 3 4 5]
+Labels: [ 2  4  6  8 10]
+}
+}
+
+\section{Quiz Time}
+
+\quiz{
+question={What is Machine Learning?},
+optionA={Programming Language},
+optionB={System that learns from data},
+optionC={Database},
+optionD={Type of Hardware},
+correct={B},
+explanation={Machine Learning is a subset of AI that learns patterns from data without explicit programming.}
+}
+
+\section{Project: Build Your First Model}
+
+\project{
+title={Build First ML Model},
+colab={https://colab.research.google.com/drive/1abc123def456ghi789jkl},
+instructions={Follow the steps in the Colab notebook to build your first linear regression model!},
+resources={[
+{type=github, url=https://github.com/example/ml-project},
+{type=pdf, url=https://example.com/guide.pdf}
+]}
+}
+
+\section{Resources}
+
+\resource{
+type={pdf},
+title={Complete ML Guide},
+url={https://example.com/ml-guide.pdf}
+}
+
+\resource{
+type={github},
+title={Code Repository},
+url={https://github.com/example/ml-course}
+}
+
+\end{document}

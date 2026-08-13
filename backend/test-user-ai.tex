@@ -1,0 +1,156 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\newcommand{\learninguniverse}[1]{}
+\newcommand{\track}[1]{}
+\newcommand{\module}[1]{}
+\newcommand{\lesson}[1]{}
+\newcommand{\overview}[1]{}
+\newcommand{\overviewmarkdown}[1]{}
+\newcommand{\practice}[1]{}
+\newcommand{\quiz}[1]{}
+\newcommand{\checkpoint}[1]{}
+\newcommand{\discussion}[1]{}
+\newcommand{\resource}[1]{}
+\newcommand{\theory}[1]{}
+\newcommand{\note}[1]{}
+\newcommand{\tip}[1]{}
+\newcommand{\summary}[1]{}
+
+\title{Artificial Intelligence Notes}
+\author{GATEHUB}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\learninguniverse{
+title={Artificial Intelligence Notes},
+description={W3Schools-style AI notes},
+difficulty={Beginner to Intermediate},
+estimatedHours={25},
+skills={AI,Machine Learning,Python},
+category={Artificial Intelligence}
+}
+
+\track{
+title={Artificial Intelligence Foundations},
+description={Learn AI step by step},
+
+\module{
+title={Module 1: Introduction to AI},
+description={What AI is and how it is used},
+estimatedHours={5},
+
+\lesson{
+title={What is Artificial Intelligence?},
+\overviewmarkdown={AI is the simulation of human intelligence in machines.},
+\practice{
+language={python},
+startercode={
+num = 7
+if num % 2 == 0:
+    print("Even")
+else:
+    print("Odd")
+},
+expectedoutput={Odd}
+},
+\quiz{
+question={What is AI?},
+optionA={Robot},
+optionB={Simulation of human intelligence},
+optionC={Database},
+optionD={Language},
+correct={B},
+explanation={AI simulates human intelligence.}
+},
+\checkpoint{title={Lesson 1 complete}}
+}
+
+\lesson{
+title={Types of AI},
+\overviewmarkdown={Narrow AI is most common today.},
+\quiz{
+question={Most common AI type?},
+optionA={General AI},
+optionB={Super AI},
+optionC={Narrow AI},
+optionD={Self-Aware AI},
+correct={C},
+explanation={Narrow AI handles specific tasks.}
+},
+\checkpoint{title={Module 1 complete}}
+}
+}
+
+\module{
+title={Module 2: Machine Learning},
+description={How machines learn},
+estimatedHours={8},
+
+\lesson{
+title={What is Machine Learning?},
+\overviewmarkdown={ML learns from data. Accuracy = 92% in examples.},
+\practice{
+language={python},
+startercode={
+correct = 45
+total = 50
+print((correct / total) * 100)
+},
+expectedoutput={90.0}
+},
+\quiz{
+question={Uses labeled data?},
+optionA={Unsupervised},
+optionB={Supervised},
+optionC={None},
+optionD={Reinforcement only},
+correct={B},
+explanation={Supervised learning uses labels.}
+}
+}
+
+\lesson{
+title={Train and Test},
+\overviewmarkdown={Always test on unseen data.},
+\discussion{prompt={Why use a test set?}}
+}
+}
+
+\module{
+title={Module 3: Neural Networks},
+description={Deep learning basics},
+estimatedHours={6},
+
+\lesson{
+title={Neurons and Layers},
+\overviewmarkdown={Deep networks have many hidden layers.},
+\quiz{
+question={What makes a network deep?},
+optionA={Many hidden layers},
+optionB={GPU only},
+optionC={No output layer},
+optionD={One input},
+correct={A},
+explanation={Depth means many hidden layers.}
+},
+\summary{title={Course Summary},content={You learned AI and ML basics.}},
+\resource{type={website},title={Python Tutorial},url={https://docs.python.org/3/tutorial/}},
+\checkpoint{title={Course complete!}}
+}
+}
+
+}
+
+\end{document}

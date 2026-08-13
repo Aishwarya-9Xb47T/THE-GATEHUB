@@ -1,0 +1,17 @@
+Read the table then answer.
+
+| Metric | Value |
+| ------ | ----- |
+| CPU    | 80%   |
+| RAM    | 60%   |
+
+Question 1:
+Which metric is higher?
+
+A. CPU
+B. RAM
+C. Both equal
+D. Cannot say
+
+Correct Answer: A
+Marks: 2

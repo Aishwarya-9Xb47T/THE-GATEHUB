@@ -1,0 +1,15 @@
+Question 1:
+Which statement is valid JavaScript?
+
+```javascript
+const x = 10;
+console.log(x);
+```
+
+A. It declares a constant
+B. It declares a class
+C. It declares a package
+D. It declares a namespace
+
+Correct Answer: A
+Marks: 2

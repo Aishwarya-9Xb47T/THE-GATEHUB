@@ -1,0 +1,86 @@
+name: Pipeline Guard
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/services/luProject/**"
+      - "backend/src/services/learningExperience/**"
+      - "backend/src/services/latexPdfRenderer.ts"
+      - "backend/src/controllers/learning-universe*.ts"
+      - "backend/src/routes/learning-universe.ts"
+      - "shared/lesson-body/**"
+      - "frontend/src/components/learning/**"
+      - "frontend/src/learning-engine/**"
+      - "frontend/src/components/experience-studio/**"
+      - "frontend/src/components/visual-authoring/**"
+      - "backend/scripts/golden-pipeline-regression.ts"
+      - "backend/scripts/audit-compiler-macros.ts"
+      - "backend/scripts/audit-pipeline-fragments.ts"
+  push:
+    branches: [main, master]
+    paths:
+      - "backend/src/services/luProject/**"
+      - "shared/lesson-body/**"
+      - "backend/scripts/golden-pipeline-regression.ts"
+
+jobs:
+  pipeline-guard:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gatehub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gatehub_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Apply Prisma migrations
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Audit forbidden pipeline fragments
+        working-directory: backend
+        run: npm run audit:pipeline-fragments
+
+      - name: Pipeline guard suite
+        working-directory: backend
+        run: npm run pipeline:guard
+
+      - name: Macro validation audit
+        working-directory: backend
+        run: npm run audit:compiler-macros
+
+      - name: Golden pipeline regression
+        working-directory: backend
+        run: npm run test:golden-pipeline
+
+      - name: Compiled pipeline verification
+        working-directory: backend
+        run: npm run verify:compiled-pipeline

@@ -1,0 +1,290 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\title{Computer Networking Mastery}
+\author{THE GATEHUB}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\learninguniverse{
+title={Computer Networking Mastery},
+description={A complete course covering networking fundamentals, protocols, security, and hands-on projects.},
+difficulty={Intermediate},
+estimatedHours={40},
+skills={TCP/IP,DNS,HTTP,Routing,Security},
+category={Computer Science}
+}
+
+\track{
+title={Networking Foundations},
+description={Core concepts every network engineer must know},
+
+\module{
+title={Fundamentals},
+description={OSI, TCP/IP, and addressing},
+
+\lesson{title={Lesson 1: Introduction to Networking}}
+
+\overviewmarkdown={
+Welcome to Computer Networking Mastery. In this course you will learn how data travels across networks, from physical cables to application protocols.
+}
+
+\note{text={Networking connects devices so they can share resources and communicate.}}
+
+\theory{
+title={What is a Network?},
+body={A computer network is a group of interconnected devices that exchange data using agreed protocols. Networks range from small LANs to the global Internet.}
+}
+
+\keypoints{text={Nodes, Links, Protocols, Packets, Bandwidth}}
+
+\quiz{
+title={Intro Quiz},
+question={What does LAN stand for?},
+optionA={Large Area Network},
+optionB={Local Area Network},
+optionC={Linked Access Node},
+optionD={Layered Application Network},
+correct={B},
+explanation={LAN means Local Area Network — a network in a limited geographic area.}
+}
+
+\checkpoint{title={Lesson 1 complete}}
+
+\lesson{title={Lesson 2: The OSI Model}}
+
+\overview{text={This lesson introduces the seven-layer OSI model — the conceptual framework used to understand how network protocols interact.}}
+
+\theory{
+title={Seven Layers},
+body={The OSI model has 7 layers:
+1. Physical
+2. Data Link
+3. Network
+4. Transport
+5. Session
+6. Presentation
+7. Application}
+}
+
+\image{
+path={https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Osi_model.svg/640px-Osi_model.svg.png},
+caption={OSI Model diagram},
+alt={OSI seven layers}
+}
+
+\video{
+type={youtube},
+url={https://www.youtube.com/watch?v=vvzaS8wca4w},
+title={OSI Model Explained}
+}
+
+\practice{
+title={Identify the Layer},
+language={python},
+startercode={
+# Which OSI layer handles routing?
+layer = "Network"
+print(layer)
+},
+expectedoutput={Network}
+}
+
+\lesson{title={Lesson 3: TCP/IP Stack}}
+
+\theory{
+title={TCP vs UDP},
+body={TCP provides reliable, ordered delivery with error checking. UDP is faster but does not guarantee delivery — used for streaming and DNS queries.}
+}
+
+\codeexample{
+language={python},
+code={
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+print("TCP socket created")
+},
+output={TCP socket created}
+}
+
+\quiz{title={TCP/IP Quiz}}
+
+\question{text={Which protocol is connection-oriented?}, explanation={TCP establishes a connection before data transfer.}}
+\option{text={TCP}, iscorrect={true}}
+\option{text={UDP}, iscorrect={false}}
+\option{text={ICMP}, iscorrect={false}}
+\option{text={ARP}, iscorrect={false}}
+
+\question{text={What does IP stand for?}}
+\option{text={Internet Protocol}, iscorrect={true}}
+\option{text={Internal Process}, iscorrect={false}}
+
+}
+
+\module{
+title={Protocols and Applications},
+description={DNS, HTTP, and application-layer protocols},
+
+\lesson{title={Lesson 4: IP Addressing}}
+
+\tip{text={Remember: IPv4 uses 32 bits; IPv6 uses 128 bits.}}
+
+\practice{
+title={Subnet Practice},
+language={python},
+startercode={
+# How many hosts in a /24 network?
+hosts = 2**8 - 2
+print(hosts)
+},
+expectedoutput={254},
+solution={
+hosts = 2**8 - 2
+print(hosts)
+}
+}
+
+\quiz{
+question={How many bits in an IPv4 address?},
+optionA={16},
+optionB={32},
+optionC={64},
+optionD={128},
+correct={B},
+explanation={IPv4 addresses are 32 bits, written as four octets.}
+}
+
+\discussion{prompt={Why do we still use IPv4 if IPv6 exists?}}
+
+\lesson{title={Lesson 5: DNS and HTTP}}
+
+\theory{
+title={DNS Resolution},
+body={DNS translates human-readable domain names into IP addresses. A query goes: browser → resolver → root → TLD → authoritative server.}
+}
+
+\video{
+type={youtube},
+url={https://www.youtube.com/watch?v=uOfonONtIuk},
+title={How DNS Works}
+}
+
+\quiz{
+title={Web Protocols},
+question={Which port does HTTPS use by default?},
+optionA={80},
+optionB={443},
+optionC={8080},
+optionD={22},
+correct={B}
+}
+
+\resource{
+type={website},
+title={MDN HTTP Guide},
+url={https://developer.mozilla.org/en-US/docs/Web/HTTP}
+}
+
+\lesson{title={Lesson 6: Network Security}}
+
+\warning{text={Never expose admin panels to the public internet without authentication.}}
+
+\theory{
+title={Common Threats},
+body={Malware, phishing, DDoS, man-in-the-middle attacks, and SQL injection are common threats. Defense in depth uses firewalls, encryption, and access controls.}
+}
+
+\quiz{
+title={Security Quiz},
+question={Which are valid security practices? Select all that apply.},
+type={multiple},
+optionA={Use HTTPS},
+optionB={Share passwords in chat},
+optionC={Enable 2FA},
+optionD={Disable firewalls},
+correct={A,C},
+explanation={HTTPS and 2FA improve security. Never share passwords or disable firewalls.}
+}
+
+\checkpoint{title={Module 2 complete}}
+
+}
+
+\module{
+title={Projects and Certification},
+description={Capstone project and final assessment},
+
+\lesson{title={Lesson 7: Packet Analyzer Project}}
+
+\project{
+title={Build a Packet Logger},
+description={Create a simple network packet analyzer.},
+instructions={Use Python scapy or socket to capture and display packet headers. Submit your Colab notebook.},
+submissionType={colab}
+}
+
+\colab{url={https://colab.research.google.com/github/googlecolab/colabtools/blob/master/notebooks/Welcome_To_Colaboratory.ipynb}}
+
+\github{url={https://github.com/example/network-packet-logger}}
+
+\assignment{
+title={Written Report},
+instructions={Write a 2-page report explaining your packet analyzer design.},
+duedate={2026-12-31},
+points={100}
+}
+
+\lesson{title={Lesson 8: Network Troubleshooting}}
+
+\summary{text={You learned ping, traceroute, netstat, and Wireshark for diagnosing network issues.}}
+
+\practice{
+title={Ping Simulation},
+language={python},
+startercode={
+import subprocess
+result = "PING 8.8.8.8: OK"
+print(result)
+},
+expectedoutput={PING 8.8.8.8: OK}
+}
+
+\download{
+title={Troubleshooting Cheatsheet},
+url={https://example.com/network-cheatsheet.pdf}
+}
+
+\lesson{title={Lesson 9: Final Review}}
+
+\certificatecriteria{
+Complete all lessons, score 70% or higher on quizzes, and submit the capstone project to earn your certificate.
+}
+
+\finalexam{
+title={Computer Networking Final Exam},
+duration={60 minutes},
+description={Comprehensive assessment covering OSI, TCP/IP, DNS, HTTP, and security topics.}
+}
+
+\quiz{
+title={Final Exam Sample},
+question={Which layer of the OSI model does a router primarily operate at?},
+optionA={Physical},
+optionB={Data Link},
+optionC={Network},
+optionD={Application},
+correct={C},
+explanation={Routers operate at Layer 3 (Network), making routing decisions based on IP addresses.}
+}
+
+}
+
+}
+
+\end{document}

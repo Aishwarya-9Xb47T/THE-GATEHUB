@@ -1,0 +1,120 @@
+[
+  {
+    "importer": "Plain Text",
+    "status": "PASS",
+    "questionsExtracted": 3,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": false,
+    "notes": "Extracted 3 questions. Types: multiple_choice, true_false, short_answer"
+  },
+  {
+    "importer": "Markdown",
+    "status": "PASS",
+    "questionsExtracted": 4,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": false,
+    "notes": "Extracted 4 questions. Types: short_answer, multiple_choice, fill_blank, true_false"
+  },
+  {
+    "importer": "CSV",
+    "status": "PASS",
+    "questionsExtracted": 3,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": false,
+    "notes": "Extracted 3 questions from 3-row CSV"
+  },
+  {
+    "importer": "Moodle XML",
+    "status": "PASS",
+    "questionsExtracted": 3,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": false,
+    "notes": "Extracted 3 questions from real Moodle XML"
+  },
+  {
+    "importer": "HTML",
+    "status": "PASS",
+    "questionsExtracted": 5,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": false,
+    "notes": "Extracted 5 questions from HTML. Powerhouse Q found: true"
+  },
+  {
+    "importer": "DOCX",
+    "status": "SKIP",
+    "questionsExtracted": 0,
+    "previewGenerated": false,
+    "correctAnswersDetected": false,
+    "mediaPreserved": false,
+    "notes": "No test-sample.docx found in backend root. Skipping. To verify: place a real .docx quiz file at backend/test-sample.docx"
+  },
+  {
+    "importer": "PDF",
+    "status": "FAIL",
+    "questionsExtracted": 0,
+    "previewGenerated": false,
+    "correctAnswersDetected": false,
+    "mediaPreserved": false,
+    "notes": "",
+    "error": "TypeError: pdfParser.parsePDF is not a function"
+  },
+  {
+    "importer": "PPTX",
+    "status": "SKIP",
+    "questionsExtracted": 0,
+    "previewGenerated": false,
+    "correctAnswersDetected": false,
+    "mediaPreserved": false,
+    "notes": "No test-sample.pptx found. To verify: place a real .pptx quiz file at backend/test-sample.pptx"
+  },
+  {
+    "importer": "OCR Image",
+    "status": "PASS",
+    "questionsExtracted": 1,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": true,
+    "notes": "Heuristic on OCR text: 1 questions. Image URL attached to stem: true. (Note: real OCR requires OpenAI Vision API)"
+  },
+  {
+    "importer": "Google Docs",
+    "status": "SKIP",
+    "questionsExtracted": 0,
+    "previewGenerated": false,
+    "correctAnswersDetected": false,
+    "mediaPreserved": false,
+    "notes": "Document is private or requires Google auth (expected in dev)"
+  },
+  {
+    "importer": "Google Forms",
+    "status": "SKIP",
+    "questionsExtracted": 0,
+    "previewGenerated": false,
+    "correctAnswersDetected": false,
+    "mediaPreserved": false,
+    "notes": "Form requires Google auth (expected without OAuth token)"
+  },
+  {
+    "importer": "Website",
+    "status": "PASS",
+    "questionsExtracted": 4,
+    "previewGenerated": true,
+    "correctAnswersDetected": true,
+    "mediaPreserved": false,
+    "notes": "Website: 15093 chars extracted. Heuristic: 4 questions (prose page — questions not expected)"
+  },
+  {
+    "importer": "YouTube",
+    "status": "PASS",
+    "questionsExtracted": 2,
+    "previewGenerated": true,
+    "correctAnswersDetected": false,
+    "mediaPreserved": false,
+    "notes": "Transcript: 243 chars. Heuristic: 2 questions (transcript prose — questions not expected)."
+  }
+]

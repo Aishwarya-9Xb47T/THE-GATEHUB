@@ -1,0 +1,187 @@
+/**
+ * THE GATEHUB — Global fluid application layout
+ * Every page inherits viewport-filling workspace behavior (no fixed app containers).
+ */
+
+@layer base {
+  :root {
+    --app-sidebar-sm: 280px;
+    --app-sidebar-md: 300px;
+    --app-gutter: clamp(1rem, 2.5vw, 1.5rem);
+    --app-gutter-lg: clamp(1.25rem, 3vw, 2rem);
+    --app-gutter-xl: clamp(1.5rem, 4vw, 3rem);
+    --app-section-gap: clamp(1.5rem, 3vw, 2rem);
+    --app-prose-width: 75ch;
+    --app-form-width: min(100%, 48rem);
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100%;
+    overflow-x: clip;
+  }
+}
+
+@layer components {
+  /* ── Application shell ── */
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 100dvh;
+    min-width: 0;
+    overflow-x: clip;
+  }
+
+  .app-shell--immersive {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* ── Workspace: fills all horizontal space with responsive gutters only ── */
+  .app-workspace {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    margin-inline: 0;
+    padding-inline: var(--app-gutter);
+    box-sizing: border-box;
+  }
+
+  .app-workspace--lg {
+    padding-inline: var(--app-gutter-lg);
+  }
+
+  .app-workspace--xl {
+    padding-inline: var(--app-gutter-xl);
+  }
+
+  .app-workspace--section {
+    padding-block: var(--app-section-gap);
+  }
+
+  .app-workspace--bar {
+    padding-block: 0;
+  }
+
+  /* ── Sidebar + workspace grid (student learn, help, editors) ── */
+  .app-shell-grid {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell-grid--sidebar {
+    grid-template-columns: minmax(var(--app-sidebar-sm), var(--app-sidebar-md)) minmax(0, 1fr);
+  }
+
+  @media (min-width: 1280px) {
+    .app-shell-grid--sidebar {
+      grid-template-columns: var(--app-sidebar-md) minmax(0, 1fr);
+    }
+  }
+
+  .app-shell-grid__sidebar {
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-inline-end: 1px solid hsl(var(--border));
+    background: hsl(var(--muted) / 0.2);
+  }
+
+  .app-shell-grid__workspace {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: hsl(var(--background));
+  }
+
+  .app-shell-grid__scroll {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .app-shell-grid__footer {
+    flex-shrink: 0;
+  }
+
+  /* ── Responsive auto-fit grids (dashboards, catalogs, cards) ── */
+  .app-fluid-grid {
+    display: grid;
+    width: 100%;
+    gap: clamp(1rem, 2vw, 1.5rem);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+    align-items: stretch;
+  }
+
+  .app-fluid-grid--sm {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  }
+
+  .app-fluid-grid--md {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  }
+
+  .app-fluid-grid--lg {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  }
+
+  /* ── Readable text blocks only (not page shells) ── */
+  .app-prose-width {
+    max-width: var(--app-prose-width);
+  }
+
+  .app-form-width {
+    width: 100%;
+    max-width: var(--app-form-width);
+  }
+
+  .app-lead-width {
+    max-width: min(100%, 52rem);
+  }
+
+  /* Always-dark coding/project workspaces — readable text regardless of app light/dark theme */
+  .workspace-dark-surface {
+    color: #e6edf3;
+  }
+
+  .workspace-dark-surface :is(h1, h2, h3, h4, h5, h6, p, li, label, strong, em, td, th) {
+    color: inherit;
+  }
+
+  .workspace-dark-surface :is(input, textarea) {
+    color: #e6edf3 !important;
+    caret-color: #e6edf3;
+  }
+
+  .workspace-dark-surface :is(input, textarea)::placeholder {
+    color: #8b949e !important;
+  }
+
+  .workspace-dark-surface a {
+    color: #58a6ff;
+  }
+
+  .workspace-dark-surface .prose,
+  .workspace-dark-surface .prose :is(h1, h2, h3, h4, h5, h6, p, li, strong, em, code) {
+    color: #e6edf3 !important;
+  }
+
+  .workspace-dark-surface .prose a {
+    color: #58a6ff !important;
+  }
+}

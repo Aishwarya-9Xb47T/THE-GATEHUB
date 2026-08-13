@@ -1,0 +1,101 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% GATEHUB: command stubs are auto-injected on compile — no manual \newcommand needed.
+
+\title{Learning Universe Compile Sample}
+\author{THE GATEHUB}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\learninguniverse{
+title={Sample Course},
+description={Verifies all LMS commands compile without undefined control sequence errors.},
+difficulty={Beginner},
+estimatedHours={2},
+skills={Python,Quizzes},
+category={Computer Science}
+}
+
+\track{
+title={Track 1},
+description={First track},
+
+\module{
+title={Module 1},
+description={Intro module},
+
+\lesson{
+title={Lesson 1: Basics}
+}
+
+\overviewmarkdown={
+This lesson covers fundamentals. Use plain text here — no markdown hash headers.
+}
+
+\note{text={Remember to save your work.}}
+
+\theory{title={Core Idea}, body={Theory content goes here.}}
+
+\tip{text={Try the practice block before the quiz.}}
+
+\warning{text={Do not skip the checkpoint.}}
+
+\summary{text={You learned the basics of the DSL.}}
+
+\keypoints{text={Commands compile, Parser works, PDF generates}}
+
+\image{path={https://via.placeholder.com/400x200.png}, caption={Sample diagram}}
+
+\video{type={youtube}, url={https://www.youtube.com/watch?v=dQw4w9WgXcQ}, title={Intro Video}}
+
+\codeexample{language={python}, code={print("Hello")}, output={Hello}}
+
+\practice{
+title={Try It},
+language={python},
+startercode={
+print("Hello World")
+},
+expectedoutput={Hello World}
+}
+
+\quiz{
+title={Quick Check},
+question={What does 2 + 2 equal?},
+optionA={3},
+optionB={4},
+optionC={5},
+correct={B},
+explanation={Basic arithmetic.}
+}
+
+\discussion{prompt={What was the hardest part of this lesson?}}
+
+\resource{type={website}, title={Python Docs}, url={https://docs.python.org}}
+
+\checkpoint{title={Lesson 1 complete!}}
+
+\project{
+title={Mini Project},
+description={Build something small.},
+instructions={Follow the steps in the workspace.},
+colab={https://colab.research.google.com}
+}
+
+\assignment{
+title={Optional Assignment},
+instructions={Submit your notes as PDF.}
+}
+
+}
+}
+
+\end{document}

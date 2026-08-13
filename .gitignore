@@ -1,0 +1,161 @@
+# =========================================================
+# THE GATEHUB - Comprehensive Production .gitignore
+# =========================================================
+
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Production builds & Caches
+dist/
+build/
+.next/
+.cache/
+.turbo/
+.vite/
+.output/
+.nuxt/
+
+# Environment Variables (Never commit secrets)
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Logs & Temporary Files
+logs/
+*.log
+*.err
+*.out
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary & Cache Directories
+tmp/
+temp/
+latex-temp/
+coverage/
+.nyc_output/
+
+# OS & Editor Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Prisma Generated Client & DBs
+/backend/prisma/dev.db
+/backend/prisma/dev.db-journal
+/backend/prisma/generated/
+
+# Uploaded Files & User Media (Local Dev Only)
+/backend/uploads/*
+!/backend/uploads/.gitkeep
+/uploads/*
+!/uploads/.gitkeep
+/backend/uploads/import-artifacts/*
+!/backend/uploads/import-artifacts/.gitkeep
+
+# Temporary PDF, DOCX, and Scratch Test Files
+temp-pdf-*.pdf
+test-*.docx
+test-*.txt
+test-*.ts
+test-*.js
+trace-*.ts
+inspect-*.ts
+find-error-file.ts
+stage-dump.ts
+zip-inspect.ts
+build-errors.txt
+tsc-errors.txt
+cmd-output-*.txt
+verification-report.json
+forensic-report.json
+extraction-*-debug.*
+extraction-test-result.json
+
+# Local validation outputs / E2E artifacts (keep scripts; ignore dumps)
+backend/scripts/cleanup-results/
+backend/scripts/deployment-cleanup/*.json
+backend/scripts/p*-results/
+backend/scripts/fixture-results/
+backend/scripts/browser-*-e2e/
+backend/scripts/browser-paste-e2e/
+backend/scripts/**/*.png
+backend/scripts/**/results.json
+backend/data/architect-metrics/
+backend/src/generated/client/*.tmp*
+backend/src/generated/client/*.dll.node.tmp*
+
+# Local credential / one-off account scripts (never commit)
+backend/register-user.ts
+backend/diagnostic-user.ts
+backend/src/scripts/diagnose-puppeteer.ts
+
+# Forensic / local debug / generated audits
+backend/forensic-trace.ts
+backend/check-layout.mjs
+backend/dump-*.mjs
+backend/inspect-*.mjs
+backend/repair-presentation-geometry.mjs
+backend/slide-geometry-audit.*
+slide_renderer_diff.txt
+
+# One-off cleanup / debug / repro / backfill scripts (leave untracked)
+backend/scripts/cleanup-*.ts
+backend/scripts/debug-*.ts
+backend/scripts/debug-*.mjs
+backend/scripts/inspect-*.mjs
+backend/scripts/p3-debug-*.mjs
+backend/scripts/repro-*.ts
+backend/scripts/repro-*.mjs
+backend/scripts/backfill-*.ts
+backend/scripts/backfill-*.mjs
+backend/scripts/check-*.ts
+backend/scripts/check-*.js
+backend/scripts/check-*.mjs
+backend/scripts/count-gray-lines.mjs
+backend/scripts/enable-admin-registration.mjs
+backend/scripts/http-paste-e2e.mjs
+backend/scripts/http-paste-e2e-result.json
+backend/scripts/browser-paste-*.mjs
+backend/scripts/p5-find-object-object.mjs
+backend/scripts/p5-seed-rich-media.ts
+backend/scripts/p7-list-presentations.ts
+backend/scripts/test-*.mjs
+backend/scripts/verify-my-courses-card-data.mjs
+backend/scripts/deployment-cleanup/01-inventory.ts
+backend/scripts/deployment-cleanup/02-classify.ts
+backend/scripts/deployment-cleanup/03-execute.ts
+backend/scripts/deployment-cleanup/04-production-seed.ts
+backend/scripts/deployment-cleanup/05-integrity.ts
+backend/scripts/deployment-cleanup/06-auth-smoke.ts
+backend/scripts/deployment-cleanup/07-final-report.ts
+backend/scripts/deployment-cleanup/08-dashboard-content-clean.ts
+backend/scripts/deployment-cleanup/09-full-data-wipe.ts
+backend/scripts/deployment-cleanup/13-generate-schema-sync-migration.ts
+
+# Docker & Cloud Overrides
+docker-compose.override.yml

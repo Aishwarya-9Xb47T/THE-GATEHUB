@@ -1,0 +1,895 @@
+
+\learninguniverse{
+title={AI & Machine Learning Mastery}
+description={Comprehensive AI & ML course covering everything from foundations to deep learning!}
+difficulty={Beginner to Advanced}
+estimatedHours={80}
+skills={Python,Machine Learning,Deep Learning,NumPy,Pandas,Matplotlib,TensorFlow,PyTorch}
+}
+
+\track{
+title={Machine Learning Foundations}
+description={Build your core AI & ML knowledge!}
+learningoutcomes={Understand AI fundamentals, master ML basics}
+
+\module{
+title={Introduction to AI}
+description={Start your AI journey here!}
+estimatedHours={10}
+
+\lesson{
+title={What is AI}
+overviewmarkdown={
+# What is Artificial Intelligence
+
+Artificial Intelligence (AI) is the simulation of human intelligence in machines that are programmed to think like humans and mimic their actions.
+}
+}
+
+\lesson{
+title={Types of AI}
+}
+
+\lesson{
+title={Real World Applications}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=J4Q39xW3V8Y}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=O9v47V0B514}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=W6Z5Z5J5Z5J}
+}
+
+\practice{
+language={python}
+startercode={
+print("Hello AI 1")
+}
+expectedoutput={Hello AI 1}
+}
+\practice{
+language={python}
+startercode={
+print("Hello AI 2")
+}
+expectedoutput={Hello AI 2}
+}
+\practice{
+language={python}
+startercode={
+print("Hello AI 3")
+}
+expectedoutput={Hello AI 3}
+}
+
+\quiz{
+question={What is Artificial Intelligence?}
+optionA={Type of robot}
+optionB={Simulation of human intelligence in machines}
+optionC={Programming language}
+optionD={Database type}
+correct={B}
+}
+\quiz{
+question={Which is a type of AI?}
+optionA={Narrow AI}
+optionB={Wide AI}
+optionC={Long AI}
+optionD={Tall AI}
+correct={A}
+}
+\quiz{
+question={What does NLP stand for?}
+optionA={Natural Language Processing}
+optionB={Network Language Protocol}
+optionC={Neural Learning Program}
+optionD={New Learning Platform}
+correct={A}
+}
+
+\project{
+title={Chatbot}
+colab={https://colab.research.google.com/drive/1example}
+instructions={Build a chatbot}
+}
+\project{
+title={Image Recognition}
+colab={https://colab.research.google.com/drive/2example}
+instructions={Build an image recognizer}
+}
+\project{
+title={Sentiment Analysis}
+colab={https://colab.research.google.com/drive/3example}
+instructions={Build a sentiment analyzer}
+}
+
+\resource{
+type={website}
+title={NVIDIA AI Blog}
+url={https://blogs.nvidia.com}
+}
+\resource{
+type={github}
+title={Awesome AI}
+url={https://github.com/owainlewis/awesome-artificial-intelligence}
+}
+\resource{
+type={pdf}
+title={AI Foundations}
+url={https://example.com/ai-foundations.pdf}
+}
+}
+
+\module{
+title={Machine Learning Basics}
+description={Learn core ML concepts!}
+estimatedHours={12}
+
+\lesson{
+title={What is ML}
+}
+\lesson{
+title={Supervised Learning}
+}
+\lesson{
+title={Unsupervised Learning}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=ukzFI9rgwfU}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=Gv9_4yMHFhI}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=nKxmqSCGmek}
+}
+
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.linear_model import LinearRegression
+X = np.array([[1], [2], [3]])
+y = np.array([2, 4, 6])
+model = LinearRegression().fit(X, y)
+print("Predict 4:", model.predict([[4]]))
+}
+expectedoutput={Predict 4: [8.]}
+}
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.svm import SVC
+X = np.array([[1, 2], [3, 4], [5,6]])
+y = np.array([0,0,1])
+model = SVC().fit(X, y)
+print("Predict [1,1]:", model.predict([[1,1]]))
+}
+expectedoutput={Predict [1,1]: [0]}
+}
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.cluster import KMeans
+X = np.array([[1, 2], [3,4], [100,101], [102,103]])
+kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
+print(kmeans.labels_)
+}
+expectedoutput={[0 0 1 1]}
+}
+
+\quiz{
+question={What is Machine Learning?}
+optionA={Programming with explicit instructions}
+optionB={Learning from data}
+optionC={Type of computer}
+optionD={Type of internet}
+correct={B}
+}
+\quiz{
+question={Which uses labeled data?}
+optionA={Unsupervised}
+optionB={Supervised}
+optionC={Reinforcement}
+optionD={None}
+correct={B}
+}
+\quiz{
+question={Clustering uses?}
+optionA={Supervised}
+optionB={Unsupervised}
+optionC={Reinforcement}
+optionD={All}
+correct={B}
+}
+
+\project{
+title={Regression}
+colab={https://colab.research.google.com/drive/4example}
+instructions={Build regression model}
+}
+\project{
+title={Classification}
+colab={https://colab.research.google.com/drive/5example}
+instructions={Build classifier}
+}
+\project{
+title={Clustering}
+colab={https://colab.research.google.com/drive/6example}
+instructions={Build cluster model}
+}
+
+\resource{
+type={github}
+title={Awesome ML}
+url={https://github.com/josephmisiti/awesome-machine-learning}
+}
+\resource{
+type={website}
+title={ML Mastery}
+url={https://machinelearningmastery.com}
+}
+\resource{
+type={pdf}
+title={ML Textbook}
+url={https://example.com/ml-textbook.pdf}
+}
+}
+}
+
+\track{
+title={Data Science Essentials}
+description={Learn data science tools and preprocessing!}
+
+\module{
+title={Python for ML}
+description={Master NumPy, Pandas, and Matplotlib!}
+estimatedHours={15}
+
+\lesson{
+title={NumPy}
+}
+\lesson{
+title={Pandas}
+}
+\lesson{
+title={Matplotlib}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=8MfGp7Fm8}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=zgbHp65XnN4}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=3ZZzL5K-8}
+}
+
+\practice{
+language={python}
+startercode={
+import numpy as np
+arr = np.arange(10)
+print("NumPy:", arr)
+}
+expectedoutput={NumPy: [0 1 2 3 4 5 6 7 8 9]}
+}
+\practice{
+language={python}
+startercode={
+import pandas as pd
+df = pd.DataFrame({"x": [1,2,3], "y": [4,5,6]})
+print(df)
+}
+expectedoutput={   x  y
+0  1  4
+1  2  5
+2  3  6}
+}
+\practice{
+language={python}
+startercode={
+import matplotlib.pyplot as plt
+plt.plot([1,2,3], [1,4,9])
+plt.savefig("plot.png")
+print("Plot saved")
+}
+expectedoutput={Plot saved}
+}
+
+\quiz{
+question={NumPy is used for?}
+optionA={Web dev}
+optionB={Numerical computation}
+optionC={Game dev}
+optionD={Design}
+correct={B}
+}
+\quiz{
+question={Pandas is for?}
+optionA={Web scraping}
+optionB={Data frames}
+optionC={ML}
+optionD={Images}
+correct={B}
+}
+\quiz{
+question={Matplotlib plots?}
+optionA={Data}
+optionB={Videos}
+optionC={Sounds}
+optionD={Files}
+correct={A}
+}
+
+\project{
+title={NumPy Exercises}
+colab={https://colab.research.google.com/drive/7example}
+instructions={Solve NumPy problems}
+}
+\project{
+title={Pandas Exercises}
+colab={https://colab.research.google.com/drive/8example}
+instructions={Solve Pandas problems}
+}
+\project{
+title={Data Visualization}
+colab={https://colab.research.google.com/drive/9example}
+instructions={Create visualizations}
+}
+
+\resource{
+type={github}
+title={NumPy Docs}
+url={https://github.com/numpy/numpy}
+}
+\resource{
+type={github}
+title={Pandas Docs}
+url={https://github.com/pandas-dev/pandas}
+}
+\resource{
+type={website}
+title={Matplotlib Docs}
+url={https://matplotlib.org}
+}
+}
+
+\module{
+title={Data Preprocessing}
+description={Clean and prepare your data!}
+estimatedHours={10}
+
+\lesson{
+title={Missing Values}
+}
+\lesson{
+title={Feature Scaling}
+}
+\lesson{
+title={Encoding}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=k932K15vI}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=q915v1o5I}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=k932K15vI_2}
+}
+
+\practice{
+language={python}
+startercode={
+import pandas as pd
+import numpy as np
+df = pd.DataFrame({"x": [1, np.nan,3]})
+df = df.fillna(0)
+print(df)
+}
+expectedoutput={     x
+0  1.0
+1  0.0
+2  3.0}
+}
+\practice{
+language={python}
+startercode={
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+data = np.array([[1,2],[3,4]])
+scaler = StandardScaler()
+print(scaler.fit_transform(data))
+}
+expectedoutput={[[-1. -1.]
+[ 1.  1.]]}
+}
+\practice{
+language={python}
+startercode={
+from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+data = pd.Series(["cat","dog","cat"])
+le = LabelEncoder()
+print(le.fit_transform(data))
+}
+expectedoutput={[0 1 0]}
+}
+
+\quiz{
+question={What is preprocessing?}
+optionA={Cleaning data}
+optionB={Training model}
+optionC={Testing model}
+optionD={Deploying model}
+correct={A}
+}
+\quiz{
+question={Scaling helps?}
+optionA={Model convergence}
+optionB={Model speed}
+optionC={Model size}
+optionD={Nothing}
+correct={A}
+}
+\quiz{
+question={LabelEncoder for?}
+optionA={Text to numbers}
+optionB={Numbers to text}
+optionC={Images}
+optionD={Sounds}
+correct={A}
+}
+
+\project{
+title={Preprocessing}
+colab={https://colab.research.google.com/drive/Aexample}
+instructions={Clean dataset}
+}
+\project{
+title={Feature Engineering}
+colab={https://colab.research.google.com/drive/Bexample}
+instructions={Create features}
+}
+\project{
+title={Data Pipeline}
+colab={https://colab.research.google.com/drive/Cexample}
+instructions={Build pipeline}
+}
+
+\resource{
+type={github}
+title={Feature Engineering}
+url={https://github.com/FeatureEngineering/FeatureEngineering}
+}
+\resource{
+type={website}
+title={Data Preprocessing Guide}
+url={https://www.kaggle.com/code/rtatman/data-cleaning-challenge-handling-missing-values}
+}
+\resource{
+type={pdf}
+title={Preprocessing Textbook}
+url={https://example.com/preprocessing-book.pdf}
+}
+}
+}
+
+\track{
+title={Machine Learning Algorithms}
+description={Dive into regression and classification!}
+
+\module{
+title={Regression}
+description={Learn linear and multiple regression!}
+estimatedHours={12}
+
+\lesson{
+title={Linear Regression}
+}
+\lesson{
+title={Multiple Regression}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=zPG1n1B0Y}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=nk2CQITm_eA}
+}
+
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.linear_model import LinearRegression
+X = np.array([[1,2],[3,4],[5,6]])
+y = np.array([3,7,11])
+model = LinearRegression()
+model.fit(X,y)
+print(model.predict([[7,8]]))
+}
+expectedoutput={[15.]}
+}
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.datasets import fetch_california_housing
+X,y = fetch_california_housing(return_X_y=True)
+from sklearn.linear_model import LinearRegression
+model = LinearRegression()
+model.fit(X,y)
+print(model.score(X,y))
+}
+expectedoutput={0.606232928751043}
+}
+
+\quiz{
+question={Regression predicts?}
+optionA={Continuous values}
+optionB={Categories}
+optionC={Both}
+optionD={None}
+correct={A}
+}
+\quiz{
+question={Multiple regression uses?}
+optionA={One feature}
+optionB={Multiple features}
+optionC={No features}
+optionD={Images}
+correct={B}
+}
+
+\project{
+title={House Price Prediction}
+colab={https://colab.research.google.com/drive/Dexample}
+instructions={Predict house prices}
+}
+\project{
+title={Stock Price Prediction}
+colab={https://colab.research.google.com/drive/Eexample}
+instructions={Predict stock prices}
+}
+
+\resource{
+type={github}
+title={Regression Resources}
+url={https://github.com/topics/regression}
+}
+\resource{
+type={website}
+title={Regression Tutorial}
+url={https://towardsdatascience.com/regression-analysis-explained}
+}
+}
+
+\module{
+title={Classification}
+description={Learn logistic regression and decision trees!}
+estimatedHours={14}
+
+\lesson{
+title={Logistic Regression}
+}
+\lesson{
+title={Decision Trees}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=yIYKR4sgzI8}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=7VeUPuFGJHk}
+}
+
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+X = np.array([[1,2],[3,4],[5,6],[7,8]])
+y = np.array([0,0,1,1])
+model = LogisticRegression()
+model.fit(X,y)
+print(model.predict([[1,1]]))
+}
+expectedoutput={[0]}
+}
+\practice{
+language={python}
+startercode={
+import numpy as np
+from sklearn.tree import DecisionTreeClassifier
+X = np.array([[1,2],[3,4],[5,6],[7,8]])
+y = np.array([0,0,1,1])
+model = DecisionTreeClassifier()
+model.fit(X,y)
+print(model.predict([[1,1]]))
+}
+expectedoutput={[0]}
+}
+
+\quiz{
+question={Logistic regression for?}
+optionA={Classification}
+optionB={Regression}
+optionC={Clustering}
+optionD={None}
+correct={A}
+}
+\quiz{
+question={Decision trees split data using?}
+optionA={Features}
+optionB={Randomly}
+optionC={Colors}
+optionD={Images}
+correct={A}
+}
+
+\project{
+title={Iris Classification}
+colab={https://colab.research.google.com/drive/Fexample}
+instructions={Classify Iris flowers}
+}
+\project{
+title={Breast Cancer Detection}
+colab={https://colab.research.google.com/drive/Gexample}
+instructions={Detect cancer}
+}
+
+\resource{
+type={github}
+title={Classification}
+url={https://github.com/topics/classification}
+}
+\resource{
+type={website}
+title={Classification Tutorial}
+url={https://towardsdatascience.com/classification-in-machine-learning}
+}
+}
+}
+
+\track{
+title={Deep Learning}
+description={Enter the world of neural networks!}
+
+\module{
+title={Neural Networks}
+description={Learn core neural network concepts!}
+estimatedHours={12}
+
+\lesson{
+title={Perceptrons}
+}
+\lesson{
+title={Activation Functions}
+}
+\lesson{
+title={Forward Propagation}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=aircA707Y}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=umsmS2l5J}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=O5xqq058Mxo}
+}
+
+\practice{
+language={python}
+startercode={
+import numpy as np
+def sigmoid(x): return 1/(1+np.exp(-x))
+print(sigmoid(0))
+}
+expectedoutput={0.5}
+}
+\practice{
+language={python}
+startercode={
+import numpy as np
+def relu(x): return max(0,x)
+print(relu(-5), relu(5))
+}
+expectedoutput={0 5}
+}
+\practice{
+language={python}
+startercode={
+import numpy as np
+def sigmoid(x): return 1/(1+np.exp(-x))
+W = np.array([0.5, 0.5])
+b = 0
+X = np.array([1,1])
+print(sigmoid(W.dot(X)+b))
+}
+expectedoutput={0.7310585786300049}
+}
+
+\quiz{
+question={Perceptron basics of?}
+optionA={Input, weights, bias}
+optionB={Images}
+optionC={Videos}
+optionD={Files}
+correct={A}
+}
+\quiz{
+question={Activation functions add?}
+optionA={Nonlinearity}
+optionB={Linearity}
+optionC={Noise}
+optionD={Nothing}
+correct={A}
+}
+\quiz{
+question={Forward propagation computes?}
+optionA={Output from input}
+optionB={Input from output}
+optionC={Random numbers}
+optionD={Images}
+correct={A}
+}
+
+\project{
+title={Neural Network from Scratch}
+colab={https://colab.research.google.com/drive/Hexample}
+instructions={Build neural network}
+}
+\project{
+title={Activation Functions}
+colab={https://colab.research.google.com/drive/Iexample}
+instructions={Implement activation functions}
+}
+\project{
+title={XOR Problem}
+colab={https://colab.research.google.com/drive/Jexample}
+instructions={Solve XOR problem}
+}
+
+\resource{
+type={github}
+title={Neural Networks}
+url={https://github.com/topics/neural-network}
+}
+\resource{
+type={website}
+title={Deep Learning Book}
+url={https://www.deeplearningbook.org}
+}
+\resource{
+type={pdf}
+title={Neural Networks and Deep Learning}
+url={http://neuralnetworksanddeeplearning.com/}
+}
+}
+
+\module{
+title={TensorFlow & PyTorch}
+description={Build and train models with TensorFlow and PyTorch!}
+estimatedHours={15}
+
+\lesson{
+title={Building Networks}
+}
+\lesson{
+title={Training Models}
+}
+
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=tPYj3fFJGjk}
+}
+\video{
+type={youtube}
+url={https://www.youtube.com/watch?v=IC0_FRiXwKo}
+}
+
+\practice{
+language={python}
+startercode={
+import tensorflow as tf
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(32, activation='relu', input_shape=(784,)),
+    tf.keras.layers.Dense(10, activation='softmax')
+])
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+print("TF model built")
+}
+expectedoutput={TF model built}
+}
+\practice{
+language={python}
+startercode={
+import torch
+import torch.nn as nn
+model = nn.Sequential(
+    nn.Linear(784, 32),
+    nn.ReLU(),
+    nn.Linear(32,10)
+)
+print("PyTorch model built")
+}
+expectedoutput={PyTorch model built}
+}
+
+\quiz{
+question={TensorFlow made by?}
+optionA={Google}
+optionB={Facebook}
+optionC={OpenAI}
+optionD={Microsoft}
+correct={A}
+}
+\quiz{
+question={PyTorch made by?}
+optionA={Facebook}
+optionB={Google}
+optionC={OpenAI}
+optionD={Microsoft}
+correct={A}
+}
+
+\project{
+title={TensorFlow MNIST}
+colab={https://colab.research.google.com/drive/Kexample}
+instructions={Train TensorFlow model on MNIST}
+}
+\project{
+title={PyTorch MNIST}
+colab={https://colab.research.google.com/drive/Lexample}
+instructions={Train PyTorch model on MNIST}
+}
+
+\resource{
+type={github}
+title={TensorFlow}
+url={https://github.com/tensorflow/tensorflow}
+}
+\resource{
+type={github}
+title={PyTorch}
+url={https://github.com/pytorch/pytorch}
+}
+\resource{
+type={website}
+title={TensorFlow Docs}
+url={https://www.tensorflow.org}
+}
+}
+}

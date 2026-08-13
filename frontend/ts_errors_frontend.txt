@@ -1,0 +1,11 @@
+﻿src/components/ErrorBoundary.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/overleaf/EditorLayout.tsx(2,17): error TS2724: '"react-resizable-panels"' has no exported member named 'PanelGroup'. Did you mean 'PanelProps'?
+src/components/overleaf/EditorLayout.tsx(2,29): error TS2305: Module '"react-resizable-panels"' has no exported member 'PanelResizeHandle'.
+src/components/overleaf/FileTree.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/overleaf/LatexMonaco.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/overleaf/LatexMonaco.tsx(30,31): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
+src/components/overleaf/LatexMonaco.tsx(75,23): error TS18048: 'monaco.KeyMod.CtrlCmd' is possibly 'undefined'.
+src/components/overleaf/LatexMonaco.tsx(75,48): error TS18048: 'monaco.KeyCode.KeyS' is possibly 'undefined'.
+src/components/overleaf/PdfPreview.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/pages/instructor/NotesEditorPage.tsx(2,21): error TS6133: 'useNavigate' is declared but its value is never read.
+src/pages/instructor/NotesEditorPage.tsx(3,33): error TS6133: 'useQueryClient' is declared but its value is never read.

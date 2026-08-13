@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PPTX Render Harness</title>
+</head>
+<body>
+<script type="module">
+  import { PptxRenderer } from '../../../../node_modules/pptx-svg/dist/index.js';
+
+  window.__renderAllSlides = async (pptxBase64) => {
+    const binary = atob(pptxBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const buffer = bytes.buffer;
+
+    const renderer = new PptxRenderer({ logLevel: 'warn' });
+    const wasmUrl = new URL('../../../../node_modules/pptx-svg/dist/main.wasm', import.meta.url).href;
+    await renderer.init(wasmUrl);
+    const { slideCount } = await renderer.loadPptx(buffer);
+
+    const slides = [];
+    for (let i = 0; i < slideCount; i++) {
+      const svg = renderer.renderSlideSvg(i);
+      const failed = !svg || svg.startsWith('ERROR:');
+      slides.push({
+        index: i,
+        svg: failed ? null : svg,
+        error: failed ? (svg || 'Empty SVG output') : null,
+      });
+    }
+    return { slideCount, slides };
+  };
+</script>
+</body>
+</html>

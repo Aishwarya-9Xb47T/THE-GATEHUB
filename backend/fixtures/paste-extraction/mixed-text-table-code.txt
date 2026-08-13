@@ -1,0 +1,31 @@
+Section: Mixed Content Quiz
+
+Question 1:
+What is the capital of France?
+
+A. Paris
+B. London
+C. Berlin
+D. Rome
+
+Correct Answer: A
+Marks: 2
+
+| Question | Option A | Option B | Option C | Option D | Correct Answer | Marks |
+| -------- | -------- | -------- | -------- | -------- | -------------- | ----- |
+| What is 2 + 2? | 3 | 4 | 5 | 6 | B | 2 |
+
+Question 3:
+What will this print?
+
+```python
+print("hi")
+```
+
+A. hi
+B. error
+C. none
+D. null
+
+Correct Answer: A
+Marks: 2

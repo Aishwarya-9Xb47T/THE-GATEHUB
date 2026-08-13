@@ -1,0 +1,110 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - proxy-net
+    logging: *default-logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_WS_URL: ${VITE_WS_URL:-}
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-}
+    networks:
+      - proxy-net
+    logging: *default-logging
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      UPLOAD_DIR: /app/uploads
+      RUN_STARTUP_VALIDATION: "true"
+      SEED_ON_STARTUP: ${SEED_ON_STARTUP:-false}
+      LATEX_CONTAINER_NAME: latex_engine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      latex_engine:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./latex-temp:/latex-temp
+      - uploads_data:/app/uploads
+      - backend_data:/app/data
+    networks:
+      - proxy-net
+      - backend-net
+    logging: *default-logging
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gatehub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-gatehub}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    logging: *default-logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  latex_engine:
+    image: blang/latex:ctanbasic
+    container_name: latex_engine
+    volumes:
+      - ./latex-temp:/data
+    working_dir: /data
+    command: tail -f /dev/null
+    networks:
+      - backend-net
+    restart: unless-stopped
+
+networks:
+  proxy-net:
+  backend-net:
+
+volumes:
+  pg_data:
+  uploads_data:
+  backend_data:

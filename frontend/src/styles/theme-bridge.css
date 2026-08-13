@@ -1,0 +1,27 @@
+/**
+ * THE GATEHUB V6 — Theme bridge
+ * Maps legacy shadcn variables after tokens load.
+ * Keeps brand gold palette; refines surfaces for both themes.
+ */
+
+@layer base {
+  :root {
+    --destructive: 0 72% 51%;
+    --brand-gold: var(--theme-primary);
+    --brand-blue: 217 91% 53%;
+    --brand-indigo: 243 75% 59%;
+    --brand-purple: 252 75% 60%;
+    --brand-cyan: 188 95% 42%;
+    --brand-emerald: var(--theme-success);
+  }
+
+  .dark {
+    --destructive: 0 62% 45%;
+    --brand-gold: var(--theme-primary);
+    --brand-blue: 217 95% 68%;
+    --brand-indigo: 243 75% 68%;
+    --brand-purple: 252 85% 72%;
+    --brand-cyan: 188 100% 50%;
+    --brand-emerald: var(--theme-success);
+  }
+}

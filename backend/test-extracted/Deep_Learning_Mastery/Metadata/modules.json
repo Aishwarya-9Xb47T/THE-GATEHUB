@@ -1,0 +1,26 @@
+[
+  {
+    "id": "cmqnkt1fl000lwyp5p2k58xmj",
+    "title": "Introduction to Deep Learning",
+    "description": "Understanding Deep Learning",
+    "order": 0,
+    "trackIndex": 0,
+    "moduleIndex": 0
+  },
+  {
+    "id": "cmqnkt1fl000mwyp5nllqwq0j",
+    "title": "Convolutional Neural Networks",
+    "description": "Computer Vision with CNNs",
+    "order": 1,
+    "trackIndex": 0,
+    "moduleIndex": 1
+  },
+  {
+    "id": "cmqnkt1fm000nwyp54iw70u1y",
+    "title": "Transformers and LLMs",
+    "description": "Modern AI Architecture",
+    "order": 2,
+    "trackIndex": 0,
+    "moduleIndex": 2
+  }
+]

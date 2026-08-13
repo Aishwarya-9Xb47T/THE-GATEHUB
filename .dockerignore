@@ -1,0 +1,24 @@
+# Git and local artifacts
+.git
+.github
+**/.env
+**/.env.local
+**/node_modules
+**/dist
+**/.vite
+**/coverage
+**/*.log
+latex-temp
+backend/uploads
+uploads
+*.md
+!backend/content/docs/**/*.md
+docs
+agent-transcripts
+.cursor
+
+# Dev-only
+docker-compose.dev.yml
+**/*.test.ts
+**/*.spec.ts
+**/vitest.config.*
