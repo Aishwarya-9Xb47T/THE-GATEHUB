@@ -1,5 +1,7 @@
 /** Resolve uploaded course media (PDF, images, videos) to a browser-loadable URL. */
 
+import { apiUrl, getBackendOrigin } from "@/lib/api";
+
 export function getAuthToken(): string | null {
   try {
     if (typeof window !== "undefined") {
@@ -23,7 +25,13 @@ export async function fetchAuthenticatedUpload(
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const resolved = url.startsWith("http") ? url : url.startsWith("/") ? url : `/${url}`;
+  const resolved = url.startsWith("http")
+    ? url
+    : url.startsWith("/api/")
+      ? apiUrl(url)
+      : url.startsWith("/")
+        ? `${getBackendOrigin()}${url}`
+        : `/${url}`;
   return fetch(resolved, {
     ...init,
     headers,
@@ -35,6 +43,9 @@ export async function fetchAuthenticatedUpload(
 export function withUploadAuth(url: string): string {
   if (!url) return url;
   if (/^(data:|blob:)/i.test(url)) return url;
+  if (!/^https?:\/\//i.test(url) && import.meta.env.PROD) {
+    url = url.startsWith("/api/") ? apiUrl(url) : `${getBackendOrigin()}${url.startsWith("/") ? url : `/${url}`}`;
+  }
   const token = getAuthToken();
   if (!token) return url;
   try {
@@ -74,8 +85,9 @@ export function rewritePersistedMediaHost(url: string): string {
       host.endsWith(".local");
     if (!isLocal) return url;
     if (parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/")) {
-      if (typeof window !== "undefined") {
-        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      const origin = getBackendOrigin() || (typeof window !== "undefined" ? window.location.origin : "");
+      if (origin) {
+        return `${origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
       }
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
@@ -93,8 +105,7 @@ export function resolveCourseMediaUrl(src?: string | null): string | null {
     try {
       const parsed = new URL(trimmed);
       if (parsed.pathname.startsWith("/uploads/")) {
-        const origin =
-          typeof window !== "undefined" ? window.location.origin : parsed.origin;
+        const origin = getBackendOrigin() || parsed.origin;
         return withUploadAuth(`${origin}${parsed.pathname}${parsed.search}`);
       }
     } catch {
@@ -105,9 +116,12 @@ export function resolveCourseMediaUrl(src?: string | null): string | null {
 
   if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return trimmed;
   if (trimmed.startsWith("//")) return `${window.location.protocol}${trimmed}`;
-  if (trimmed.startsWith("/")) return withUploadAuth(`${window.location.origin}${trimmed}`);
+  if (trimmed.startsWith("/")) {
+    const resolved = trimmed.startsWith("/api/") ? apiUrl(trimmed) : `${getBackendOrigin()}${trimmed}`;
+    return withUploadAuth(resolved);
+  }
 
-  return withUploadAuth(`${window.location.origin}/uploads/${encodeURIComponent(trimmed)}`);
+  return withUploadAuth(`${getBackendOrigin()}/uploads/${encodeURIComponent(trimmed)}`);
 }
 
 export function resolveLectureVideoUrl(
@@ -136,7 +150,7 @@ export function resolveLectureVideoUrl(
   }
 
   if ((effectiveType === "upload" || !effectiveType) && lectureId) {
-    return withUploadAuth(`/api/lectures/video/${lectureId}`);
+    return withUploadAuth(apiUrl(`/api/lectures/video/${lectureId}`));
   }
 
   return trimmed || null;

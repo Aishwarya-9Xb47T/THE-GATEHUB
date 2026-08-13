@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -170,9 +170,8 @@ export function LiveSessionStudentReportPage() {
 
   const handleDownloadPdf = () => {
     const token = localStorage.getItem("lms_token") || "";
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
     window.open(
-      `${baseUrl}/api/quizzes/attempts/${attemptId}/export-pdf?token=${encodeURIComponent(token)}`,
+      apiUrl(`/api/quizzes/attempts/${attemptId}/export-pdf?token=${encodeURIComponent(token)}`),
       "_blank"
     );
   };

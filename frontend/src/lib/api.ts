@@ -1,5 +1,69 @@
-const API_BASE = "/api";
-export const API_BASE_URL = "/api";
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+/**
+ * Development: relative `/api` so the Vite proxy still works.
+ * Production: `VITE_API_BASE_URL` (e.g. https://host/api). Never hardcoded.
+ */
+export function getApiBase(): string {
+  if (import.meta.env.PROD) {
+    const env = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+    if (env) return stripTrailingSlash(env);
+  }
+  return "/api";
+}
+
+export const API_BASE_URL = getApiBase();
+
+/** Join a path onto the API base without producing `/api/api`. */
+export function apiUrl(path: string): string {
+  const base = getApiBase();
+  let p = path.startsWith("/") ? path : `/${path}`;
+  if (p === "/api") p = "";
+  else if (p.startsWith("/api/")) p = p.slice(4);
+  return `${base}${p}`;
+}
+
+/** Backend origin (no `/api`) for OAuth redirects and `/uploads`. */
+export function getBackendOrigin(): string {
+  const base = getApiBase();
+  if (/^https?:\/\//i.test(base)) {
+    return stripTrailingSlash(base.replace(/\/api$/i, ""));
+  }
+  if (typeof window !== "undefined") return window.location.origin;
+  return "";
+}
+
+/** Backend path for `/uploads` and similar non-API routes. */
+export function backendUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (p === "/api" || p.startsWith("/api/")) return apiUrl(p);
+  const base = getApiBase();
+  if (/^https?:\/\//i.test(base)) {
+    return `${getBackendOrigin()}${p}`;
+  }
+  return p;
+}
+
+/** WebSocket host: Vite proxy in dev, VITE_WS_BASE_URL / API host in production. */
+export function getWsConnectTarget(): { protocol: string; host: string } {
+  if (typeof window === "undefined") {
+    return { protocol: "ws", host: "localhost:5000" };
+  }
+  if (import.meta.env.PROD) {
+    const raw = String(
+      import.meta.env.VITE_WS_BASE_URL || import.meta.env.VITE_API_BASE_URL || ""
+    ).trim();
+    if (raw) {
+      const url = new URL(raw);
+      const protocol = url.protocol === "https:" || url.protocol === "wss:" ? "wss" : "ws";
+      return { protocol, host: url.host };
+    }
+  }
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  return { protocol, host: window.location.host };
+}
 
 export function getToken(): string | null {
   if (typeof window !== "undefined") {
@@ -72,7 +136,7 @@ export async function api<T>(
   if (token) headers["Authorization"] = `Bearer ${token}`;
   
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(apiUrl(path), {
       ...init,
       headers,
       body: sanitizedBody !== undefined ? JSON.stringify(sanitizedBody) : undefined,
@@ -138,7 +202,7 @@ export async function apiFormData<T>(path: string, formData: FormData): Promise<
   const headers: HeadersInit = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
   try {
-    const res = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
+    const res = await fetch(apiUrl(path), { method: "POST", headers, body: formData });
     let json: any = {};
     const text = await res.text();
     try {
@@ -333,7 +397,7 @@ export async function streamDocsAssistant(
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`${API_BASE}/docs/assistant/stream`, {
+    const res = await fetch(apiUrl("/docs/assistant/stream"), {
       method: "POST",
       headers,
       body: JSON.stringify({ question, pageContext, history }),

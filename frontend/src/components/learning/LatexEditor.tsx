@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react';
 import { Eye, EyeOff, Settings, Save, RotateCcw, Code, Play, Loader2, AlertCircle, Image, Upload, FileText, PanelLeft, PanelLeftClose } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useToastStore } from '@/store/toastStore';
+import { apiUrl } from "@/lib/api";
 
 interface Course {
   id: string;
@@ -86,7 +87,7 @@ export function LatexEditor({
       // Save before compiling
       await saveContent();
 
-      const response = await fetch('/api/latex/compile', {
+      const response = await fetch(apiUrl('/api/latex/compile'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,7 +199,7 @@ export function LatexEditor({
     formData.append('file', file);
 
     try {
-      const response = await fetch('/api/upload', {
+      const response = await fetch(apiUrl('/api/upload'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

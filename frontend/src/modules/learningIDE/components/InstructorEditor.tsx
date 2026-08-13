@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Settings, BookOpen, Play, Save, Loader2, AlertCircle, Image, Upload, FileText, PanelLeft, PanelLeftClose } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useToastStore } from '@/store/toastStore';
+import { apiUrl } from "@/lib/api";
 
 interface ResourceContent {
   id: string;
@@ -72,7 +73,7 @@ export default function InstructorEditor() {
       setIsLoading(true);
       setError(null);
 
-      const courseResponse = await fetch(`/api/resources/courses/${courseId}`);
+      const courseResponse = await fetch(apiUrl(`/api/resources/courses/${courseId}`));
       if (!courseResponse.ok) {
         throw new Error('Course not found');
       }
@@ -154,7 +155,7 @@ This concludes our learning resource.
     
     setIsSaving(true);
     try {
-      const response = await fetch('/api/resources/content/save', {
+      const response = await fetch(apiUrl('/api/resources/content/save'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -206,7 +207,7 @@ This concludes our learning resource.
       // Save before compiling
       await saveContent();
 
-      const response = await fetch('/api/latex/compile', {
+      const response = await fetch(apiUrl('/api/latex/compile'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -284,7 +285,7 @@ This concludes our learning resource.
     formData.append('file', file);
 
     try {
-      const response = await fetch('/api/upload', {
+      const response = await fetch(apiUrl('/api/upload'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { LiveSessionSettings, LiveSessionType, WizardExtraSettings } from "./wizardTypes";
 import { SESSION_TYPE_LABELS } from "@/lib/liveSession/types";
-import { api } from "@/lib/api";
+import { apiUrl, api } from "@/lib/api";
 import {
   Play,
   Pause,
@@ -197,7 +197,7 @@ export function RoomSettingsStep({
       const duration = audio.duration || 180;
       try {
         const token = localStorage.getItem("lms_token");
-        const res = await fetch(`/api/live-sessions/music/upload?duration=${duration}`, {
+        const res = await fetch(apiUrl(`/api/live-sessions/music/upload?duration=${duration}`), {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`

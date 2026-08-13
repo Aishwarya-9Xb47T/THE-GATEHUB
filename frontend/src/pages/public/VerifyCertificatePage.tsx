@@ -4,6 +4,7 @@ import { CheckCircle2, XCircle, ShieldAlert, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/common/Logo";
+import { apiUrl } from "@/lib/api";
 
 interface VerificationResult {
   valid: boolean;
@@ -32,7 +33,7 @@ export function VerifyCertificatePage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/certificates/verify/${encodeURIComponent(certificateId)}`);
+        const res = await fetch(apiUrl(`/api/certificates/verify/${encodeURIComponent(certificateId)}`));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Certificate not found");
         setResult(data);

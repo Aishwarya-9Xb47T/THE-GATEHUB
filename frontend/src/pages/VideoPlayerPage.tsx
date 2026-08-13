@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, BookOpen, PlayCircle, Loader2 } from 'lucide-react';
-import { api } from '@/lib/api';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+import { api, backendUrl } from '@/lib/api';
 
 export default function VideoPlayerPage() {
   const { courseId, slug } = useParams<{ courseId: string; slug: string }>();
@@ -33,7 +31,7 @@ export default function VideoPlayerPage() {
         );
         
         if (asset) {
-          setVideoUrl(`${API_BASE_URL}/uploads/resources/${encodeURIComponent(asset.name)}`);
+          setVideoUrl(backendUrl(`/uploads/resources/${encodeURIComponent(asset.name)}`));
         } else {
           setError("Video not found in this course.");
         }

@@ -1,3 +1,4 @@
+import { apiUrl } from "@/lib/api";
 /**
  * Resolve an Interactive Classroom session for join navigation.
  * Single handler used by code entry, QR, paste-link, and deep links.
@@ -44,7 +45,7 @@ export async function fetchClassroomSessionByRoomCode(
   roomCode: string,
 ): Promise<ResolvedClassroomSession> {
   const code = roomCode.trim();
-  const res = await fetch(`/api/classroom-studio/sessions/room/${encodeURIComponent(code)}`, {
+  const res = await fetch(apiUrl(`/api/classroom-studio/sessions/room/${encodeURIComponent(code)}`), {
     headers: authHeaders(),
   });
   if (res.status === 401 || res.status === 403) {
@@ -73,7 +74,7 @@ export async function fetchClassroomSessionByRoomCode(
 export async function fetchClassroomSessionById(
   sessionId: string,
 ): Promise<ResolvedClassroomSession> {
-  const res = await fetch(`/api/classroom-studio/sessions/${encodeURIComponent(sessionId)}`, {
+  const res = await fetch(apiUrl(`/api/classroom-studio/sessions/${encodeURIComponent(sessionId)}`), {
     headers: authHeaders(),
   });
   if (res.status === 401 || res.status === 403) {

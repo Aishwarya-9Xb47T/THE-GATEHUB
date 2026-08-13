@@ -4,6 +4,7 @@ import { getDocBySlug } from "@/content/docs/docsManifest";
 import { DocsReader } from "@/components/help/DocsReader";
 import { DocsRightPanel } from "@/components/help/DocsRightPanel";
 import { DocsBreadcrumbs } from "@/components/help/DocsBreadcrumbs";
+import { apiUrl } from "@/lib/api";
 
 export function HelpDocPage() {
   const { slug = "getting-started" } = useParams();
@@ -32,7 +33,7 @@ export function HelpDocPage() {
       <DocsRightPanel
         page={page}
         pdfSlug={pdfSlug}
-        onDownloadPdf={pdfSlug ? () => window.open(`/api/docs/pdf/${pdfSlug}`, "_blank") : undefined}
+        onDownloadPdf={pdfSlug ? () => window.open(apiUrl(`/api/docs/pdf/${pdfSlug}`), "_blank") : undefined}
       />
     </div>
   );

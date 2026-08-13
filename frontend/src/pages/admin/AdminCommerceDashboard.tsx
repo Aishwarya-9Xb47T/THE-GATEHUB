@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
+import { apiUrl, api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/paymentUtils";
@@ -19,7 +19,7 @@ export function AdminCommerceDashboard() {
   });
 
   const exportCsv = () => {
-    window.open("/api/commerce/admin/analytics/export?format=csv", "_blank");
+    window.open(apiUrl("/api/commerce/admin/analytics/export?format=csv"), "_blank");
   };
 
   if (isLoading) {

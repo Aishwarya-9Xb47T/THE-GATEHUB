@@ -5,7 +5,7 @@ import { Award, ExternalLink } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { api, apiFormData } from "@/lib/api";
+import { apiUrl, api, apiFormData } from "@/lib/api";
 import { useUserStore } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 import { Button } from "@/components/ui/button";
@@ -78,7 +78,7 @@ export function CleanProfilePage() {
 
           // Update avatar in database
           const token = localStorage.getItem("lms_token");
-          const updateRes = await fetch("/api/users/avatar", {
+          const updateRes = await fetch(apiUrl("/api/users/avatar"), {
             method: "PATCH",
             headers: {
               "Authorization": `Bearer ${token}`,
@@ -152,7 +152,7 @@ export function CleanProfilePage() {
 
         try {
           const token = localStorage.getItem("lms_token");
-          const response = await fetch("/api/users/avatar", {
+          const response = await fetch(apiUrl("/api/users/avatar"), {
             method: "DELETE",
             headers: {
               "Authorization": `Bearer ${token}`,
@@ -208,7 +208,7 @@ export function CleanProfilePage() {
   const onSubmit = async (values: Form) => {
     try {
       const token = localStorage.getItem("lms_token");
-      const response = await fetch("/api/users/me", {
+      const response = await fetch(apiUrl("/api/users/me"), {
         method: "PATCH",
         headers: {
           "Authorization": `Bearer ${token}`,

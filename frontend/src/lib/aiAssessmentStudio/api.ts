@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import type { AiErrorPayload } from "./ApiError";
 import { parseApiError } from "./ErrorMapper";
+import { apiUrl } from "@/lib/api";
 
 const BASE = "/assessment-studio";
 
@@ -42,7 +43,7 @@ export async function startAiGeneration(params: {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`/api${BASE}/ai/generate-assessment`, { method: "POST", headers, body: formData });
+    const res = await fetch(apiUrl(`/api${BASE}/ai/generate-assessment`), { method: "POST", headers, body: formData });
     const json = (await res.json()) as {
       success: boolean;
       data?: { jobId: string };
@@ -65,7 +66,7 @@ export async function getAiJobStatus(jobId: string): Promise<{ data?: AiJobStatu
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}`, { headers });
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}`), { headers });
     const json = (await res.json()) as {
       success: boolean;
       data: AiJobStatusResponse;
@@ -128,7 +129,7 @@ export async function commitAiToQuiz(
   const timeout = window.setTimeout(() => controller.abort(), 30_000);
 
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}/commit-quiz`, {
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}/commit-quiz`), {
       method: "POST",
       headers,
       signal: controller.signal,
@@ -172,7 +173,7 @@ export async function fillRemainingQuestions(jobId: string) {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}/fill-remaining`, { method: "POST", headers });
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}/fill-remaining`), { method: "POST", headers });
     const json = (await res.json()) as {
       success: boolean;
       data?: { preview: AiGenerationPreview };

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
+import { api, apiUrl } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { HelpCircle } from "lucide-react";
@@ -158,9 +158,8 @@ export function QuizResultsPage() {
                           className="font-bold text-xs h-9 text-red-500 border-red-500/20 hover:bg-red-500/5 hover:text-red-600"
                           onClick={() => {
                             const token = localStorage.getItem("lms_token") || "";
-                            const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
                             window.open(
-                              `${baseUrl}/api/quizzes/attempts/${a.id}/export-pdf?token=${encodeURIComponent(token)}`,
+                              apiUrl(`/api/quizzes/attempts/${a.id}/export-pdf?token=${encodeURIComponent(token)}`),
                               "_blank"
                             );
                           }}

@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToastStore } from '@/store/toastStore';
+import { apiUrl } from "@/lib/api";
 
 export interface RecoveryState {
   currentSlideId: string | null;
@@ -50,7 +51,7 @@ export function useSessionRecovery({
   const fetchRecoveryState = useCallback(async (): Promise<RecoveryState | null> => {
     if (!sessionId) return null;
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}/recovery-state`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/recovery-state`), {
         headers: { Authorization: `Bearer ${localStorage.getItem('lms_token')}` },
       });
 

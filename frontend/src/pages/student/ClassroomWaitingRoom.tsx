@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToastStore } from '@/store/toastStore';
 import { getUserIdFromToken } from '@/lib/auth';
+import { apiUrl, getWsConnectTarget } from "@/lib/api";
 
 const WS_RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
 
@@ -65,7 +66,7 @@ export function ClassroomWaitingRoom() {
 
   const fetchData = useCallback(async () => {
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}`), {
         headers: { Authorization: `Bearer ${localStorage.getItem('lms_token')}` },
       });
       if (!response.ok) throw new Error('Session not found');
@@ -114,11 +115,11 @@ export function ClassroomWaitingRoom() {
   const connectWebSocket = useCallback(() => {
     if (!isActiveRef.current || !sessionId) return;
     const userId = getUserIdFromToken() || 'student';
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const { protocol, host } = getWsConnectTarget();
     const token = localStorage.getItem('lms_token');
 
     const ws = new WebSocket(
-      `${protocol}://${window.location.host}/ws/classroom-studio?sessionId=${sessionId}&userId=${userId}&role=student&token=${encodeURIComponent(token || '')}`
+      `${protocol}://${host}/ws/classroom-studio?sessionId=${sessionId}&userId=${userId}&role=student&token=${encodeURIComponent(token || '')}`
     );
 
     ws.onopen = () => { reconnectAttempt.current = 0; setWsStatus('connected'); };

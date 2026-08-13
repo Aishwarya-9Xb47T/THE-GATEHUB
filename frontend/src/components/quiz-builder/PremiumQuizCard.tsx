@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useDashboardSidebarContext } from "@/contexts/DashboardSidebarContext";
+import { apiUrl } from "@/lib/api";
 
 interface PremiumQuizCardProps {
   quiz: QuizListItem;
@@ -56,7 +57,7 @@ export function PremiumQuizCard({
     setLoadingSessions(true);
     try {
       const token = localStorage.getItem("lms_token");
-      const res = await fetch(`/api/quizzes/${quiz.id}/sessions`, {
+      const res = await fetch(apiUrl(`/api/quizzes/${quiz.id}/sessions`), {
         headers: { Authorization: `Bearer ${token}` }
       });
       const body = await res.json();

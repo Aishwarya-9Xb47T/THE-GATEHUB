@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToastStore } from "@/store/toastStore";
 import { useUserStore } from "@/store/userStore";
+import { apiUrl } from "@/lib/api";
 
 interface Platform {
   id: string;
@@ -59,7 +60,7 @@ export function LearningPlatformsPage() {
   useEffect(() => {
     async function fetchPlatforms() {
       try {
-        const res = await fetch("/api/learning-platforms/platforms");
+        const res = await fetch(apiUrl("/api/learning-platforms/platforms"));
         const json = await res.json();
         if (json.success && json.data?.platforms) {
           setPlatforms(json.data.platforms);

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { BookOpen, Award, Loader2, Calendar, Download, Eye, CheckCircle2, Clock, Layers } from "lucide-react";
 import { motion } from "framer-motion";
-import { api } from "@/lib/api";
+import { api, apiUrl } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { CourseCard } from "@/components/common/CourseCard";
 import { Progress } from "@/components/ui/progress";
@@ -191,7 +191,8 @@ export function MyCourses() {
     try {
       const token = localStorage.getItem("lms_token");
       if (!token) throw new Error("Authentication required");
-      const url = cert.downloadUrl || `/api/certificates/lu/${cert.id}/download`;
+      const raw = cert.downloadUrl || `/api/certificates/lu/${cert.id}/download`;
+      const url = raw.startsWith("http") ? raw : apiUrl(raw);
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
       const blob = await response.blob();
@@ -288,8 +289,8 @@ export function MyCourses() {
     const downloadId = enrollment.downloadId || enrollment.course.id;
     const url =
       enrollment.downloadTarget === "learning-universe"
-        ? `/api/learning-universes/${downloadId}/download-complete`
-        : `/api/courses/${downloadId}/download-complete`;
+        ? apiUrl(`/api/learning-universes/${downloadId}/download-complete`)
+        : apiUrl(`/api/courses/${downloadId}/download-complete`);
     void triggerZipDownload(url, downloadId, title);
   };
 
@@ -302,7 +303,7 @@ export function MyCourses() {
       });
       return;
     }
-    void triggerZipDownload(`/api/learning-universes/${luId}/download-complete`, luId, title);
+    void triggerZipDownload(apiUrl(`/api/learning-universes/${luId}/download-complete`), luId, title);
   };
 
   const loading = isLoading || luLoading;
@@ -550,7 +551,7 @@ export function MyCourses() {
                                       const token = localStorage.getItem("lms_token");
                                       if (!token) throw new Error("Authentication required");
                                       const response = await fetch(
-                                        `/api/certificates/course/${certificate.id}/download`,
+                                        apiUrl(`/api/certificates/course/${certificate.id}/download`),
                                         { headers: { Authorization: `Bearer ${token}` } }
                                       );
                                       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
@@ -590,7 +591,7 @@ export function MyCourses() {
                                   size="sm"
                                   className="rounded-lg border-blue-500/30 text-blue-600 hover:bg-blue-500/10"
                                   onClick={() => {
-                                    const previewUrl = `/api/certificates/preview/${certificate.certificateId}`;
+                                    const previewUrl = apiUrl(`/api/certificates/preview/${certificate.certificateId}`);
                                     const previewWindow = window.open(
                                       previewUrl,
                                       "_blank",
@@ -779,9 +780,10 @@ export function MyCourses() {
                                     try {
                                       const token = localStorage.getItem("lms_token");
                                       if (!token) throw new Error("Authentication required");
-                                      const url =
+                                      const raw =
                                         certificate.downloadUrl ||
                                         `/api/certificates/lu/${certificate.id}/download`;
+                                      const url = raw.startsWith("http") ? raw : apiUrl(raw);
                                       const response = await fetch(url, {
                                         headers: { Authorization: `Bearer ${token}` },
                                       });

@@ -1,6 +1,7 @@
 import { useState, memo } from "react";
 import { Loader2 } from "lucide-react";
 import { resolveCourseMediaUrl, resolveLectureVideoUrl, withUploadAuth } from "@/lib/courseMediaUrls";
+import { apiUrl } from "@/lib/api";
 import { inferUploadVideoMime } from "@/lib/videoUtils";
 import { UploadedVideoPlayer } from "@/components/video/UploadedVideoPlayer";
 import { MediaInteractionGuard } from "@/components/video/MediaInteractionGuard";
@@ -104,7 +105,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     resolveCourseMediaUrl(rawUrl) ||
     rawUrl;
 
-  const streamFallback = lectureId ? withUploadAuth(`/api/lectures/video/${lectureId}`) : undefined;
+  const streamFallback = lectureId ? withUploadAuth(apiUrl(`/api/lectures/video/${lectureId}`)) : undefined;
   const uploadMime = resolvedUrl ? inferUploadVideoMime(resolvedUrl) : "video/mp4";
 
   const effectiveYoutubeId = youtubeIdProp || resolved?.youtubeId || (videoType === "youtube" ? extractYouTubeId(rawUrl || resolvedUrl) : null);

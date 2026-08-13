@@ -5,7 +5,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
+import { api, getWsConnectTarget } from '@/lib/api';
 import {
   getCachedModel,
   getOrCreateModel,
@@ -18,8 +18,8 @@ const LOG = '[Academic Studio]';
 
 function getYjsWsUrl(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/yjs/`;
+  const { protocol, host } = getWsConnectTarget();
+  return `${protocol}://${host}/yjs/`;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

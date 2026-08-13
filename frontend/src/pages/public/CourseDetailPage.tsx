@@ -1,7 +1,7 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, PlayCircle, Globe, User, ShieldCheck, ArrowLeft, Loader2, Star, FileText, Target, Zap, ListChecks, Users, Trophy } from "lucide-react";
-import { api } from "@/lib/api";
+import { apiUrl, api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,7 +63,7 @@ export function CourseDetailPage() {
       setPdfError(null);
       
       try {
-        const res = await fetch(`/api/latex/compile`, {
+        const res = await fetch(apiUrl(`/api/latex/compile`), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -128,7 +128,7 @@ export function CourseDetailPage() {
     if (!courseId) return;
     setIsDownloadingCertificate(true);
     try {
-      const response = await fetch(`/api/certificates/course/${courseId}/generate`, {
+      const response = await fetch(apiUrl(`/api/certificates/course/${courseId}/generate`), {
         method: "POST",
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {})

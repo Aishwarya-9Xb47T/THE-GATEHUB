@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { useToastStore } from "@/store/toastStore";
-import { getToken } from "@/lib/api";
+import { apiUrl, getToken } from "@/lib/api";
 
 interface GoogleAuthStatus {
   configured: boolean;
@@ -36,7 +36,7 @@ export function InteractiveClassroomCreate() {
   // Check Google Workspace Auth Status on load
   const checkGoogleStatus = useCallback(async () => {
     try {
-      const response = await fetch("/api/google-workspace/auth/status", {
+      const response = await fetch(apiUrl("/api/google-workspace/auth/status"), {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (response.ok) {
@@ -58,7 +58,7 @@ export function InteractiveClassroomCreate() {
   const handleConnectGoogle = async () => {
     setConnectingGoogle(true);
     try {
-      const response = await fetch("/api/google-workspace/auth", {
+      const response = await fetch(apiUrl("/api/google-workspace/auth"), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ redirectUrl: window.location.origin }),
@@ -114,7 +114,7 @@ export function InteractiveClassroomCreate() {
 
         // Authenticated import for private decks when Google is connected
         if (googleAuth?.authenticated) {
-          const authResponse = await fetch("/api/classroom-studio/import", {
+          const authResponse = await fetch(apiUrl("/api/classroom-studio/import"), {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -142,7 +142,7 @@ export function InteractiveClassroomCreate() {
         }
 
         // Public import: export PPTX and run canonical parser pipeline
-        const response = await fetch("/api/classroom-studio/google-slides/import-public", {
+        const response = await fetch(apiUrl("/api/classroom-studio/google-slides/import-public"), {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -190,7 +190,7 @@ export function InteractiveClassroomCreate() {
         setUploadProgress(0);
         const result = await new Promise<{ status: number; ok: boolean; data: any }>((resolve, reject) => {
           const request = new XMLHttpRequest();
-          request.open("POST", "/api/classroom-studio/import");
+          request.open("POST", apiUrl("/api/classroom-studio/import"));
           request.setRequestHeader("Authorization", headers.Authorization);
           request.upload.onprogress = (event) => {
             if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
@@ -226,7 +226,7 @@ export function InteractiveClassroomCreate() {
       }
 
       // Manual Presentation Creation
-      const response = await fetch("/api/classroom-studio/presentations", {
+      const response = await fetch(apiUrl("/api/classroom-studio/presentations"), {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({

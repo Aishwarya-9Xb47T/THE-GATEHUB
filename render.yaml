@@ -18,6 +18,18 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      - key: CLIENT_URL
+        value: https://gatehub-frontend.onrender.com
+      - key: FRONTEND_URL
+        value: https://gatehub-frontend.onrender.com
+      - key: API_URL
+        value: https://gatehub-backend-mprr.onrender.com
+      - key: GOOGLE_OAUTH_CALLBACK_URL
+        value: https://gatehub-backend-mprr.onrender.com/api/auth/google/callback
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
 
   - type: web
     name: gatehub-frontend
@@ -32,7 +44,11 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://gatehub-backend.onrender.com/api
+        value: https://gatehub-backend-mprr.onrender.com/api
+      - key: VITE_WS_BASE_URL
+        value: https://gatehub-backend-mprr.onrender.com
+      - key: VITE_WS_URL
+        value: wss://gatehub-backend-mprr.onrender.com/yjs/
 
 databases:
   - name: gatehub-db

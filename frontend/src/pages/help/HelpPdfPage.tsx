@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ZoomIn, ZoomOut, Download, Printer, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -21,7 +22,7 @@ const MANUAL_TITLES: Record<string, string> = {
 
 export function HelpPdfPage() {
   const { manual = "student" } = useParams();
-  const pdfUrl = `/api/docs/pdf/${manual}`;
+  const pdfUrl = apiUrl(`/api/docs/pdf/${manual}`);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);

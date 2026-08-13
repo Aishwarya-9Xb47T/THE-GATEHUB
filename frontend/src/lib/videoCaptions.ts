@@ -1,4 +1,5 @@
 import { resolveCourseMediaUrl } from "@/lib/courseMediaUrls";
+import { apiUrl } from "@/lib/api";
 
 export interface VideoCaptionTrack {
   language: string;
@@ -106,7 +107,7 @@ export async function uploadCaptionFile(file: File): Promise<string> {
   formData.append("file", blob, filename);
 
   const token = localStorage.getItem("lms_token");
-  const res = await fetch("/api/upload", {
+  const res = await fetch(apiUrl("/api/upload"), {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,

@@ -1,4 +1,4 @@
-import { api, apiFormData } from "@/lib/api";
+import { api, apiFormData, apiUrl } from "@/lib/api";
 import type {
   BankCollection,
   BankQuestion,
@@ -113,7 +113,7 @@ export async function getImportJobStatus(jobId: string) {
   console.log(`[frontend][api] Token: ${token ? 'present' : 'missing'}`);
 
   try {
-    const res = await fetch(`/api${BASE}/import/jobs/${jobId}`, { headers });
+    const res = await fetch(apiUrl(`/api${BASE}/import/jobs/${jobId}`), { headers });
     const json = (await res.json()) as {
       success: boolean;
       data: ImportJobStatus;
@@ -166,7 +166,7 @@ export async function analyzeImportSource(params: {
   let jobId: string;
   try {
     console.log(`[frontend][api] POST to /api${BASE}/import/analyze`);
-    const res = await fetch(`/api${BASE}/import/analyze`, { method: "POST", headers, body: formData });
+    const res = await fetch(apiUrl(`/api${BASE}/import/analyze`), { method: "POST", headers, body: formData });
     const json = (await res.json()) as {
       success: boolean;
       data?: { jobId: string };

@@ -1,3 +1,4 @@
+import { apiUrl } from "@/lib/api";
 export interface QuizAttemptRealtimeEvent {
   type: "QUIZ_ATTEMPT_COMPLETED" | "QUIZ_ANALYTICS_REFRESH";
   attemptId?: string;
@@ -19,7 +20,7 @@ export function subscribeQuizAttemptEvents(onEvent: (event: QuizAttemptRealtimeE
   const openStreamLoop = async () => {
     while (!controller.signal.aborted) {
       try {
-        const res = await fetch("/api/quizzes/my/attempt-events", {
+        const res = await fetch(apiUrl("/api/quizzes/my/attempt-events"), {
           headers: {
             Authorization: `Bearer ${token}`,
           },

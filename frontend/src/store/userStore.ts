@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { apiUrl } from "@/lib/api";
 
 export type Role = "student" | "instructor" | "admin" | "super_admin";
 
@@ -86,7 +87,7 @@ export const useUserStore = create<UserState>()(
         const token = getStoredToken();
         if (token) {
           try {
-            await fetch("/api/auth/logout", {
+            await fetch(apiUrl("/api/auth/logout"), {
               method: "POST",
               headers: { Authorization: `Bearer ${token}` },
             });
@@ -116,7 +117,7 @@ export const useUserStore = create<UserState>()(
             setLoading(true);
           }
 
-          const response = await fetch("/api/auth/me", {
+          const response = await fetch(apiUrl("/api/auth/me"), {
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",

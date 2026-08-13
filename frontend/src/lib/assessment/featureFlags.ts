@@ -1,3 +1,4 @@
+import { apiUrl } from "@/lib/api";
 /**
  * Frontend mirror of backend assessment feature flag registry.
  * @see backend/src/config/assessmentFeatureFlags.ts
@@ -49,7 +50,7 @@ export async function fetchAssessmentFeatureFlags(): Promise<Record<AssessmentFe
     const headers: HeadersInit = {};
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const res = await fetch("/api/assessment-platform/feature-flags", { headers });
+    const res = await fetch(apiUrl("/api/assessment-platform/feature-flags"), { headers });
     if (!res.ok) return { ...ASSESSMENT_FEATURE_FLAG_DEFAULTS };
 
     const json = (await res.json()) as { success: boolean; data: AssessmentFeatureFlagsResponse };

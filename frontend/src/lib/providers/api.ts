@@ -6,8 +6,9 @@
 
 import axios from 'axios';
 import type { ProviderFile, ListFilesResult, ProviderStatus } from './types.js';
+import { apiUrl } from '@/lib/api';
 
-const API_BASE = '/api/providers';
+const API_BASE = apiUrl('/api/providers');
 
 /**
  * Get all available providers

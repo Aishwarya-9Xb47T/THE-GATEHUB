@@ -29,7 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToastStore } from "@/store/toastStore";
-import { getToken } from "@/lib/api";
+import { apiUrl, getToken } from "@/lib/api";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
 import { SessionQrPanel } from "@/components/classroom/SessionQrPanel";
 
@@ -138,7 +138,7 @@ export function InteractiveClassroomEditor() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
-      const response = await fetch(`/api/classroom-studio/presentations/${presentationId}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/presentations/${presentationId}`), {
         headers: { Authorization: `Bearer ${getToken()}` },
         signal: controller.signal,
       });
@@ -181,7 +181,7 @@ export function InteractiveClassroomEditor() {
     if (!presentation) return;
     setSaveState("saving");
     try {
-      const response = await fetch(`/api/classroom-studio/presentations/${presentationId}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/presentations/${presentationId}`), {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ title: presentation.title, description: presentation.description }),
@@ -203,8 +203,7 @@ export function InteractiveClassroomEditor() {
     if (!presentationId) return null;
     if (!options?.silent) setLoadingSession(true);
     try {
-      const response = await fetch(
-        `/api/classroom-studio/sessions?presentationId=${presentationId}&status=active`,
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions?presentationId=${presentationId}&status=active`),
         { headers: { Authorization: `Bearer ${getToken()}` } },
       );
       if (!response.ok) return null;
@@ -294,7 +293,7 @@ export function InteractiveClassroomEditor() {
       prev ? { ...prev, slides: prev.slides.map((s) => (s.id === slide.id ? updated : s)) } : prev,
     );
     try {
-      const response = await fetch(`/api/classroom-studio/slides/${slide.id}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/slides/${slide.id}`), {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ [flag]: updated[flag] }),
@@ -318,7 +317,7 @@ export function InteractiveClassroomEditor() {
 
   const handleDuplicateSlide = async (slide: Slide) => {
     try {
-      const response = await fetch(`/api/classroom-studio/slides/${slide.id}/duplicate`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/slides/${slide.id}/duplicate`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -340,7 +339,7 @@ export function InteractiveClassroomEditor() {
       return;
     }
     try {
-      const response = await fetch(`/api/classroom-studio/slides/${slide.id}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/slides/${slide.id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -367,7 +366,7 @@ export function InteractiveClassroomEditor() {
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     autosaveTimer.current = window.setTimeout(async () => {
       try {
-        const response = await fetch(`/api/classroom-studio/slides/${slide.id}`, {
+        const response = await fetch(apiUrl(`/api/classroom-studio/slides/${slide.id}`), {
           method: "PUT",
           headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
           body: JSON.stringify({ title }),
@@ -409,7 +408,7 @@ export function InteractiveClassroomEditor() {
         return;
       }
 
-      const response = await fetch("/api/classroom-studio/sessions", {
+      const response = await fetch(apiUrl("/api/classroom-studio/sessions"), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ presentationId: presentation.id, title: presentation.title }),

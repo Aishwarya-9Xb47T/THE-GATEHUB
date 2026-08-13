@@ -13,6 +13,7 @@ import { LiveLeaderboard } from "@/components/live-session/LiveLeaderboard";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api";
 
 const OPTION_THEMES = [
   { color: "bg-red-500 hover:bg-red-600 border-red-600", text: "text-red-100", icon: "▲", shape: "triangle" },
@@ -44,7 +45,7 @@ export function LiveLeaderboardDisplayPage() {
   useEffect(() => {
     if (!sessionState?.quizId) return;
     const token = localStorage.getItem("lms_token");
-    fetch(`/api/quizzes/${sessionState.quizId}`, {
+    fetch(apiUrl(`/api/quizzes/${sessionState.quizId}`), {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(res => res.json())
@@ -60,7 +61,7 @@ export function LiveLeaderboardDisplayPage() {
     enabled: !!sessionId && sessionState?.status === "active",
     queryFn: async () => {
       const token = localStorage.getItem("lms_token");
-      const res = await fetch(`/api/live-sessions/${sessionId}/analytics`, {
+      const res = await fetch(apiUrl(`/api/live-sessions/${sessionId}/analytics`), {
         headers: { Authorization: `Bearer ${token}` }
       });
       const body = await res.json();

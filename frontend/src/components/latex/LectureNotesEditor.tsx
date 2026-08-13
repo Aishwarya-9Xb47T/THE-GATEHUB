@@ -3,7 +3,7 @@ import Editor from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { AlertCircle, Loader2, Play, Save, Upload, Image, FileText, Video, Download, RefreshCw, ChevronDown, ChevronRight, Type, Table, List, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { apiUrl, api } from "@/lib/api";
 import { useToastStore } from "@/store/toastStore";
 import { useAuthStore } from "@/store/authStore";
 import { useParams } from "react-router-dom";
@@ -285,7 +285,7 @@ export function LectureNotesEditor() {
       const cleanedLatex = cleanLatexForCompilation(currentContent);
       console.log("Sending LaTeX (cleaned):", cleanedLatex);
       
-      const response = await fetch("/api/latex/compile", {
+      const response = await fetch(apiUrl("/api/latex/compile"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -416,7 +416,7 @@ export function LectureNotesEditor() {
     try {
       console.log("🔗 Attaching notes:", { lectureId, fileUrl });
       
-      const response = await fetch(`/api/lectures/${lectureId}/attach-notes`, {
+      const response = await fetch(apiUrl(`/api/lectures/${lectureId}/attach-notes`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -593,7 +593,7 @@ const handleSidebarFileUpload = useCallback(async (event: React.ChangeEvent<HTML
 
   try {
     // Use general upload endpoint for all files
-    const response = await fetch('/api/upload', {
+    const response = await fetch(apiUrl('/api/upload'), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,

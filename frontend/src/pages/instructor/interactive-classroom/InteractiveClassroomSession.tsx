@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useToastStore } from "@/store/toastStore";
-import { getToken } from "@/lib/api";
+import { apiUrl, getToken, getWsConnectTarget } from "@/lib/api";
 import { getUserIdFromToken } from "@/lib/auth";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
 import { parseSlide } from "@/lib/slideParser/index";
@@ -116,8 +116,7 @@ export function InteractiveClassroomSession() {
   const fetchResponseSummary = useCallback(async (interactionId: string) => {
     if (!sessionId) return;
     try {
-      const response = await fetch(
-        `/api/classroom-studio/sessions/${sessionId}/interactions/${interactionId}/summary`,
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/interactions/${interactionId}/summary`),
         { headers: { Authorization: `Bearer ${getToken()}` } },
       );
       if (response.ok) {
@@ -132,7 +131,7 @@ export function InteractiveClassroomSession() {
   const fetchParticipants = useCallback(async () => {
     if (!sessionId) return;
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}/participants`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/participants`), {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!response.ok) return;
@@ -164,7 +163,7 @@ export function InteractiveClassroomSession() {
 
   const fetchSession = async () => {
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}`), {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!response.ok) throw new Error("Failed to load session");
@@ -174,7 +173,7 @@ export function InteractiveClassroomSession() {
       if (!data.currentSlideId) {
         const firstSlide = getVisibleSlides(data.presentation.slides)[0];
         if (firstSlide) {
-          await fetch(`/api/classroom-studio/sessions/${sessionId}/current-slide`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ slideId: firstSlide.id }) });
+          await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/current-slide`), { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ slideId: firstSlide.id }) });
           data.currentSlideId = firstSlide.id;
         }
       }
@@ -193,8 +192,8 @@ export function InteractiveClassroomSession() {
 
   const connectWebSocket = useCallback(() => {
     const userId = getUserIdFromToken() || "instructor";
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = `${protocol}://${window.location.host}/ws/classroom-studio?sessionId=${sessionId}&userId=${userId}&role=instructor&token=${encodeURIComponent(getToken() || "")}`;
+    const { protocol, host } = getWsConnectTarget();
+    const wsUrl = `${protocol}://${host}/ws/classroom-studio?sessionId=${sessionId}&userId=${userId}&role=instructor&token=${encodeURIComponent(getToken() || "")}`;
     console.log("[WS] Instructor connecting", { sessionId, userId, wsUrl });
     const ws = new WebSocket(wsUrl);
 
@@ -350,7 +349,7 @@ export function InteractiveClassroomSession() {
     // Optimistic local update
     setSession((current) => current ? { ...current, currentSlideId: slide.id, activeInteractionId: null } : current);
     try {
-      await fetch(`/api/classroom-studio/sessions/${sessionId}/current-slide`, {
+      await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/current-slide`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ slideId: slide.id, previousSlideId }),
@@ -386,7 +385,7 @@ export function InteractiveClassroomSession() {
 
   const triggerInteraction = async (interactionId: string) => {
     try {
-      await fetch(`/api/classroom-studio/sessions/${sessionId}/activate-interaction`, {
+      await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/activate-interaction`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ interactionId }),
@@ -401,7 +400,7 @@ export function InteractiveClassroomSession() {
 
   const endInteraction = async () => {
     try {
-      await fetch(`/api/classroom-studio/sessions/${sessionId}/deactivate-interaction`, {
+      await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/deactivate-interaction`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -417,7 +416,7 @@ export function InteractiveClassroomSession() {
   const revealAnswers = async () => {
     if (!session?.activeInteractionId) return;
     try {
-      await fetch(`/api/classroom-studio/sessions/${sessionId}/reveal-answer`, {
+      await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/reveal-answer`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ interactionId: session.activeInteractionId }),
@@ -436,7 +435,7 @@ export function InteractiveClassroomSession() {
       setRevealed(false);
       setExpandedOptions({});
       // Call the real reopen API: clears DB responses + re-activates + broadcasts
-      await fetch(`/api/classroom-studio/sessions/${sessionId}/interactions/${interactionId}/reopen`, {
+      await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/interactions/${interactionId}/reopen`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -456,7 +455,7 @@ export function InteractiveClassroomSession() {
 
   const endSession = async () => {
     try {
-      await fetch(`/api/classroom-studio/sessions/${sessionId}/end`, {
+      await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/end`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -481,7 +480,7 @@ export function InteractiveClassroomSession() {
 
   const updateNavigation = async (next: typeof navigation) => {
     setNavigation(next);
-    await fetch(`/api/classroom-studio/sessions/${sessionId}`, { method: "PUT", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ settings: { ...(session?.settings ?? {}), navigation: next } }) });
+    await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}`), { method: "PUT", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ settings: { ...(session?.settings ?? {}), navigation: next } }) });
     wsRef.current?.send(JSON.stringify({ type: "navigation:change", data: { navigation: next } }));
   };
 
@@ -561,7 +560,7 @@ export function InteractiveClassroomSession() {
 
   const clearRaisedHands = async () => {
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}/clear-hands`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/clear-hands`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -583,7 +582,7 @@ export function InteractiveClassroomSession() {
     if (!session?.currentSlideId || addingInteraction) return;
     setAddingInteraction(true);
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}/quick-interaction`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/quick-interaction`), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ type, settings: settings ?? {} }),
@@ -622,7 +621,7 @@ export function InteractiveClassroomSession() {
 
   const exportCsv = async () => {
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}/export/csv`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/export/csv`), {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!response.ok) throw new Error("CSV export failed");
@@ -643,7 +642,7 @@ export function InteractiveClassroomSession() {
 
   const exportPdf = async () => {
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}/export/pdf`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/export/pdf`), {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (!response.ok) throw new Error("PDF export failed");

@@ -1,4 +1,5 @@
 import { useUserStore } from "@/store/userStore";
+import { apiUrl } from "@/lib/api";
 import type { MediaKind, MediaUploadOptions } from "./types";
 
 const IMAGE_TYPES = /^image\//;
@@ -40,7 +41,7 @@ function parseUploadUrl(raw: string): string {
 export function uploadMedia(file: File, options?: MediaUploadOptions): Promise<string> {
   const token = useUserStore.getState().token;
   // Use a single generic upload endpoint for all file types
-  const endpoint = "/api/upload";
+  const endpoint = apiUrl("/api/upload");
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

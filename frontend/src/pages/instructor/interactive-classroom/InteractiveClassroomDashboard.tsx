@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToastStore } from "@/store/toastStore";
-import { getToken } from "@/lib/api";
+import { apiUrl, getToken } from "@/lib/api";
 
 interface Presentation {
   id: string;
@@ -44,7 +44,7 @@ export function InteractiveClassroomDashboard() {
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
       console.info("[Classroom dashboard] Loading presentations");
-      const response = await fetch("/api/classroom-studio/presentations", {
+      const response = await fetch(apiUrl("/api/classroom-studio/presentations"), {
         headers: {
           Authorization: `Bearer ${getToken()}`,
         },
@@ -70,7 +70,7 @@ export function InteractiveClassroomDashboard() {
   const handleStartSession = async (presentation: Presentation) => {
     console.log('[ClassroomDashboard] Starting session', { presentationId: presentation.id, title: presentation.title });
     try {
-      const response = await fetch("/api/classroom-studio/sessions", {
+      const response = await fetch(apiUrl("/api/classroom-studio/sessions"), {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ presentationId: presentation.id, title: presentation.title }),

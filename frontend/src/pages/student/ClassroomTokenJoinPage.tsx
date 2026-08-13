@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToastStore } from '@/store/toastStore';
 import { useUserStore } from '@/store/userStore';
-import { getToken } from '@/lib/api';
+import { apiUrl, getToken } from "@/lib/api";
 
 export function ClassroomTokenJoinPage() {
   const { token } = useParams<{ token: string }>();
@@ -40,7 +40,7 @@ export function ClassroomTokenJoinPage() {
     }
 
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/join-token/${token}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/join-token/${token}`), {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
 

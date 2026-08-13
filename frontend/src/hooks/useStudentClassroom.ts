@@ -10,6 +10,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToastStore } from '@/store/toastStore';
 import { getUserIdFromToken } from '@/lib/auth';
 import { useSessionRecovery } from '@/hooks/useSessionRecovery';
+import { apiUrl, getWsConnectTarget } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -278,7 +279,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
   const fetchStudentView = useCallback(async () => {
     console.log('[StudentClassroom] Fetching session data', { sessionId });
     try {
-      const response = await fetch(`/api/classroom-studio/sessions/${sessionId}`, {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}`), {
         headers: { Authorization: `Bearer ${localStorage.getItem('lms_token')}` },
       });
       console.log('[StudentClassroom] Session lookup response', { status: response.status, ok: response.ok });
@@ -322,7 +323,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
 
       console.log('[StudentClassroom] Joining session via HTTP', { sessionId: sid });
       // Join the session
-      const joinResponse = await fetch(`/api/classroom-studio/sessions/${sid}/join`, {
+      const joinResponse = await fetch(apiUrl(`/api/classroom-studio/sessions/${sid}/join`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('lms_token')}` },
       });
@@ -346,7 +347,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
 
   const fetchChatHistory = async (sid: string) => {
     try {
-      const res = await fetch(`/api/classroom-studio/sessions/${sid}/chat`, {
+      const res = await fetch(apiUrl(`/api/classroom-studio/sessions/${sid}/chat`), {
         headers: { Authorization: `Bearer ${localStorage.getItem('lms_token')}` },
       });
       if (res.ok) {
@@ -552,9 +553,9 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     }
 
     const userId = getUserIdFromToken() || 'student';
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const { protocol, host } = getWsConnectTarget();
     const token = localStorage.getItem('lms_token');
-    const wsUrl = `${protocol}://${window.location.host}/ws/classroom-studio?sessionId=${sid}&userId=${userId}&role=student&token=${encodeURIComponent(token || '')}`;
+    const wsUrl = `${protocol}://${host}/ws/classroom-studio?sessionId=${sid}&userId=${userId}&role=student&token=${encodeURIComponent(token || '')}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
@@ -603,7 +604,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
   const submitQuestion = useCallback(async (text: string) => {
     if (!resolvedSessionId || !text.trim()) return;
     try {
-      const res = await fetch(`/api/classroom-studio/sessions/${resolvedSessionId}/questions`, {
+      const res = await fetch(apiUrl(`/api/classroom-studio/sessions/${resolvedSessionId}/questions`), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('lms_token')}`,
@@ -632,7 +633,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     }
 
     try {
-      const res = await fetch(`/api/classroom-studio/sessions/${resolvedSessionId}/interactions/${interactionId}/responses`, {
+      const res = await fetch(apiUrl(`/api/classroom-studio/sessions/${resolvedSessionId}/interactions/${interactionId}/responses`), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('lms_token')}`,

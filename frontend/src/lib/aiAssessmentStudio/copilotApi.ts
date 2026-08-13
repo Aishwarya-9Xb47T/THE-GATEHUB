@@ -1,5 +1,6 @@
 import type { AiGeneratedQuestion } from "./types";
 import type { CopilotIntent } from "./copilotTypes";
+import { apiUrl } from "@/lib/api";
 
 const BASE = "/assessment-studio";
 
@@ -23,7 +24,7 @@ export async function getAiJobStatus(jobId: string): Promise<{ data?: import("./
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}`, { headers });
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}`), { headers });
     const json = (await res.json()) as { success: boolean; data: import("./types").AiJobStatusResponse; error?: string };
     if (res.status === 202 || res.status === 422 || res.ok) return { data: json.data };
     return { error: json.error || "Failed to load status" };
@@ -41,7 +42,7 @@ export async function runCopilotCommand(
   error?: string;
 }> {
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}/copilot`, {
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}/copilot`), {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ command, questionIds, stream: false }),
@@ -72,7 +73,7 @@ export async function runCopilotAction(
   error?: string;
 }> {
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}/copilot/action`, {
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}/copilot/action`), {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ intent, questionIds }),
@@ -105,7 +106,7 @@ export async function streamCopilotCommand(
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`/api${BASE}/ai/jobs/${jobId}/copilot`, {
+    const res = await fetch(apiUrl(`/api${BASE}/ai/jobs/${jobId}/copilot`), {
       method: "POST",
       headers,
       body: JSON.stringify({ command, questionIds, stream: true }),

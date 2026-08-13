@@ -9,6 +9,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { CodingWorkspaceBlock } from '../../types/codingWorkspace';
+import { apiUrl } from "@/lib/api";
 
 interface CodingWorkspaceRendererProps {
   workspace: CodingWorkspaceBlock;
@@ -176,7 +177,7 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setCompilerErrors([]);
     
     try {
-      const response = await fetch('/api/coding-lab/execute', {
+      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,7 +214,7 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setCompilerErrors([]);
     
     try {
-      const response = await fetch('/api/coding-lab/execute', {
+      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -239,7 +240,7 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setOutput('');
     
     try {
-      const response = await fetch('/api/coding-lab/execute', {
+      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -272,7 +273,7 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setCompilerErrors([]);
     
     try {
-      const response = await fetch('/api/coding-lab/execute', {
+      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -323,7 +324,7 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setIsRunning(true);
     
     try {
-      const response = await fetch('/api/coding-lab/submit', {
+      const response = await fetch(apiUrl('/api/coding-lab/submit'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

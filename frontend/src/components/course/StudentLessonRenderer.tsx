@@ -6,6 +6,7 @@ import { TryItPlayground } from "@/components/learning/TryItPlayground";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { CoursePdfViewer } from "@/components/course/CoursePdfViewer";
 import { resolveCourseMediaUrl } from "@/lib/courseMediaUrls";
+import { apiUrl } from "@/lib/api";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
 import type { LessonContentBlock } from "@/lib/lessonBlocks";
 import { CourseLectureQuizBlock } from "./CourseLectureQuizBlock";
@@ -156,7 +157,7 @@ export function StudentLessonRenderer({
                     <p className="text-sm font-medium text-muted-foreground mb-3">{block.title}</p>
                   )}
                   <CoursePdfViewer
-                    url={`/api/lectures/${block.lectureId || lectureId}/notes-pdf`}
+                    url={apiUrl(`/api/lectures/${block.lectureId || lectureId}/notes-pdf`)}
                     title={block.title || lectureTitle}
                     className="flex-1 min-h-[50vh]"
                   />

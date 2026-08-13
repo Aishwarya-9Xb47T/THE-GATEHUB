@@ -24,6 +24,7 @@ import {
   getParticipantAttemptReview,
   getQuestionResponses,
 } from "@/lib/liveSession/api";
+import { apiUrl } from "@/lib/api";
 import { AttemptQuestionReview } from "@/components/quiz-reporting/AttemptQuestionReview";
 
 interface ReplayEvent {
@@ -578,9 +579,8 @@ export function LiveSessionReportPage() {
     setExportMessage(`Generating ${format.toUpperCase()} report...`);
     try {
       const token = localStorage.getItem("lms_token") || "";
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
       const res = await fetch(
-        `${baseUrl}/api/live-sessions/${sessionId}/export-${format}?token=${encodeURIComponent(token)}`,
+        apiUrl(`/api/live-sessions/${sessionId}/export-${format}?token=${encodeURIComponent(token)}`),
         { credentials: "include" }
       );
       if (!res.ok) throw new Error(`Export failed (${res.status})`);

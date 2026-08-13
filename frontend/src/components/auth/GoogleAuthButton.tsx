@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { getBackendOrigin } from "@/lib/api";
 
 interface GoogleAuthButtonProps {
   className?: string;
@@ -12,7 +13,7 @@ function getBackendBase(): string {
   if (import.meta.env.DEV) {
     return "http://localhost:5000";
   }
-  return window.location.origin;
+  return getBackendOrigin() || window.location.origin;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, getWsConnectTarget } from "@/lib/api";
 import type {
   LiveSessionSettings,
   LiveSessionState,
@@ -239,24 +239,9 @@ export function getLiveSessionJoinUrl(sessionId: string) {
 
 export function getLiveSessionWsUrl(sessionId: string, mode: "play" | "host" = "host") {
   const token = sessionStorage.getItem("lms_token") || localStorage.getItem("lms_token");
-  const explicitBase = import.meta.env.VITE_WS_BASE_URL || import.meta.env.VITE_API_BASE_URL;
-  const isLocalVite =
-    window.location.hostname === "localhost" &&
-    ["5173", "5174"].includes(window.location.port);
-
-  let protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  let host = window.location.host;
-
-  if (explicitBase) {
-    const url = new URL(explicitBase);
-    protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    host = url.host;
-  } else if (isLocalVite) {
-    host = "localhost:5000";
-  }
-
+  const { protocol, host } = getWsConnectTarget();
   const modeParam = mode === "play" ? "&mode=play" : "";
-  return `${protocol}//${host}/live-sessions/ws/${sessionId}?token=${encodeURIComponent(token || "")}${modeParam}`;
+  return `${protocol}://${host}/live-sessions/ws/${sessionId}?token=${encodeURIComponent(token || "")}${modeParam}`;
 }
 
 export interface LiveQuizValidationError {

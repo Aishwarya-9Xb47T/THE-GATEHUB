@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { api } from "@/lib/api";
+import { api, getBackendOrigin } from "@/lib/api";
 import type { LearnerExperienceStep } from "../../types";
 import { AutosaveCoordinator } from "../engine/autosaveCoordinator";
 import { disposeAllModels, researchModelKey, syncResearchModels } from "../engine/monacoModelRegistry";
@@ -11,8 +11,6 @@ import {
   hydrateResearchDocument,
   serializeResearchDocument,
 } from "./researchDocument";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 interface UseResearchEngineOptions {
   step: LearnerExperienceStep;
@@ -114,7 +112,7 @@ export function useResearchEngine({ step, projectId, onCompiled }: UseResearchEn
     }
 
     const url = res.data.fileUrl;
-    const pdfUrl = url ? (url.startsWith("http") ? url : `${API_BASE}${url}`) : null;
+    const pdfUrl = url ? (url.startsWith("http") ? url : `${getBackendOrigin()}${url}`) : null;
     store.getState().setCompileResult({
       success: true,
       pdfUrl,

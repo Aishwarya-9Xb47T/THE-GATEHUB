@@ -45,6 +45,7 @@ import type { ContentBuilderReviewPayload, ReviewQuestion } from '@/lib/contentB
 // Commit helper
 import axios from 'axios';
 import type { ContentBuilderCommitResult } from '@/lib/contentBuilder/types';
+import { apiUrl } from "@/lib/api";
 
 // Convert ContentBuilderReviewPayload to AssessmentDocument
 function toAssessmentDocument(payload: ContentBuilderReviewPayload, sourceType: string): AssessmentDocument {
@@ -112,7 +113,7 @@ async function commitQuestions(
 ): Promise<{ data?: { data: ContentBuilderCommitResult }; error?: string }> {
   try {
     const res = await axios.post<{ success: boolean; data: ContentBuilderCommitResult }>(
-      `/api/content-builder/jobs/${jobId}/commit`,
+      apiUrl(`/api/content-builder/jobs/${jobId}/commit`),
       { title, questionIds }
     );
     return { data: res.data };
@@ -418,7 +419,7 @@ export function BuildFromContentPage({
 
     try {
       // Step 1: Download file from provider
-      const downloadResponse = await fetch(`/api/providers/${providerId}/files/${file.id}`);
+      const downloadResponse = await fetch(apiUrl(`/api/providers/${providerId}/files/${file.id}`));
       
       if (!downloadResponse.ok) {
         if (downloadResponse.status === 401) {

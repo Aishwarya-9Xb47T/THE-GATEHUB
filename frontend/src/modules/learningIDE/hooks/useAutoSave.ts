@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { apiUrl } from "@/lib/api";
 
 interface AutoSaveOptions {
   onSave: (content: string) => Promise<void>;
@@ -65,7 +66,7 @@ export function useAutoSave({ onSave, debounceMs = 2000 }: AutoSaveOptions) {
         const data = new Blob([JSON.stringify({ content: contentRef.current })], {
           type: 'application/json'
         });
-        navigator.sendBeacon('/api/resources/content/save', data);
+        navigator.sendBeacon(apiUrl('/api/resources/content/save'), data);
       }
     };
 

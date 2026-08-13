@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { api, apiFormData } from "@/lib/api";
+import { apiUrl, api, apiFormData } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,7 +134,7 @@ export function AdminSettings() {
     queryKey: ["admin", "settings", "cert-preview-pdf", certPreviewKey],
     queryFn: async () => {
       const token = localStorage.getItem("lms_token");
-      const res = await fetch(`/api/admin/settings/certificate-preview/pdf?_=${Date.now()}`, {
+      const res = await fetch(apiUrl(`/api/admin/settings/certificate-preview/pdf?_=${Date.now()}`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

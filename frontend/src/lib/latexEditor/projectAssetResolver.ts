@@ -4,6 +4,7 @@
  */
 
 import { withUploadAuth } from "@/lib/courseMediaUrls";
+import { getBackendOrigin } from "@/lib/api";
 
 export interface ProjectAssetFile {
   name: string;
@@ -41,8 +42,12 @@ function normalizeProjectPath(filePath: string): string {
 
 /** Shared API base — Student Preview must hit backend :5000, not Vite :5173. */
 export function mediaApiBase(): string {
+  if (import.meta.env.PROD) {
+    const origin = getBackendOrigin();
+    if (origin) return origin;
+  }
   const env = import.meta.env.VITE_API_BASE_URL;
-  if (env) return String(env).replace(/\/$/, "");
+  if (env) return String(env).replace(/\/api\/?$/i, "").replace(/\/$/, "");
   if (typeof window !== "undefined" && window.location?.origin) {
     const origin = window.location.origin;
     if (origin.includes(":5173")) return origin.replace(":5173", ":5000");

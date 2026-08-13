@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { apiUrl, api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,7 +86,7 @@ export function InstructorCertificatesPage() {
     setDownloadingId(cert.id);
     try {
       const token = localStorage.getItem("lms_token");
-      const response = await fetch(`/api/certificates/lu/${cert.id}/download`, {
+      const response = await fetch(apiUrl(`/api/certificates/lu/${cert.id}/download`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!response.ok) throw new Error("Download failed");

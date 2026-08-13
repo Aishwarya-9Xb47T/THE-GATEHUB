@@ -18,13 +18,11 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { getLearningUniverseById, api } from "@/lib/api";
+import { getLearningUniverseById, api, apiUrl, getBackendOrigin } from "@/lib/api";
 import { buildLearnPath } from "@/lib/navigation";
 import { getNotebookPreviewUrl } from "@/lib/notebookPreview";
 import { validateColabUrl } from "@/lib/colabUrlValidator";
 import { useToastStore } from "@/store/toastStore";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 interface Project {
   id: string;
@@ -86,8 +84,8 @@ const DEFAULT_CHECKLIST = [
 function resolveAssetUrl(url: string, universe: { id: string; assets?: { filename: string; storedFilename: string }[] }) {
   if (!url || url.startsWith("http")) return url;
   const asset = universe.assets?.find((a) => a.filename === url);
-  if (asset) return `${API_BASE}/uploads/learning-universes/${universe.id}/${asset.storedFilename}`;
-  return `${API_BASE}/api/learning-universes/${universe.id}/assets/${encodeURIComponent(url)}`;
+  if (asset) return `${getBackendOrigin()}/uploads/learning-universes/${universe.id}/${asset.storedFilename}`;
+  return apiUrl(`/api/learning-universes/${universe.id}/assets/${encodeURIComponent(url)}`);
 }
 
 export function ProjectWorkspacePage() {
@@ -221,7 +219,7 @@ export function ProjectWorkspacePage() {
       if (reportPdf) form.append("reportPdf", reportPdf);
 
       const token = localStorage.getItem("lms_token");
-      const res = await fetch(`${API_BASE}/api/learning-universes/${id}/lessons/${lessonId}/project/submit`, {
+      const res = await fetch(apiUrl(`/api/learning-universes/${id}/lessons/${lessonId}/project/submit`), {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,
