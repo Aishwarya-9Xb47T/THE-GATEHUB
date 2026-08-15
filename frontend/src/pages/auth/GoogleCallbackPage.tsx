@@ -38,8 +38,15 @@ export function GoogleCallbackPage() {
         google_auth_failed: "Could not sign in with Google. Please try again.",
         not_configured: "Google Sign-In is not configured on this server.",
         registrations_disabled: "New registrations are currently disabled by the administrator.",
+        user_suspended: "This GateHub account is suspended. Contact support if you believe this is a mistake.",
+        user_deleted:
+          "This email belongs to a removed GateHub account. Sign in with email and password, or contact support to restore access.",
+        invalid_google_profile: "Google did not return a complete profile. Please try again.",
+        session_failed: "Could not create a sign-in session. Please try again.",
+        google_account_mismatch:
+          "This email is already linked to a different Google account. Sign in with email and password.",
       };
-      fail(messages[error] || decodeURIComponent(error));
+      fail(messages[error] || "Google sign-in could not be completed. Please try again.");
       return;
     }
 

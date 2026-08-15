@@ -97,6 +97,7 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
       (_accessToken, _refreshToken, profile, done) => {
         const email = profile.emails?.[0]?.value;
         if (!email) return done(new Error("No email from Google profile"));
+        if (!profile.id) return done(new Error("No Google subject id on profile"));
 
         const googleUser = {
           googleId: profile.id,

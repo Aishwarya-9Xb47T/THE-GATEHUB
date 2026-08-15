@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as authService from "../services/authService.js";
 import { AuthRequest } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
+import { googleAuthRedirectCode } from "../services/googleOAuthErrors.js";
 import { isDatabaseConnectionError } from "../utils/waitForDatabase.js";
 import { getAllowedRegistrationRoles } from "../utils/roles.js";
 import { normalizeEmail } from "../utils/emailNormalize.js";
@@ -213,7 +214,11 @@ export async function googleCallback(req: Request, res: Response) {
     );
     return res.redirect(`${clientUrl}/auth/google/callback?code=${encodeURIComponent(code)}`);
   } catch (err) {
-    const message = err instanceof AppError ? err.message : "Authentication failed";
-    return res.redirect(`${clientUrl}/auth/google/callback?error=${encodeURIComponent(message)}`);
+    const code = googleAuthRedirectCode(err);
+    console.error("[Auth] Google callback failed", {
+      code,
+      message: err instanceof Error ? err.message : "unknown",
+    });
+    return res.redirect(`${clientUrl}/auth/google/callback?error=${encodeURIComponent(code)}`);
   }
 }

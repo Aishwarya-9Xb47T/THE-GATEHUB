@@ -21,6 +21,7 @@ import {
   getReqMeta,
 } from "./securityAuditService.js";
 import { getFrontendUrl } from "../utils/frontendUrl.js";
+import { GOOGLE_AUTH_ERROR, isUsableGoogleProfile } from "./googleOAuthErrors.js";
 
 export interface RegisterInput {
   email: string;
@@ -349,140 +350,182 @@ export async function login(email: string, password: string, req?: ReqLike) {
   }
 }
 
+const GOOGLE_LOGIN_USER_SELECT = {
+  id: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  role: true,
+  avatar: true,
+  tokenVersion: true,
+  googleId: true,
+  suspended: true,
+  deletedAt: true,
+  authProvider: true,
+  emailVerified: true,
+} as const;
+
+function googleAuthError(status: number, code: string, message: string, retryable = false) {
+  return new AppError(status, message, true, { code, stage: "google-oauth", retryable });
+}
+
 export async function googleOAuthLogin(profile: GoogleProfile, req?: ReqLike) {
+  if (!isUsableGoogleProfile(profile)) {
+    throw googleAuthError(
+      400,
+      GOOGLE_AUTH_ERROR.INVALID_GOOGLE_PROFILE,
+      "Google did not return a complete profile. Please try again.",
+      true
+    );
+  }
+
   const email = normalizeEmail(profile.email);
+  const googleId = profile.googleId.trim();
+
+  // Soft-deleted rows must not occupy googleId or block an active account.
+  const released = await prisma.user.updateMany({
+    where: { googleId, deletedAt: { not: null } },
+    data: { googleId: null },
+  });
+  if (released.count > 0) {
+    console.warn("[Auth] Released googleId from soft-deleted user(s)", { count: released.count });
+  }
 
   let user = await prisma.user.findFirst({
-    where: { googleId: profile.googleId },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      role: true,
-      avatar: true,
-      tokenVersion: true,
-      suspended: true,
-      deletedAt: true,
-      authProvider: true,
-      emailVerified: true,
-    },
+    where: { googleId, deletedAt: null },
+    select: GOOGLE_LOGIN_USER_SELECT,
   });
 
   if (user) {
-    if (user.suspended || user.deletedAt) throw new AppError(403, "Account suspended or deleted");
+    if (user.suspended) {
+      console.warn("[Auth] Google login blocked: active account is suspended", { userId: user.id });
+      throw googleAuthError(
+        403,
+        GOOGLE_AUTH_ERROR.USER_SUSPENDED,
+        "This GateHub account is suspended. Contact support if you believe this is a mistake."
+      );
+    }
     if (!user.emailVerified) {
       user = await prisma.user.update({
         where: { id: user.id },
         data: { emailVerified: true, emailVerifiedAt: new Date() },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          avatar: true,
-          tokenVersion: true,
-          suspended: true,
-          deletedAt: true,
-          authProvider: true,
-          emailVerified: true,
-        },
+        select: GOOGLE_LOGIN_USER_SELECT,
       });
     }
   } else {
     const existingByEmail = await prisma.user.findUnique({
       where: { email },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        avatar: true,
-        tokenVersion: true,
-        suspended: true,
-        deletedAt: true,
-        authProvider: true,
-        emailVerified: true,
-      },
+      select: GOOGLE_LOGIN_USER_SELECT,
     });
 
+    if (existingByEmail?.deletedAt) {
+      console.warn("[Auth] Google login blocked: email belongs to a removed account", {
+        userId: existingByEmail.id,
+      });
+      throw googleAuthError(
+        403,
+        GOOGLE_AUTH_ERROR.USER_DELETED,
+        "This email belongs to a removed GateHub account. Sign in with email and password, or contact support to restore access."
+      );
+    }
+
     if (existingByEmail) {
-      if (existingByEmail.suspended || existingByEmail.deletedAt) {
-        throw new AppError(403, "Account suspended or deleted");
+      if (existingByEmail.suspended) {
+        console.warn("[Auth] Google login blocked: email account is suspended", {
+          userId: existingByEmail.id,
+        });
+        throw googleAuthError(
+          403,
+          GOOGLE_AUTH_ERROR.USER_SUSPENDED,
+          "This GateHub account is suspended. Contact support if you believe this is a mistake."
+        );
+      }
+      if (existingByEmail.googleId && existingByEmail.googleId !== googleId) {
+        console.warn("[Auth] Google login blocked: email already linked to a different Google account", {
+          userId: existingByEmail.id,
+        });
+        throw googleAuthError(
+          409,
+          GOOGLE_AUTH_ERROR.GOOGLE_ACCOUNT_MISMATCH,
+          "This email is already linked to a different Google account. Sign in with email and password."
+        );
       }
       user = await prisma.user.update({
         where: { id: existingByEmail.id },
         data: {
-          googleId: profile.googleId,
-          authProvider: "both",
+          googleId,
+          authProvider: existingByEmail.authProvider === "google" ? "google" : "both",
           emailVerified: true,
           emailVerifiedAt: new Date(),
           ...(profile.avatar && !existingByEmail.avatar ? { avatar: profile.avatar } : {}),
         },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          avatar: true,
-          tokenVersion: true,
-          suspended: true,
-          deletedAt: true,
-          authProvider: true,
-          emailVerified: true,
-        },
+        select: GOOGLE_LOGIN_USER_SELECT,
       });
     } else {
       const settings = await getPlatformSettings();
       if (!settings.studentRegistrationEnabled) {
-        throw new AppError(403, "New registrations are currently disabled");
+        throw googleAuthError(
+          403,
+          GOOGLE_AUTH_ERROR.REGISTRATIONS_DISABLED,
+          "New registrations are currently disabled"
+        );
       }
 
-      user = await prisma.user.create({
-        data: {
-          email,
-          googleId: profile.googleId,
-          authProvider: "google",
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          avatar: profile.avatar ?? null,
-          role: "student",
-          emailVerified: true,
-          emailVerifiedAt: new Date(),
-        },
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          avatar: true,
-          tokenVersion: true,
-          suspended: true,
-          deletedAt: true,
-          authProvider: true,
-          emailVerified: true,
-        },
-      });
+      try {
+        user = await prisma.user.create({
+          data: {
+            email,
+            googleId,
+            authProvider: "google",
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            avatar: profile.avatar ?? null,
+            role: "student",
+            emailVerified: true,
+            emailVerifiedAt: new Date(),
+          },
+          select: GOOGLE_LOGIN_USER_SELECT,
+        });
+      } catch (err) {
+        const prismaCode =
+          err && typeof err === "object" && "code" in err ? String((err as { code?: string }).code) : "";
+        console.error("[Auth] Google user create failed", { prismaCode: prismaCode || "unknown" });
+        throw googleAuthError(
+          500,
+          GOOGLE_AUTH_ERROR.GOOGLE_AUTH_FAILED,
+          "Google sign-in could not be completed. Please try again.",
+          true
+        );
+      }
     }
   }
 
-  await recordLoginHistory(user.id, req, true);
-  const session = await createUserSession(user.id, user.tokenVersion, req);
-  const token = await signToken({ ...user, sessionId: session.id });
+  try {
+    await recordLoginHistory(user.id, req, true);
+    const session = await createUserSession(user.id, user.tokenVersion, req);
+    const token = await signToken({ ...user, sessionId: session.id });
 
-  await logSecurityEvent({
-    action: SECURITY_ACTIONS.LOGIN_SUCCESS,
-    userId: user.id,
-    email: user.email,
-    ...getReqMeta(req),
-    meta: { provider: "google" },
-  });
+    await logSecurityEvent({
+      action: SECURITY_ACTIONS.LOGIN_SUCCESS,
+      userId: user.id,
+      email: user.email,
+      ...getReqMeta(req),
+      meta: { provider: "google" },
+    });
 
-  return { user: sanitizeUser(user), token, sessionId: session.id };
+    return { user: sanitizeUser(user), token, sessionId: session.id };
+  } catch (err) {
+    console.error("[Auth] Google session creation failed", {
+      userId: user.id,
+      message: err instanceof Error ? err.message : "unknown",
+    });
+    throw googleAuthError(
+      500,
+      GOOGLE_AUTH_ERROR.SESSION_FAILED,
+      "Could not create a sign-in session. Please try again.",
+      true
+    );
+  }
 }
 
 /** Issue short-lived one-time code instead of putting JWT in the redirect URL. */
