@@ -20,6 +20,20 @@ export function isUsableGoogleProfile(profile: { googleId?: string; email?: stri
   return Boolean(profile.googleId?.trim() && profile.email?.trim());
 }
 
+/**
+ * How Google login should treat a row found by email.
+ * Soft-deleted rows occupy the unique email and must be treated as absent (tombstone + create).
+ * Live suspension (suspended, not deleted) stays blocked.
+ */
+export function googleEmailAccountPolicy(
+  user: { deletedAt: Date | string | null; suspended: boolean } | null
+): "missing" | "active" | "suspended" {
+  if (!user) return "missing";
+  if (user.deletedAt) return "missing";
+  if (user.suspended) return "suspended";
+  return "active";
+}
+
 export function googleAuthRedirectCode(err: unknown): GoogleAuthErrorCode {
   if (err && typeof err === "object" && "details" in err) {
     const code = (err as { details?: { code?: string } }).details?.code;
