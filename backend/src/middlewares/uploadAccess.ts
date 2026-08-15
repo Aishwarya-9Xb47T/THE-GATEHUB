@@ -6,58 +6,17 @@ import { JWT_SECRET } from "../config/jwt.js";
 import { prisma } from "../utils/prisma.js";
 import { isAdminRole, isValidRole, type Role } from "../utils/roles.js";
 import type { AuthRequest, JwtPayload } from "./auth.js";
+import {
+  isPublicUploadPath,
+  normalizeUploadRelativePath,
+} from "../utils/uploadMedia.js";
+
+export { isPublicUploadPath, normalizeUploadRelativePath };
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 
-/** Paths under /uploads that are publicly viewable without authentication. */
-export function isPublicUploadPath(relativePath: string): boolean {
-  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
-
-  // Explicitly public directories (banners, learning universes, public assets)
-  if (
-    normalized.startsWith("public/") ||
-    normalized === "public" ||
-    normalized.startsWith("banners/") ||
-    normalized === "banners" ||
-    normalized.startsWith("learning-universes/") ||
-    normalized === "learning-universes" ||
-    normalized.startsWith("resources/") ||
-    normalized === "resources" ||
-    normalized.startsWith("music/") ||
-    normalized === "music"
-  ) {
-    return true;
-  }
-
-  // Protected directories containing private student or document data
-  if (
-    normalized.startsWith("projects/") ||
-    normalized.startsWith("latex/") ||
-    normalized.startsWith("latex-versions/") ||
-    normalized.startsWith("import-artifacts/") ||
-    normalized.startsWith("certificates/") ||
-    normalized.startsWith("invoices/") ||
-    normalized.startsWith("videos/") ||
-    normalized.startsWith("pdfs/") ||
-    normalized.startsWith("attachments/") ||
-    normalized.startsWith("classroom/") ||
-    normalized.startsWith("classroom-studio/")
-  ) {
-    return false;
-  }
-
-  // Allow static images (thumbnails, placeholders, avatars) anywhere else in uploads
-  const ext = path.extname(normalized);
-  const publicImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".ico"];
-  if (publicImageExtensions.includes(ext)) {
-    return true;
-  }
-
-  return false;
-}
-
 export function resolveSafeUploadPath(relativePath: string): string | null {
-  const cleaned = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const cleaned = normalizeUploadRelativePath(relativePath);
   if (!cleaned || cleaned.includes("\0") || cleaned.split("/").some((p) => p === "..")) {
     return null;
   }
@@ -135,7 +94,10 @@ async function canAccessProjectUpload(
  * Project files additionally require owner/collaborator/admin.
  */
 export async function requireUploadAccess(req: AuthRequest, res: Response, next: NextFunction) {
-  const relative = (req.path || "").replace(/^\/+/, "");
+  const fromOriginal = String(req.originalUrl || req.url || "")
+    .split("?")[0]
+    .replace(/^\/uploads\/?/i, "");
+  const relative = normalizeUploadRelativePath(fromOriginal || req.path || "");
 
   if (isPublicUploadPath(relative)) {
     return next();

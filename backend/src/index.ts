@@ -73,6 +73,7 @@ import {
   getUploadRoot,
   requireUploadAccess,
   resolveSafeUploadPath,
+  normalizeUploadRelativePath,
 } from "./middlewares/uploadAccess.js";
 import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload } from "./middlewares/persistUpload.js";
 import { isVideoUploadPath } from "./utils/uploadMedia.js";
@@ -243,7 +244,10 @@ async function serveProjectUpload(req: Request, res: Response) {
 }
 
 async function serveAnyUpload(req: Request, res: Response, next: () => void) {
-  const relativePath = String((req.params as Record<string, string>)[0] || req.path.replace(/^\/+/, ""));
+  const fromOriginal = String(req.originalUrl || req.url || "").split("?")[0];
+  const relativePath = normalizeUploadRelativePath(
+    String((req.params as Record<string, string>)[0] || fromOriginal || req.path || "")
+  );
   const filePath = resolveSafeUploadPath(relativePath);
   if (!filePath) {
     return res.status(400).json({ success: false, error: "Invalid path" });
@@ -278,6 +282,10 @@ app.get("/uploads/projects/:projectId/:filename", serveProjectUpload);
 // media is never served as a stale empty stub and never redirected to a signed URL.
 app.head("/uploads/*", requireUploadAccess as any, serveAnyUpload);
 app.get("/uploads/*", requireUploadAccess as any, serveAnyUpload);
+app.use("/uploads", requireUploadAccess as any, (req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  return serveAnyUpload(req, res, next);
+});
 
 app.use("/uploads", express.static(getUploadRoot(), {
   setHeaders(res, filePath) {

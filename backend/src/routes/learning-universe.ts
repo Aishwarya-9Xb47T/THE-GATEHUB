@@ -184,7 +184,7 @@ router.get("/:id", optionalAuthenticate, async (req: AuthRequest, res) => {
 router.get("/:id/download-complete", authenticate, downloadCompleteLearningUniverse);
 
 // Asset serving endpoint — requires enrollment for paid universes
-router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthRequest, res) => {
+async function serveLearningUniverseAsset(req: AuthRequest, res: express.Response) {
   const { id: rawId, filename } = req.params;
   try {
     const { resolveCanonicalUniverseId } = await import("../services/learnerScopeService.js");
@@ -216,14 +216,20 @@ router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthReques
     }
 
     let asset = await prisma.learningUniverseAsset.findFirst({
-      where: { learningUniverseId: id, filename: filename },
+      where: {
+        learningUniverseId: id,
+        OR: [{ filename: filename }, { storedFilename: filename }],
+      },
     });
     if (!asset) {
       const allAssets = await prisma.learningUniverseAsset.findMany({
         where: { learningUniverseId: id },
       });
+      const lower = filename.toLowerCase();
       asset =
-        allAssets.find((a) => a.filename.toLowerCase() === filename.toLowerCase()) ?? null;
+        allAssets.find(
+          (a) => a.filename.toLowerCase() === lower || a.storedFilename.toLowerCase() === lower
+        ) ?? null;
     }
 
     if (!asset && lu.sourceProjectId) {
@@ -269,11 +275,11 @@ router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthReques
     );
     const assetPath = path.join(ASSETS_DIR, id, asset.storedFilename);
     if (fs.existsSync(assetPath)) {
-      return streamLocalUpload(res, assetPath, { range, method: req.method, mimeType: asset.mimeType });
+      return streamLocalUpload(res, assetPath, { range, method: req.method, mimeType: asset.mimeType || undefined });
     }
     const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
     if (hydrated) {
-      return streamLocalUpload(res, hydrated, { range, method: req.method, mimeType: asset.mimeType });
+      return streamLocalUpload(res, hydrated, { range, method: req.method, mimeType: asset.mimeType || undefined });
     }
     const streamed = await serveStoredUpload(res, `learning-universes/${id}/${asset.storedFilename}`, {
       range,
@@ -285,7 +291,10 @@ router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthReques
     console.error(err);
     res.status(500).json({ success: false, error: "Failed to serve asset" });
   }
-});
+}
+
+router.head("/:id/assets/:filename", optionalAuthenticate, serveLearningUniverseAsset);
+router.get("/:id/assets/:filename", optionalAuthenticate, serveLearningUniverseAsset);
 
 // Protected routes (for instructors)
 router.post("/draft", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {

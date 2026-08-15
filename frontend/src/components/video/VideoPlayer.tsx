@@ -88,7 +88,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
   } = props;
   const [isLoading, setIsLoading] = useState(true);
 
-  const rawUrl = (videoUrlProp || url || "").trim();
+  const rawUrl = (videoUrlProp || url || "").replace(/[\r\n]+/g, "").trim();
   const resolved = resolveVideoSource(
     {
       url: rawUrl,
@@ -100,12 +100,15 @@ export function VideoPlayer(props: VideoPlayerProps) {
   );
 
   const videoType = resolved?.type ?? detectVideoSourceType(rawUrl, videoTypeProp || type);
-  const resolvedUrl =
-    resolveLectureVideoUrl(rawUrl, videoType === "external" ? "upload" : videoType, lectureId) ||
-    resolveCourseMediaUrl(rawUrl) ||
-    rawUrl;
+  const isPublishedLuUpload = /\/uploads\/learning-universes\//i.test(rawUrl);
+  const resolvedUrl = isPublishedLuUpload
+    ? resolveCourseMediaUrl(rawUrl) || rawUrl
+    : resolveLectureVideoUrl(rawUrl, videoType === "external" ? "upload" : videoType, lectureId) ||
+      resolveCourseMediaUrl(rawUrl) ||
+      rawUrl;
 
-  const streamFallback = lectureId ? withUploadAuth(apiUrl(`/api/lectures/video/${lectureId}`)) : undefined;
+  const streamFallback =
+    !isPublishedLuUpload && lectureId ? withUploadAuth(apiUrl(`/api/lectures/video/${lectureId}`)) : undefined;
   const uploadMime = resolvedUrl ? inferUploadVideoMime(resolvedUrl) : "video/mp4";
 
   const effectiveYoutubeId = youtubeIdProp || resolved?.youtubeId || (videoType === "youtube" ? extractYouTubeId(rawUrl || resolvedUrl) : null);

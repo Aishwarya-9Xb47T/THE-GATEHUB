@@ -67,3 +67,54 @@ export function parseByteRange(
   const inspected = inspectByteRange(rangeHeader, fileSize);
   return inspected.type === "valid" ? { start: inspected.start, end: inspected.end } : null;
 }
+
+/**
+ * Express `app.use("/uploads")` yields `learning-universes/…`.
+ * `app.get("/uploads/*")` yields `uploads/learning-universes/…`.
+ */
+export function normalizeUploadRelativePath(relativePath: string): string {
+  return relativePath
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/^uploads\//i, "");
+}
+
+/** Paths under /uploads that are publicly viewable without authentication. */
+export function isPublicUploadPath(relativePath: string): boolean {
+  const normalized = normalizeUploadRelativePath(relativePath).toLowerCase();
+
+  if (
+    normalized.startsWith("public/") ||
+    normalized === "public" ||
+    normalized.startsWith("banners/") ||
+    normalized === "banners" ||
+    normalized.startsWith("learning-universes/") ||
+    normalized === "learning-universes" ||
+    normalized.startsWith("resources/") ||
+    normalized === "resources" ||
+    normalized.startsWith("music/") ||
+    normalized === "music"
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.startsWith("projects/") ||
+    normalized.startsWith("latex/") ||
+    normalized.startsWith("latex-versions/") ||
+    normalized.startsWith("import-artifacts/") ||
+    normalized.startsWith("certificates/") ||
+    normalized.startsWith("invoices/") ||
+    normalized.startsWith("videos/") ||
+    normalized.startsWith("pdfs/") ||
+    normalized.startsWith("attachments/") ||
+    normalized.startsWith("classroom/") ||
+    normalized.startsWith("classroom-studio/")
+  ) {
+    return false;
+  }
+
+  const ext = path.extname(normalized);
+  const publicImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".ico"];
+  return publicImageExtensions.includes(ext);
+}

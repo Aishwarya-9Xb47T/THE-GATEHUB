@@ -90,8 +90,11 @@ export function withUploadAuth(url: string): string {
       ? new URL(url)
       : new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
     const needsAuth =
-      absolute.pathname.startsWith("/uploads/") ||
-      /\/api\/learning-universes\/[^/]+\/assets\//i.test(absolute.pathname);
+      /\/api\/learning-universes\/[^/]+\/assets\//i.test(absolute.pathname) ||
+      (absolute.pathname.startsWith("/uploads/") &&
+        !/^\/uploads\/(learning-universes|banners|public|resources|music)\//i.test(
+          absolute.pathname
+        ));
     if (!needsAuth) return url;
     if (absolute.searchParams.has("token")) return url;
     absolute.searchParams.set("token", token);
@@ -110,6 +113,7 @@ export function withUploadAuth(url: string): string {
  */
 export function rewritePersistedMediaHost(url: string): string {
   if (!url?.trim()) return url;
+  url = url.replace(/[\r\n]+/g, "").trim();
   if (/^(data:|blob:)/i.test(url)) return url;
   try {
     if (!/^https?:\/\//i.test(url)) return url;

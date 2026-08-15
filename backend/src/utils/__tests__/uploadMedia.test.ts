@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
-import { mimeFromUploadPath, parseByteRange, inspectByteRange, isVideoUploadPath } from "../uploadMedia.js";
+import { mimeFromUploadPath, parseByteRange, inspectByteRange, isVideoUploadPath, isPublicUploadPath, normalizeUploadRelativePath } from "../uploadMedia.js";
 import { extractYouTubeId } from "../videoSourceUtils.js";
 
 describe("video range helpers", () => {
@@ -72,6 +72,28 @@ describe("relative upload persistence", () => {
     );
     expect(toRelativeUploadPath("/uploads/learning-universes/u1/a.mp4?token=secret")).toBe(
       "/uploads/learning-universes/u1/a.mp4"
+    );
+  });
+});
+
+describe("published Learning Universe video access", () => {
+  const stored = "learning-universes/cmsu3za18000oubjgb9j5hxle/ef319b35-ab48-4ea5-9240-0b32026f9e60.mp4";
+
+  it("treats published LU MP4s as public for every Express path shape", () => {
+    expect(isPublicUploadPath(stored)).toBe(true);
+    expect(isPublicUploadPath(`/uploads/${stored}`)).toBe(true);
+    expect(isPublicUploadPath(`uploads/${stored}`)).toBe(true);
+  });
+
+  it("keeps private project and LaTeX files gated", () => {
+    expect(isPublicUploadPath("projects/p1/lecture.mp4")).toBe(false);
+    expect(isPublicUploadPath("/uploads/projects/p1/lecture.mp4")).toBe(false);
+    expect(isPublicUploadPath("latex/pdfs/paper.pdf")).toBe(false);
+  });
+
+  it("normalizes /uploads prefixes so B2 keys are not doubled", () => {
+    expect(normalizeUploadRelativePath("/uploads/learning-universes/u1/a.mp4")).toBe(
+      "learning-universes/u1/a.mp4"
     );
   });
 });

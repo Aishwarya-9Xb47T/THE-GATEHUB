@@ -16,7 +16,7 @@ import {
   detectContentType,
   type B2Prefix,
 } from "../services/b2StorageService.js";
-import { getUploadRoot, resolveSafeUploadPath } from "./uploadAccess.js";
+import { getUploadRoot, resolveSafeUploadPath, normalizeUploadRelativePath } from "./uploadAccess.js";
 import {
   inspectByteRange,
   isVideoUploadPath,
@@ -321,7 +321,7 @@ export async function serveStoredUpload(
   }
 
   if (!isB2Configured()) return false;
-  const key = `uploads/${relativePath.replace(/^\/+/, "")}`;
+  const key = `uploads/${normalizeUploadRelativePath(relativePath)}`;
   const meta = await headObject(key);
   if (!meta) {
     mediaLog("MEDIA_B2", { key, found: 0 });

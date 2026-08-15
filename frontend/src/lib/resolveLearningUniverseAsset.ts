@@ -25,7 +25,7 @@ function isRemoteUrl(value: string): boolean {
 }
 
 function basename(ref: string): string {
-  return ref.replace(/\\/g, "/").split("?")[0].split("/").pop() || ref;
+  return ref.replace(/\\/g, "/").replace(/[\r\n]+/g, "").split("?")[0].split("/").pop() || ref;
 }
 
 export function matchUniverseAsset(
@@ -62,7 +62,7 @@ export function resolveLearningUniverseAsset(
   universeId: string | undefined,
   assets?: UniverseAsset[]
 ): ResolvedAsset {
-  const originalRef = (ref || "").trim();
+  const originalRef = (ref || "").replace(/[\r\n]+/g, "").trim();
   if (!originalRef) {
     return { originalRef: "", resolvedUrl: "", status: "missing" };
   }
