@@ -31,7 +31,7 @@ async function main() {
   const drafts = (DocumentIntelligenceAdapter as any).convertToExtractedQuestionDraft(questionObjects);
   const validatedResult = ValidationEngine.validate(drafts);
   const validatedQuestions = validatedResult.questions;
-  const quiz = QuizConverter.convert(validatedQuestions, { title: 'Test Quiz' });
+  const quiz = await QuizConverter.convert(validatedQuestions, { title: 'Test Quiz' });
 
   const targetIndices = [6, 7, 8, 9]; // Q7 (Table), Q8 (Code), Q9 (Formula 1), Q10 (Formula 2)
 

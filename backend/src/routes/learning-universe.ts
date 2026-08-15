@@ -243,6 +243,9 @@ router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthReques
         if (fs.existsSync(projectPath)) {
           return res.sendFile(projectPath);
         }
+        const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+        const hydrated = await hydrateLocalUpload(hit.s3Url);
+        if (hydrated) return res.sendFile(hydrated);
       }
     }
 
@@ -251,6 +254,9 @@ router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthReques
     }
     const assetPath = path.join(ASSETS_DIR, id, asset.storedFilename);
     if (!fs.existsSync(assetPath)) {
+      const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+      const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
+      if (hydrated) return res.sendFile(hydrated);
       return res.status(404).json({ success: false, error: "Asset file not found" });
     }
     res.sendFile(assetPath);
@@ -373,6 +379,10 @@ router.post("/publish", authenticate, requireRole("instructor", "admin"), upload
           const physicalFilename = path.basename(pFile.s3Url);
           const candidate = path.join(projectDir, physicalFilename);
           if (fs.existsSync(candidate)) filePath = candidate;
+          if (!filePath) {
+            const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+            filePath = await hydrateLocalUpload(pFile.s3Url);
+          }
         }
 
         if (!filePath) {
@@ -632,22 +642,26 @@ router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (r
       });
     }
 
-    // Collect files to delete (hard delete path — no learner history)
-    const filesToDelete: string[] = [];
+    // Collect stored object paths (hard delete path — no learner history)
+    const storedUrls: string[] = [];
+    if (universe.thumbnail) storedUrls.push(universe.thumbnail);
+    if (universe.bannerUrl) storedUrls.push(universe.bannerUrl);
+    for (const asset of universe.assets) {
+      storedUrls.push(`/uploads/learning-universes/${universe.id}/${asset.storedFilename}`);
+    }
+    if (universe.sourceProjectId) {
+      const projectFiles = await prisma.latexFile.findMany({
+        where: { projectId: universe.sourceProjectId, s3Url: { not: null } },
+        select: { s3Url: true },
+      });
+      for (const f of projectFiles) {
+        if (f.s3Url) storedUrls.push(f.s3Url);
+      }
+    }
+
     const dirsToDelete: string[] = [];
-
-    if (universe.thumbnail) {
-      const thumbnailPath = path.join(UPLOAD_DIR, path.basename(universe.thumbnail));
-      filesToDelete.push(thumbnailPath);
-    }
-    if (universe.bannerUrl) {
-      const bannerPath = path.join(UPLOAD_DIR, path.basename(universe.bannerUrl));
-      filesToDelete.push(bannerPath);
-    }
-
     const universeAssetsDir = path.join(ASSETS_DIR, universe.id);
     dirsToDelete.push(universeAssetsDir);
-
     if (universe.sourceProjectId) {
       const projectDir = path.join(UPLOAD_DIR, "projects", universe.sourceProjectId);
       dirsToDelete.push(projectDir);
@@ -657,12 +671,9 @@ router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (r
       await tx.learningUniverse.delete({ where: { id: universe.id } });
     });
 
-    for (const filePath of filesToDelete) {
-      try {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (err) {
-        console.error(`Failed to delete file ${filePath}:`, err);
-      }
+    const { deleteStoredPublicPath } = await import("../middlewares/persistUpload.js");
+    for (const stored of storedUrls) {
+      await deleteStoredPublicPath(stored);
     }
 
     for (const dirPath of dirsToDelete) {

@@ -367,8 +367,10 @@ export async function uploadPlatformAsset(req: AuthRequest & { file?: Express.Mu
 
   if (!req.file) throw new AppError(400, "No file uploaded");
 
-  const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
-  const url = `${baseUrl}/uploads/${req.file.filename}`;
+  const { persistMulterFile } = await import("../middlewares/persistUpload.js");
+  const prefix =
+    type === "logo" || type === "favicon" ? "images" : type === "background" ? "banners" : "images";
+  const url = await persistMulterFile(req.file, prefix as "images" | "banners");
 
   const fieldMap: Record<string, string> = {
     logo: "platformLogo",

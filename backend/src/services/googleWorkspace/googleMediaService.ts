@@ -69,10 +69,18 @@ export async function persistGoogleMediaUrl(
     const filename = `google-import-${randomUUID()}.${ext}`;
     const uploadRoot = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
     if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
-    fs.writeFileSync(path.join(uploadRoot, filename), buffer);
+    const localPath = path.join(uploadRoot, filename);
+    fs.writeFileSync(localPath, buffer);
 
-    console.log('[googleMediaService] Persisted Google media:', `/uploads/${filename}`, `(${buffer.length} bytes)`);
-    return `/uploads/${filename}`;
+    const { persistGeneratedFile } = await import('../../middlewares/persistUpload.js');
+    const publicPath = await persistGeneratedFile({
+      localPath,
+      prefix: 'images',
+      fileName: filename,
+      contentType,
+    });
+    console.log('[googleMediaService] Persisted Google media:', publicPath, `(${buffer.length} bytes)`);
+    return publicPath;
   } catch (err) {
     console.warn('[googleMediaService] Failed to persist media:', trimmed, err);
     return undefined;

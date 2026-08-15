@@ -110,8 +110,9 @@ export async function submitProject(req: AuthRequest, res: Response) {
     normalizedColabUrl = check.normalizedUrl!;
   }
 
-  const zipFileUrl = zipFile ? `/uploads/${path.basename(zipFile.path)}` : undefined;
-  const reportPdfUrl = reportPdf ? `/uploads/${path.basename(reportPdf.path)}` : undefined;
+  const { persistMulterFile } = await import("../middlewares/persistUpload.js");
+  const zipFileUrl = zipFile ? await persistMulterFile(zipFile, "projects") : undefined;
+  const reportPdfUrl = reportPdf ? await persistMulterFile(reportPdf, "pdfs") : undefined;
 
   const submission = await prisma.learningUniverseProjectSubmission.upsert({
     where: {

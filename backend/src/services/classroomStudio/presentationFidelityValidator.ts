@@ -361,10 +361,17 @@ export function validateSlideContent(
 
 function resolveVisualRelativePath(src: string, presentationId?: string): string {
   if (presentationId) {
-    const prefix = `/uploads/classroom-studio/${presentationId}/`;
-    if (src.startsWith(prefix)) return src.slice(prefix.length);
+    const prefixes = [
+      `/uploads/classroom/${presentationId}/`,
+      `/uploads/classroom-studio/${presentationId}/`,
+    ];
+    for (const prefix of prefixes) {
+      if (src.startsWith(prefix)) return src.slice(prefix.length);
+    }
   }
-  return src.replace(/^\/uploads\/classroom-studio\/[^/]+\//, '');
+  return src
+    .replace(/^\/uploads\/classroom\/[^/]+\//, '')
+    .replace(/^\/uploads\/classroom-studio\/[^/]+\//, '');
 }
 
 export interface PersistedSlideLike {

@@ -11,6 +11,7 @@ import {
   resolveProjectAssetPhysicalPath,
 } from "../services/luProject/luProjectAssetResolver.js";
 import { isAdminRole } from "../utils/roles.js";
+import { persistMulterFile } from "../middlewares/persistUpload.js";
 
 async function assertProjectAccess(projectId: string, userId: string, role?: string) {
   const project = await prisma.latexProject.findUnique({
@@ -214,9 +215,9 @@ export async function uploadFile(req: AuthRequest, res: Response) {
     throw new AppError(400, "Invalid path: no directory traversal allowed");
   }
 
-  // For binaries or files stored locally, we store the s3Url as the local path
+  const publicPath = await persistMulterFile(req.file, "projects", projectId);
   const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
-  const localUrl = `${baseUrl}/uploads/projects/${projectId}/${req.file.filename}`;
+  const localUrl = publicPath.startsWith("http") ? publicPath : `${baseUrl}${publicPath}`;
   
   const basePathName = pathField.split('/').pop() || req.file.originalname;
 

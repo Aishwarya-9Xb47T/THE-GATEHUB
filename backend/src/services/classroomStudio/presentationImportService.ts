@@ -5,7 +5,9 @@
 
 import { prisma } from '../../utils/prisma.js';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { persistAtPublicRelative } from '../../middlewares/persistUpload.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import * as powerPointParser from './powerPointParser.js';
 import * as googleSlidesAdapter from './googleSlidesAdapter.js';
@@ -209,7 +211,7 @@ async function persistImportedContent(
   const assetRoot = path.resolve(
     process.cwd(),
     process.env.UPLOAD_DIR || 'uploads',
-    'classroom-studio',
+    'classroom',
     presentationId,
   );
   const assetUrls = new Map<string, string>();
@@ -229,7 +231,7 @@ async function persistImportedContent(
     }
     await mkdir(path.dirname(diskPath), { recursive: true });
     await writeFile(diskPath, asset.data);
-    assetUrls.set(`asset://${asset.path}`, `/uploads/classroom-studio/${presentationId}/${asset.path}`);
+    assetUrls.set(`asset://${asset.path}`, `/uploads/classroom/${presentationId}/${asset.path}`);
   }
   console.info('[Classroom import] Media extracted', { presentationId, count: assetUrls.size });
 
@@ -237,7 +239,7 @@ async function persistImportedContent(
   if (originalPptxAssetUrl) {
     assetUrls.set(
       originalPptxAssetUrl,
-      `/uploads/classroom-studio/${presentationId}/${sourcePptxAsset!.path}`,
+      `/uploads/classroom/${presentationId}/${sourcePptxAsset!.path}`,
     );
   }
 
@@ -254,7 +256,7 @@ async function persistImportedContent(
       const assetPath = render.path;
       assetUrls.set(
         `asset://${assetPath}`,
-        `/uploads/classroom-studio/${presentationId}/${assetPath}`,
+        `/uploads/classroom/${presentationId}/${assetPath}`,
       );
       renderedByIndex.set(render.index, `asset://${assetPath}`);
     }
@@ -393,6 +395,15 @@ async function persistImportedContent(
 
   if (process.env.LOG_FIDELITY_REPORT === '1') {
     console.info(formatFidelityReport(fidelityResult));
+  }
+
+  const uniquePublicUrls = [...new Set(assetUrls.values())];
+  for (const publicUrl of uniquePublicUrls) {
+    const relative = publicUrl.replace(/^\/uploads\//, '');
+    const diskPath = path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads', ...relative.split('/'));
+    if (existsSync(diskPath)) {
+      await persistAtPublicRelative(diskPath, relative);
+    }
   }
 
   console.info('[Classroom import] Slides saved', {

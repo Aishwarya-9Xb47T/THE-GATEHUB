@@ -38,11 +38,29 @@ function persistImageAsset(dataUrl?: string): string | undefined {
     if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
     const filePath = path.join(uploadRoot, filename);
     fs.writeFileSync(filePath, buffer);
-    console.log('[QuizConverter] Persisted base64 image asset to disk:', `/uploads/${filename}`, `(${buffer.length} bytes)`);
     return `/uploads/${filename}`;
   } catch (err) {
     console.warn('[QuizConverter] Failed to save base64 image to file:', err);
     return undefined;
+  }
+}
+
+async function persistImageAssetToStorage(dataUrl?: string): Promise<string | undefined> {
+  const localUrl = persistImageAsset(dataUrl);
+  if (!localUrl) return undefined;
+  try {
+    const { persistGeneratedFile } = await import('../../../../middlewares/persistUpload.js');
+    const filename = path.basename(localUrl);
+    const localPath = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads', filename);
+    if (!fs.existsSync(localPath)) return localUrl;
+    return await persistGeneratedFile({
+      localPath,
+      prefix: 'images',
+      fileName: filename,
+    });
+  } catch (err) {
+    console.warn('[QuizConverter] B2 persist skipped:', err);
+    return localUrl;
   }
 }
 
@@ -97,14 +115,14 @@ export class QuizConverter {
   /**
    * Convert validated questions to GateHub Quiz format
    */
-  static convert(
+  static async convert(
     questions: ValidatedQuestionDraft[],
     options: {
       title?: string;
       description?: string;
       userId?: string;
     }
-  ): GateHubQuiz {
+  ): Promise<GateHubQuiz> {
     console.log('=== QuizConverter.convert ENTRY ===');
     console.log('INPUT:', {
       questionsCount: questions.length,
@@ -155,7 +173,7 @@ export class QuizConverter {
           },
           sections: [],
         },
-        questions: validQuestions.map((q, index) => this.convertQuestion(q, index)),
+        questions: await Promise.all(validQuestions.map((q, index) => this.convertQuestion(q, index))),
       };
 
       const duration = Date.now() - startTime;
@@ -181,19 +199,19 @@ export class QuizConverter {
   /**
    * Convert a single validated question to GateHub format
    */
-  private static convertQuestion(
+  private static async convertQuestion(
     draft: ValidatedQuestionDraft,
     index: number
-  ): GateHubQuiz['questions'][number] {
+  ): Promise<GateHubQuiz['questions'][number]> {
     const hintVal = (draft.metadata as any)?.hint || undefined;
     const sectionVal = (draft.metadata as any)?.section || undefined;
     const marksVal = typeof (draft.metadata as any)?.marks === 'number' ? (draft.metadata as any).marks : 1;
 
     const metaObj = (draft.metadata as any) || {};
     const sourceUrls = collectImageSources(metaObj, draft);
-    const persistedUrls = sourceUrls
-      .map((u) => persistImageAsset(u))
-      .filter((u): u is string => Boolean(u));
+    const persistedUrls = (
+      await Promise.all(sourceUrls.map((u) => persistImageAssetToStorage(u)))
+    ).filter((u): u is string => Boolean(u));
 
     const mediaUrlVal = persistedUrls[0];
     const mediaObj = mediaUrlVal ? { url: mediaUrlVal, kind: 'image' as const } : undefined;

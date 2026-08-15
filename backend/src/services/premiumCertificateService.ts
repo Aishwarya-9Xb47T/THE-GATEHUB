@@ -27,9 +27,18 @@ async function imageToDataUri(urlOrPath: string | null | undefined): Promise<str
       const rel = urlOrPath.split("/uploads/")[1]?.split("?")[0];
       if (rel) {
         const localPath = path.join(process.cwd(), "uploads", rel);
-        const buf = await fs.readFile(localPath);
-        const ext = path.extname(rel).slice(1) || "png";
-        return `data:image/${ext};base64,${buf.toString("base64")}`;
+        try {
+          const buf = await fs.readFile(localPath);
+          const ext = path.extname(rel).slice(1) || "png";
+          return `data:image/${ext};base64,${buf.toString("base64")}`;
+        } catch {
+          const { readSmallStoredFile } = await import("../middlewares/persistUpload.js");
+          const buf = await readSmallStoredFile(`/uploads/${rel}`);
+          if (buf) {
+            const ext = path.extname(rel).slice(1) || "png";
+            return `data:image/${ext};base64,${buf.toString("base64")}`;
+          }
+        }
       }
     }
     if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://")) {

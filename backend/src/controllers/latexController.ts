@@ -14,6 +14,8 @@ import { resolveLuV2ContentSnapshot, LuBuildNotReadyError } from "../services/lu
 import { hashSnapshotPayload, hashFromProjectFiles } from "../services/luProject/projectSnapshotHash.js";
 import { updateProjectSyncState, logSyncOperation, loadProjectSyncState } from "../services/luProject/projectSyncState.js";
 import { buildLessonPreviewForFile } from "../services/luProject/luIncludeGraphicsInjector.js";
+import { persistMulterFile } from "../middlewares/persistUpload.js";
+import { isB2Configured } from "../services/b2StorageService.js";
 
 const MAX_TITLE_LENGTH = 160;
 
@@ -231,7 +233,9 @@ export async function uploadLatexImage(req: AuthRequest, res: Response) {
       throw new AppError(400, `Only image uploads are supported. Got: ${req.file.mimetype}`);
     }
 
-    const imageUrl = `/uploads/latex/${req.file.filename}`;
+    const imageUrl = isB2Configured()
+      ? await persistMulterFile(req.file, "latex")
+      : `/uploads/latex/${req.file.filename}`;
     const snippet = `\\includegraphics[width=0.7\\linewidth]{${req.file.filename}}`;
 
     console.log("Image upload successful:", { imageUrl, filename: req.file.filename });

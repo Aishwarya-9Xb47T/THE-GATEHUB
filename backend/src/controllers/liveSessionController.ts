@@ -922,8 +922,16 @@ export async function uploadMusic(req: AuthRequest, res: Response) {
     await fs.promises.unlink(req.file.path);
   }
 
-  const fileBuffer = await fs.promises.readFile(targetPath);
-  const checksum = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+  const checksum = await new Promise<string>((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(targetPath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+
+  const { persistAtPublicRelative } = await import("../middlewares/persistUpload.js");
+  await persistAtPublicRelative(targetPath, `music/${filename}`, req.file.mimetype);
 
   const queryDuration = req.query.duration || req.body.duration;
   const duration = queryDuration ? parseFloat(String(queryDuration)) : 180;

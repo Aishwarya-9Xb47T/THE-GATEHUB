@@ -183,6 +183,7 @@ export async function list(req: AuthRequest, res: Response) {
   const role = req.user?.role;
   const statusFilter = isAdminRole(role) ? undefined : "published";
   const andFilters: Record<string, unknown>[] = [];
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
 
   if (statusFilter) {
     andFilters.push({ status: statusFilter });
@@ -270,7 +271,6 @@ export async function list(req: AuthRequest, res: Response) {
   }
 
   const where = andFilters.length ? { AND: andFilters } : {};
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
 
   const courses = await prisma.course.findMany({
     where,
@@ -1333,41 +1333,18 @@ export async function remove(req: AuthRequest, res: Response) {
     throw new AppError(403, "Not allowed to delete this course");
   }
 
-  const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
-  const filesToDelete: string[] = [];
+  const storedUrls: string[] = [];
 
-  // Collect all files to delete
-  if (existing.thumbnail) {
-    const thumbnailPath = path.join(UPLOAD_DIR, path.basename(existing.thumbnail));
-    filesToDelete.push(thumbnailPath);
-  }
-  if (existing.bannerUrl) {
-    const bannerPath = path.join(UPLOAD_DIR, path.basename(existing.bannerUrl));
-    filesToDelete.push(bannerPath);
-  }
+  if (existing.thumbnail) storedUrls.push(existing.thumbnail);
+  if (existing.bannerUrl) storedUrls.push(existing.bannerUrl);
 
   for (const section of existing.sections) {
     for (const lecture of section.lectures) {
-      if (lecture.videoUrl && lecture.videoType === "upload") {
-        const videoPath = path.join(UPLOAD_DIR, path.basename(lecture.videoUrl));
-        filesToDelete.push(videoPath);
-      }
-      if (lecture.notesPdfUrl) {
-        const notesPath = path.join(UPLOAD_DIR, path.basename(lecture.notesPdfUrl));
-        filesToDelete.push(notesPath);
-      }
-      if (lecture.compiledPdfUrl) {
-        const compiledPdfPath = path.join(UPLOAD_DIR, path.basename(lecture.compiledPdfUrl));
-        filesToDelete.push(compiledPdfPath);
-      }
-      for (const attachment of lecture.attachments) {
-        const attachmentPath = path.join(UPLOAD_DIR, path.basename(attachment.url));
-        filesToDelete.push(attachmentPath);
-      }
-      for (const media of lecture.mediaAssets) {
-        const mediaPath = path.join(UPLOAD_DIR, path.basename(media.url));
-        filesToDelete.push(mediaPath);
-      }
+      if (lecture.videoUrl && lecture.videoType === "upload") storedUrls.push(lecture.videoUrl);
+      if (lecture.notesPdfUrl) storedUrls.push(lecture.notesPdfUrl);
+      if (lecture.compiledPdfUrl) storedUrls.push(lecture.compiledPdfUrl);
+      for (const attachment of lecture.attachments) storedUrls.push(attachment.url);
+      for (const media of lecture.mediaAssets) storedUrls.push(media.url);
     }
   }
 
@@ -1376,15 +1353,9 @@ export async function remove(req: AuthRequest, res: Response) {
     await tx.course.delete({ where: { id } });
   });
 
-  // Now delete files
-  for (const filePath of filesToDelete) {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    } catch (err) {
-      console.error(`Failed to delete file ${filePath}:`, err);
-    }
+  const { deleteStoredPublicPath } = await import("../middlewares/persistUpload.js");
+  for (const stored of storedUrls) {
+    await deleteStoredPublicPath(stored);
   }
 
   res.json({ success: true });

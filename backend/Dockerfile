@@ -1,8 +1,13 @@
-# Production backend image — build context MUST be repository root:
+# Production backend image — build context MUST be the repository root:
 #   docker build -f backend/Dockerfile .
-FROM node:20-alpine AS build
+# Render: Dockerfile path = backend/Dockerfile, context = repository root (not backend/).
+FROM node:20-bookworm-slim AS build
 
-RUN apk add --no-cache docker-cli openssl
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/backend
 COPY backend/package*.json ./
@@ -12,20 +17,21 @@ COPY shared/lesson-body /app/shared/lesson-body
 COPY backend/ ./
 
 RUN npx prisma generate
-RUN npx tsc -b ../shared/lesson-body
 RUN npm run build
 RUN npx tsc scripts/validate-startup.ts \
   --module NodeNext --moduleResolution NodeNext --target ES2022 \
   --outDir dist/scripts --esModuleInterop --skipLibCheck
 
-FROM node:20-alpine AS production
+FROM node:20-bookworm-slim AS production
 
-RUN apk add --no-cache docker-cli openssl curl
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 COPY backend/package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev \
+  && npm install --omit=dev --no-save prisma@5.22.0
 
+# Depend on the build stage so TeX install does not run in parallel with npm (avoids OOM).
 COPY --from=build /app/backend/dist ./dist
 COPY --from=build /app/backend/prisma ./prisma
 COPY --from=build /app/backend/src/generated ./src/generated
@@ -33,12 +39,27 @@ COPY --from=build /app/backend/dist/scripts/validate-startup.js ./dist/scripts/v
 COPY --from=build /app/shared/lesson-body /shared/lesson-body
 COPY backend/scripts/docker-entrypoint.sh /docker-entrypoint.sh
 
-RUN chmod +x /docker-entrypoint.sh \
+# Minimum TeX for GateHub: pdflatex, bibtex, graphicx, hyperref, AMS, listings, xcolor, tcolorbox, enumitem, grffile
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    openssl \
+    curl \
+    texlive-latex-base \
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
+    texlive-latex-extra \
+    texlive-pictures \
+  && rm -rf /var/lib/apt/lists/* \
+  && command -v pdflatex \
+  && pdflatex --version \
+  && chmod +x /docker-entrypoint.sh \
   && mkdir -p uploads uploads/latex uploads/latex/pdfs data
 
 ENV NODE_ENV=production
 ENV PORT=5000
 ENV UPLOAD_DIR=/app/uploads
+ENV PATH="/usr/bin:${PATH}"
 
 EXPOSE 5000
 

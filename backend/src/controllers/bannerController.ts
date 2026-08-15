@@ -180,10 +180,19 @@ export async function uploadBanner(req: AuthRequest, res: Response) {
   const ext = path.extname(bannerFile.originalname) || ".jpg";
   const stored = await storeBannerBuffer(bannerFile.buffer, ext, "upload");
 
-  const thumbFile = files?.thumbnail?.[0];
+    const thumbFile = files?.thumbnail?.[0];
   if (thumbFile) {
     const thumbFilename = `thumb-${stored.bannerId}${path.extname(thumbFile.originalname) || ".jpg"}`;
-    fs.writeFileSync(path.join(THUMBS_DIR, thumbFilename), thumbFile.buffer);
+    const thumbTmp = path.join(THUMBS_DIR, thumbFilename);
+    fs.writeFileSync(thumbTmp, thumbFile.buffer);
+    const { persistGeneratedFile } = await import("../middlewares/persistUpload.js");
+    await persistGeneratedFile({
+      localPath: thumbTmp,
+      prefix: "banners",
+      extraPath: "thumbs",
+      fileName: thumbFilename,
+      contentType: thumbFile.mimetype || "image/jpeg",
+    });
     const base = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
     stored.thumbnailUrl = `${base}/uploads/banners/thumbs/${thumbFilename}`;
   }

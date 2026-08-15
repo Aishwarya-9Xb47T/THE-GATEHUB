@@ -52,7 +52,7 @@ async function traceDocumentPipeline() {
     console.log(`------------------------------------------------------------------------`);
   });
 
-  const quiz = QuizConverter.convert(validationResult.questions, { title: 'Word Import Test Suite' });
+  const quiz = await QuizConverter.convert(validationResult.questions, { title: 'Word Import Test Suite' });
   console.log(`\n========================================================================`);
   console.log(`FINAL CONVERTED QUIZ BUILDER RESULT`);
   console.log(`Total Reconstructed Quiz Questions: ${quiz.questions.length}`);

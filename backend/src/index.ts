@@ -75,6 +75,8 @@ import {
   resolveSafeUploadPath,
   sendUploadFile,
 } from "./middlewares/uploadAccess.js";
+import { serveStoredUpload } from "./middlewares/persistUpload.js";
+import { pingB2Storage } from "./services/b2StorageService.js";
 
 registerBuiltinQuestionPlugins();
 import "./services/providers/index.js";
@@ -169,7 +171,7 @@ app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 // Compiled LaTeX PDFs — register BEFORE generic /uploads static (HEAD + GET, no stale cache)
-function serveCompiledLatexPdf(req: Request, res: Response) {
+async function serveCompiledLatexPdf(req: Request, res: Response) {
   const filename = req.params.filename;
   if (!/^compiled-[a-zA-Z0-9_-]+\.pdf$/.test(filename)) {
     return res.status(400).json({ success: false, error: "Invalid PDF filename" });
@@ -177,28 +179,30 @@ function serveCompiledLatexPdf(req: Request, res: Response) {
 
   const filePath = path.join(process.cwd(), uploadDir, "latex", "pdfs", filename);
 
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ success: false, error: "PDF not found" });
+  if (fs.existsSync(filePath)) {
+    const stat = fs.statSync(filePath);
+    if (stat.size < 128) {
+      return res.status(500).json({ success: false, error: "PDF file is empty or invalid" });
+    }
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Length": stat.size,
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+      "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
+    });
+
+    if (req.method === "HEAD") {
+      return res.status(200).end();
+    }
+
+    return fs.createReadStream(filePath).pipe(res);
   }
 
-  const stat = fs.statSync(filePath);
-  if (stat.size < 128) {
-    return res.status(500).json({ success: false, error: "PDF file is empty or invalid" });
-  }
-
-  res.set({
-    "Content-Type": "application/pdf",
-    "Content-Length": stat.size,
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    Pragma: "no-cache",
-    "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
-  });
-
-  if (req.method === "HEAD") {
-    return res.status(200).end();
-  }
-
-  fs.createReadStream(filePath).pipe(res);
+  const served = await serveStoredUpload(res, `latex/pdfs/${filename}`);
+  if (served) return;
+  return res.status(404).json({ success: false, error: "PDF not found" });
 }
 
 app.head("/uploads/latex/pdfs/:filename", requireUploadAccess as any, serveCompiledLatexPdf);
@@ -212,14 +216,19 @@ app.use("/uploads", requireUploadAccess as any, (req, res, next) => {
   next();
 });
 
-app.get("/uploads/projects/:projectId/:filename", (req, res) => {
+app.get("/uploads/projects/:projectId/:filename", async (req, res) => {
   const { projectId, filename } = req.params;
   const relative = `projects/${projectId}/${filename}`;
   const filePath = resolveSafeUploadPath(relative);
   if (!filePath) {
     return res.status(400).json({ success: false, error: "Invalid path" });
   }
-  return sendUploadFile(res, filePath);
+  if (fs.existsSync(filePath)) {
+    return sendUploadFile(res, filePath);
+  }
+  const served = await serveStoredUpload(res, relative);
+  if (served) return;
+  return res.status(404).json({ success: false, error: "File not found" });
 });
 
 app.use("/uploads", express.static(getUploadRoot(), {
@@ -282,8 +291,8 @@ app.use("/api/classroom-studio", classroomStudioRouter);
 app.use("/api/multimodal-knowledge", multimodalKnowledgeRouter);
 app.use("/api/antigravity-v2", antigravityV2Router);
 
-// Authenticated range streaming for uploaded videos
-app.get("/uploads/*", requireUploadAccess as any, (req, res, next) => {
+// Authenticated range streaming for uploaded videos (local) or signed B2 redirect
+app.get("/uploads/*", requireUploadAccess as any, async (req, res, next) => {
   const relativePath = String((req.params as Record<string, string>)[0] || "");
   const filePath = resolveSafeUploadPath(relativePath);
   if (!filePath) {
@@ -291,48 +300,64 @@ app.get("/uploads/*", requireUploadAccess as any, (req, res, next) => {
   }
 
   const ext = path.extname(filePath).toLowerCase();
-  if (![".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"].includes(ext)) {
-    return next();
-  }
+  const isVideo = [".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"].includes(ext);
 
-  if (!fs.existsSync(filePath)) {
+  if (isVideo) {
+    if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+      const contentType = `video/${ext.slice(1) === "mov" ? "quicktime" : ext.slice(1)}`;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+        const file = fs.createReadStream(filePath, { start, end });
+        res.writeHead(206, {
+          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunkSize,
+          "Content-Type": contentType,
+          "X-Content-Type-Options": "nosniff",
+        });
+        return file.pipe(res);
+      }
+
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": contentType,
+        "X-Content-Type-Options": "nosniff",
+      });
+      return fs.createReadStream(filePath).pipe(res);
+    }
+
+    const redirected = await serveStoredUpload(res, relativePath, { asVideo: true });
+    if (redirected) return;
     return res.status(404).json({ success: false, error: "Video not found" });
   }
 
-  const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
-  const range = req.headers.range;
-  const contentType = `video/${ext.slice(1) === "mov" ? "quicktime" : ext.slice(1)}`;
-
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = end - start + 1;
-    const file = fs.createReadStream(filePath, { start, end });
-    res.writeHead(206, {
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunkSize,
-      "Content-Type": contentType,
-      "X-Content-Type-Options": "nosniff",
-    });
-    return file.pipe(res);
+  if (fs.existsSync(filePath)) {
+    return next();
   }
 
-  res.writeHead(200, {
-    "Content-Length": fileSize,
-    "Content-Type": contentType,
-    "X-Content-Type-Options": "nosniff",
-  });
-  return fs.createReadStream(filePath).pipe(res);
+  const served = await serveStoredUpload(res, relativePath, { range: req.headers.range });
+  if (served) return;
+  return next();
 });
 
 app.get("/api/health", async (_req, res) => {
   try {
     const { prisma } = await import("./utils/prisma.js");
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: "ok", database: "connected", timestamp: new Date().toISOString() });
+    const storage = await pingB2Storage();
+    res.json({
+      status: "ok",
+      database: "connected",
+      storage,
+      timestamp: new Date().toISOString(),
+    });
   } catch {
     res.status(503).json({
       status: "degraded",

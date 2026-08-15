@@ -9,6 +9,8 @@ import { AuthRequest } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { isAdminRole } from "../utils/roles.js";
 import { resolveLectureVideoFilePath, videoContentTypeFromPath } from "../utils/lectureVideoPath.js";
+import { persistMulterFile, serveStoredUpload, localPathIfExists } from "../middlewares/persistUpload.js";
+import { b2KeyFromPublicPath, isB2Configured, getSignedGetUrl } from "../services/b2StorageService.js";
 
 export const lectureRouter = Router({ mergeParams: true });
 
@@ -42,21 +44,26 @@ lectureRouter.get("/:id/notes-pdf", optionalAuthenticate, async (req: AuthReques
     return res.status(403).json({ success: false, error: "Access denied" });
   }
 
-  const relPath = lecture.compiledPdfUrl.replace(/^\//, "");
-  const filePath = path.join(process.cwd(), relPath);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ success: false, error: "PDF file missing on server" });
+  const local = localPathIfExists(lecture.compiledPdfUrl);
+  if (local) {
+    const stat = fs.statSync(local);
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Length": stat.size,
+      "Cache-Control": "private, max-age=3600",
+      "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
+    });
+    return fs.createReadStream(local).pipe(res);
   }
 
-  const stat = fs.statSync(filePath);
-  res.set({
-    "Content-Type": "application/pdf",
-    "Content-Length": stat.size,
-    "Cache-Control": "private, max-age=3600",
-    "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
-  });
-  fs.createReadStream(filePath).pipe(res);
+  const key = b2KeyFromPublicPath(lecture.compiledPdfUrl);
+  if (key && isB2Configured()) {
+    const relative = key.replace(/^uploads\//, "");
+    const served = await serveStoredUpload(res, relative);
+    if (served) return;
+  }
+
+  return res.status(404).json({ success: false, error: "PDF file missing on server" });
 });
 
 lectureRouter.get("/:id/structured-content", optionalAuthenticate, lecturesController.getStructuredContent);
@@ -95,6 +102,14 @@ async function streamLectureVideo(req: AuthRequest, res: import("express").Respo
     }
 
     const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
+
+    if ((!filePath || !fs.existsSync(filePath)) && lecture?.videoUrl && isB2Configured()) {
+      const key = b2KeyFromPublicPath(lecture.videoUrl);
+      if (key) {
+        const signed = await getSignedGetUrl(key);
+        return res.redirect(302, signed);
+      }
+    }
 
     if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).send("File missing");
@@ -210,8 +225,8 @@ lectureRouter.post("/:id/upload-video", authenticate, upload.single("video"), as
   
   if (!lecture) throw new AppError(404, "Lecture not found");
   if (lecture.section.course.instructorId !== req.user?.id) throw new AppError(403, "Forbidden");
-  
-  const videoUrl = `/uploads/${req.file.filename}`;
+
+  const videoUrl = await persistMulterFile(req.file, "videos");
   
   await prisma.lecture.update({
     where: { id: lectureId },
@@ -233,8 +248,7 @@ lectureRouter.post("/:id/upload", authenticate, upload.single("file"), async (re
   const lecture = await prisma.lecture.findUnique({ where: { id: lectureId }, include: { section: { include: { course: true } } } });
   if (!lecture) throw new AppError(404, "Lecture not found");
   if (lecture.section.course.instructorId !== req.user?.id) throw new AppError(403, "Forbidden");
-  const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3001}`;
-  const url = `${baseUrl}/uploads/${req.file.filename}`;
+  const url = await persistMulterFile(req.file, "attachments");
   const attachment = await prisma.attachment.create({
     data: {
       lectureId,

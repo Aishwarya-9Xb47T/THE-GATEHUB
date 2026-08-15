@@ -22,6 +22,7 @@ import {
 } from "./latexLogParser.js";
 import { isDslVideoBody, replaceBraceCommands } from "./luProject/luTexAst.js";
 import { LU_PROJECT_JSON_PATH } from "./luProject/luProjectSchema.js";
+import { hydrateLocalUpload, persistAtPublicRelative } from "../middlewares/persistUpload.js";
 
 export type LatexCompilationError = ParsedLatexError;
 
@@ -392,6 +393,15 @@ async function runCommand(command: string, args: string[], timeoutMs: number, op
     child.on("error", (error) => {
       clearTimeout(timer);
       console.log("LATEX ERROR:", error);
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        reject(
+          new Error(
+            `${command} not found on this host (spawn ENOENT). Install a LaTeX engine or set LATEX_PDFLATEX_PATH.`
+          )
+        );
+        return;
+      }
       reject(error);
     });
 
@@ -727,10 +737,12 @@ async function prepareProjectAssets(
 
           const sourcePath = path.join(projectDir, physicalFilename);
           const destPath = path.join(workspaceDir, sanitizedLogicalName);
+          const resolvedSource =
+            fs.existsSync(sourcePath) ? sourcePath : await hydrateLocalUpload(file.s3Url);
 
-          if (fs.existsSync(sourcePath)) {
+          if (resolvedSource && fs.existsSync(resolvedSource)) {
             try {
-              fs.copyFileSync(sourcePath, destPath);
+              fs.copyFileSync(resolvedSource, destPath);
 
               registerAssetMapping(mapping, [file.name, logicalPath, file.path], sanitizedLogicalName);
 
@@ -739,7 +751,7 @@ async function prepareProjectAssets(
               if (!fs.existsSync(publicResourcesDir)) {
                 fs.mkdirSync(publicResourcesDir, { recursive: true });
               }
-              fs.copyFileSync(sourcePath, path.join(publicResourcesDir, sanitizedLogicalName));
+              fs.copyFileSync(resolvedSource, path.join(publicResourcesDir, sanitizedLogicalName));
 
               const stats = fs.statSync(destPath);
               console.log(`[LATEX-TRACE] A. Original (Logical): ${file.name}`);
@@ -809,9 +821,11 @@ async function prepareProjectAssets(
       const sourcePath = path.join(UPLOAD_ROOT, "projects", workspaceId, physicalFilename);
       const dbSanitized = sanitizeFilename(dbMatch.name || filename);
       const destPath = path.join(workspaceDir, dbSanitized);
-      if (fs.existsSync(sourcePath)) {
+      const resolvedSource =
+        fs.existsSync(sourcePath) ? sourcePath : await hydrateLocalUpload(dbMatch.s3Url);
+      if (resolvedSource && fs.existsSync(resolvedSource)) {
         try {
-          fs.copyFileSync(sourcePath, destPath);
+          fs.copyFileSync(resolvedSource, destPath);
           registerAssetMapping(mapping, [reference, normalized, dbMatch.name, dbMatch.path], dbSanitized);
           continue;
         } catch (err: any) {
@@ -861,9 +875,11 @@ async function prepareProjectAssets(
         const sourcePath = path.join(UPLOAD_ROOT, "projects", workspaceId, physicalFilename);
         const dbSanitized = sanitizeFilename(fuzzy.name || filename);
         const destPath = path.join(workspaceDir, dbSanitized);
-        if (fs.existsSync(sourcePath)) {
+        const resolvedSource =
+          fs.existsSync(sourcePath) ? sourcePath : await hydrateLocalUpload(fuzzy.s3Url);
+        if (resolvedSource && fs.existsSync(resolvedSource)) {
           try {
-            fs.copyFileSync(sourcePath, destPath);
+            fs.copyFileSync(resolvedSource, destPath);
             registerAssetMapping(mapping, [reference, normalized, fuzzy.name, fuzzy.path], dbSanitized);
             continue;
           } catch {
@@ -1395,10 +1411,15 @@ export async function storeCompiledPdfFromPath(
   const targetPath = path.join(LATEX_PDF_UPLOAD_DIR, outputFileName);
 
   await fsPromises.copyFile(sourcePdfPath, targetPath);
+  const publicUrl = await persistAtPublicRelative(
+    targetPath,
+    `latex/pdfs/${outputFileName}`,
+    "application/pdf"
+  );
 
   return {
     absolutePath: targetPath,
-    publicUrl: `/uploads/latex/pdfs/${outputFileName}`,
+    publicUrl,
   };
 }
 

@@ -715,7 +715,7 @@ export async function commitToQuiz(req: AuthRequest, res: Response) {
 
   console.log('[commitToQuiz] Converting to GateHub Quiz format');
   // Convert to GateHub Quiz format
-  const gatehubQuiz = QuizConverter.convert(selectedQuestions, {
+  const gatehubQuiz = await QuizConverter.convert(selectedQuestions, {
     title: body.title,
     description: body.description,
   });

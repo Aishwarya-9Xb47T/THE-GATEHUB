@@ -1,23 +1,21 @@
 services:
   - type: web
     name: gatehub-backend
-    env: node
-    rootDir: backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
     region: singapore
     plan: starter
-    buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npx prisma migrate deploy && npm start
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 5000
       - key: DATABASE_URL
-        fromDatabase:
-          name: gatehub-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
-        generateValue: true
+        sync: false
       - key: CLIENT_URL
         value: https://gatehub-frontend.onrender.com
       - key: FRONTEND_URL

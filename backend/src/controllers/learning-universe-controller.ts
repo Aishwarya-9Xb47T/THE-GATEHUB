@@ -262,6 +262,12 @@ async function syncUniverseAssets(
     const storedFilename = prior?.storedFilename ?? `${randomUUID()}${ext}`;
     const destPath = path.join(universeAssetsDir, storedFilename);
     fs.copyFileSync(srcPath, destPath);
+    const { persistAtPublicRelative } = await import("../middlewares/persistUpload.js");
+    await persistAtPublicRelative(
+      destPath,
+      `learning-universes/${universeId}/${storedFilename}`,
+      file.mimetype
+    );
 
     if (prior) {
       await prisma.learningUniverseAsset.update({
@@ -546,12 +552,25 @@ async function linkUniverseAssetsToProject(
 
   for (const asset of universe.assets) {
     const sourcePath = path.join(ASSETS_DIR, universeId, asset.storedFilename);
-    if (!fs.existsSync(sourcePath)) continue;
+    let resolvedSource = sourcePath;
+    if (!fs.existsSync(resolvedSource)) {
+      const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+      resolvedSource =
+        (await hydrateLocalUpload(`/uploads/learning-universes/${universeId}/${asset.storedFilename}`)) ||
+        sourcePath;
+    }
+    if (!fs.existsSync(resolvedSource)) continue;
 
     const ext = path.extname(asset.filename);
     const storedProjectFilename = `${randomUUID()}${ext}`;
     const destPath = path.join(projectDir, storedProjectFilename);
-    fs.copyFileSync(sourcePath, destPath);
+    fs.copyFileSync(resolvedSource, destPath);
+    const { persistAtPublicRelative } = await import("../middlewares/persistUpload.js");
+    const publicPath = await persistAtPublicRelative(
+      destPath,
+      `projects/${projectId}/${storedProjectFilename}`
+    );
+    const s3Url = publicPath.startsWith("http") ? publicPath : `${baseUrl}${publicPath}`;
 
     await prisma.latexFile.create({
       data: {
@@ -559,7 +578,7 @@ async function linkUniverseAssetsToProject(
         name: asset.filename,
         path: `/${asset.filename}`,
         isFolder: false,
-        s3Url: `${baseUrl}/uploads/projects/${projectId}/${storedProjectFilename}`,
+        s3Url,
         content: null,
       },
     });

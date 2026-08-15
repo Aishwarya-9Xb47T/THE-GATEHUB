@@ -88,7 +88,7 @@ export class ContentAnalysisEngine {
 
       // Stage 7: Quiz Conversion
       reportProgress(AnalysisStage.QUIZ_SCHEMA_CONVERSION, 0, 'Opening Quiz Builder...');
-      const quiz = QuizConverter.convert(validationResult.questions, {
+      const quiz = await QuizConverter.convert(validationResult.questions, {
         title: options.title,
         description: options.description,
       });

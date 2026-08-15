@@ -50,7 +50,7 @@ async function main() {
 
 
 
-  const root = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads', 'classroom-studio', id);
+  const root = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads', 'classroom', id);
 
   const result = validateDeckFidelity({
 

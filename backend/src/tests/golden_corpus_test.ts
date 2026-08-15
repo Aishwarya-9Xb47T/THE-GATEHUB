@@ -73,7 +73,7 @@ async function runGoldenCorpusSuite() {
       console.log(`Validated Questions: ${validationResult.questions.length}/${draftQuestions.length}`);
 
       // 4. Convert to GateHub Quiz Structure
-      const quiz = QuizConverter.convert(validationResult.questions, { title: testFile.name });
+      const quiz = await QuizConverter.convert(validationResult.questions, { title: testFile.name });
       console.log(`GateHub Quiz Converted Questions: ${quiz.questions.length}`);
 
       // 5. Aggregate Type Distribution

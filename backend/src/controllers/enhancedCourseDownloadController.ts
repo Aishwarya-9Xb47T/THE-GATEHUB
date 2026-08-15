@@ -35,7 +35,7 @@ function debugLog(msg: string) {
   } catch {}
 }
 
-function getLocalFilePath(url: string | null | undefined): string | null {
+async function getLocalFilePath(url: string | null | undefined): Promise<string | null> {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) {
     try {
@@ -57,7 +57,8 @@ function getLocalFilePath(url: string | null | undefined): string | null {
   if (fs.existsSync(absolutePath)) {
     return absolutePath;
   }
-  return null;
+  const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+  return hydrateLocalUpload(url.startsWith("/") ? url : `/${url}`);
 }
 
 function extractLocalImages(content: string | null | undefined): string[] {
@@ -205,7 +206,7 @@ export async function downloadCompleteCourse(req: AuthRequest, res: Response) {
         // Extract Images from content
         const contentImages = extractLocalImages(lecture.content);
         for (const imgUrl of contentImages) {
-          const imgPath = getLocalFilePath(imgUrl);
+          const imgPath = await getLocalFilePath(imgUrl);
           if (imgPath && !addedImages.has(imgPath)) {
             const shortName = shortenResourceName("image", imageIndex, imgPath);
             archive.file(imgPath, { name: validateAndShortenPath(`${folderName}/Images/${shortName}`) });
@@ -220,7 +221,7 @@ export async function downloadCompleteCourse(req: AuthRequest, res: Response) {
           const videoDestPath = `${folderName}/Videos/${sectionPath}/${shortenLessonName(lectureIndex, lecture.title)}`;
 
           if (lecture.videoType === "upload") {
-            const videoPath = getLocalFilePath(lecture.videoUrl);
+            const videoPath = await getLocalFilePath(lecture.videoUrl);
             if (videoPath) {
               const shortName = shortenResourceName("video", 0, videoPath);
               archive.file(videoPath, { name: validateAndShortenPath(`${videoDestPath}/${shortName}`) });
@@ -244,7 +245,7 @@ export async function downloadCompleteCourse(req: AuthRequest, res: Response) {
             for (let vi = 0; vi < lecture.mediaAssets.length; vi++) {
               const media = lecture.mediaAssets[vi];
               if (media.type === "video" || media.mimeType?.startsWith("video/")) {
-                const addVideoPath = getLocalFilePath(media.url);
+                const addVideoPath = await getLocalFilePath(media.url);
                 if (addVideoPath) {
                   const shortName = shortenResourceName("video", vi + 1, addVideoPath);
                   archive.file(addVideoPath, { name: validateAndShortenPath(`${videoDestPath}/${shortName}`) });
@@ -260,7 +261,7 @@ export async function downloadCompleteCourse(req: AuthRequest, res: Response) {
         if (lecture.attachments && lecture.attachments.length > 0) {
           debugLog("[DOWNLOAD DEBUG] ADDING RESOURCES");
           for (const attachment of lecture.attachments) {
-            const attachmentPath = getLocalFilePath(attachment.url);
+            const attachmentPath = await getLocalFilePath(attachment.url);
             if (attachmentPath) {
               const fileDest = shortenResourceName("resource", attachmentIndex, attachment.name);
               archive.file(attachmentPath, { name: validateAndShortenPath(`${folderName}/Attachments/${fileDest}`) });
@@ -328,13 +329,13 @@ ${options}
         }
 
         if (lecture.notesPdfUrl) {
-          const notePath = getLocalFilePath(lecture.notesPdfUrl);
+          const notePath = await getLocalFilePath(lecture.notesPdfUrl);
           if (notePath) {
             archive.file(notePath, { name: validateAndShortenPath(`${folderName}/Notes/${lessonPath}/Instructor_Notes.pdf`) });
           }
         }
         if (lecture.compiledPdfUrl) {
-          const compiledPath = getLocalFilePath(lecture.compiledPdfUrl);
+          const compiledPath = await getLocalFilePath(lecture.compiledPdfUrl);
           if (compiledPath) {
             archive.file(compiledPath, { name: validateAndShortenPath(`${folderName}/Notes/${lessonPath}/Compiled_Notes.pdf`) });
           }
@@ -463,7 +464,7 @@ export async function downloadCompleteLearningUniverse(req: AuthRequest, res: Re
           // Scan compiled document AST for image refs.
           const mdImages = extractDocumentImageRefs(lesson.contentBlocks);
           for (const imgUrl of mdImages) {
-            const imgPath = getLocalFilePath(imgUrl);
+            const imgPath = await getLocalFilePath(imgUrl);
             if (imgPath && !addedImages.has(imgPath)) {
               const shortName = shortenResourceName("image", imageIndex, imgPath);
               archive.file(imgPath, { name: validateAndShortenPath(`${folderName}/Images/${shortName}`) });
@@ -474,10 +475,10 @@ export async function downloadCompleteLearningUniverse(req: AuthRequest, res: Re
 
           // Scan contentBlocks for images and text images
           if (lesson.contentBlocks && Array.isArray(lesson.contentBlocks)) {
-            lesson.contentBlocks.forEach((block: any) => {
+            for (const block of lesson.contentBlocks as any[]) {
               if (block.type === "image") {
                 const imgUrl = block.content?.file || block.src || block.url;
-                const imgPath = getLocalFilePath(imgUrl);
+                const imgPath = await getLocalFilePath(imgUrl);
                 if (imgPath && !addedImages.has(imgPath)) {
                   const shortName = shortenResourceName("image", imageIndex, imgPath);
                   archive.file(imgPath, { name: validateAndShortenPath(`${folderName}/Images/${shortName}`) });
@@ -491,7 +492,7 @@ export async function downloadCompleteLearningUniverse(req: AuthRequest, res: Re
                   : (block.content.body || block.content.content || block.content.text || "");
                 const inlineImgs = extractLocalImages(textToCheck);
                 for (const imgUrl of inlineImgs) {
-                  const imgPath = getLocalFilePath(imgUrl);
+                  const imgPath = await getLocalFilePath(imgUrl);
                   if (imgPath && !addedImages.has(imgPath)) {
                     const shortName = shortenResourceName("image", imageIndex, imgPath);
                     archive.file(imgPath, { name: validateAndShortenPath(`${folderName}/Images/${shortName}`) });
@@ -500,7 +501,7 @@ export async function downloadCompleteLearningUniverse(req: AuthRequest, res: Re
                   }
                 }
               }
-            });
+            }
           }
 
           // Videos
@@ -511,7 +512,7 @@ export async function downloadCompleteLearningUniverse(req: AuthRequest, res: Re
               const videoDestPath = `${folderName}/Videos/${modulePath}/${shortenLessonName(lessonIndex, lesson.title)}`;
 
               if (video.type === "upload") {
-                const videoPath = getLocalFilePath(video.url);
+                const videoPath = await getLocalFilePath(video.url);
                 if (videoPath) {
                   const ext = path.extname(videoPath) || ".mp4";
                   const shortName = shortenResourceName("video", vi, videoPath);
@@ -537,7 +538,7 @@ export async function downloadCompleteLearningUniverse(req: AuthRequest, res: Re
               const resourceName = shortenResourceName("resource", resourceIndex, resource.title);
               
               if (resource.fileUrl) {
-                const resourcePath = getLocalFilePath(resource.fileUrl);
+                const resourcePath = await getLocalFilePath(resource.fileUrl);
                 if (resourcePath) {
                   const ext = path.extname(resourcePath);
                   const finalName = resourceName.endsWith(ext) ? resourceName : resourceName + ext;

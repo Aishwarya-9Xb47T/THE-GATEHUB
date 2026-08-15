@@ -15,8 +15,9 @@ import {
   type CertificateData,
   type CertificateTemplateSnapshot,
 } from "./premiumCertificateService.js";
-import { getLearnerExperience } from "../controllers/learningExperienceController.js";
+import { persistGeneratedFile, readSmallStoredFile } from "../middlewares/persistUpload.js";
 import { resolveLearnerScope } from "./learnerScopeService.js";
+import { getLearnerExperience } from "../controllers/learningExperienceController.js";
 
 const pdfService = new PremiumCertificateService();
 
@@ -146,7 +147,13 @@ async function generateAndStorePdf(
   });
   const filePath = pdfPathFor(payload.certificateId);
   await fs.writeFile(filePath, buffer);
-  return { pdfPath: filePath, buffer };
+  const publicPath = await persistGeneratedFile({
+    localPath: filePath,
+    prefix: "certificates",
+    fileName: `${payload.certificateId}.pdf`,
+    contentType: "application/pdf",
+  });
+  return { pdfPath: publicPath, buffer };
 }
 
 export async function tryAutoIssueLuCertificate(
@@ -278,8 +285,8 @@ export async function getLuCertificatePdfBuffer(
 
   if (cert.pdfPath) {
     try {
-      const buf = await fs.readFile(cert.pdfPath);
-      if (buf.length > 0) {
+      const buf = (await readSmallStoredFile(cert.pdfPath)) ?? (await fs.readFile(cert.pdfPath).catch(() => null));
+      if (buf && buf.length > 0) {
         await logCertificateAudit({
           certificatePublicId: cert.certificateId,
           action: "downloaded",
@@ -488,6 +495,12 @@ export async function issueCourseCertificate(userId: string, courseId: string) {
   });
   const filePath = pdfPathFor(certificateId);
   await fs.writeFile(filePath, buffer);
+  const publicPath = await persistGeneratedFile({
+    localPath: filePath,
+    prefix: "certificates",
+    fileName: `${certificateId}.pdf`,
+    contentType: "application/pdf",
+  });
 
   const cert = await prisma.certificate.create({
     data: {
@@ -497,7 +510,7 @@ export async function issueCourseCertificate(userId: string, courseId: string) {
       certificateTitle: `Certificate of Completion — ${enrollment.course.title}`,
       certificateBody: `Awarded for successful completion of ${enrollment.course.title}.`,
       completionDate: eligibility.completionDate,
-      pdfPath: filePath,
+      pdfPath: publicPath,
       verificationUrl,
       url: `/uploads/certificates/${certificateId}.pdf`,
       status: "active",
@@ -560,8 +573,8 @@ export async function getCourseCertificatePdfBuffer(
 
   if (cert.pdfPath) {
     try {
-      const buf = await fs.readFile(cert.pdfPath);
-      if (buf.length > 0) {
+      const buf = (await readSmallStoredFile(cert.pdfPath)) ?? (await fs.readFile(cert.pdfPath).catch(() => null));
+      if (buf && buf.length > 0) {
         await logCertificateAudit({
           certificatePublicId: cert.certificateId,
           action: "downloaded",
@@ -623,9 +636,15 @@ export async function getCourseCertificatePdfBuffer(
   await ensureCertDir();
   const filePath = pdfPathFor(cert.certificateId);
   await fs.writeFile(filePath, buffer);
+  const publicPath = await persistGeneratedFile({
+    localPath: filePath,
+    prefix: "certificates",
+    fileName: `${cert.certificateId}.pdf`,
+    contentType: "application/pdf",
+  });
   await prisma.certificate.update({
     where: { certificateId: cert.certificateId },
-    data: { pdfPath: filePath, verificationUrl },
+    data: { pdfPath: publicPath, verificationUrl },
   });
 
   await logCertificateAudit({

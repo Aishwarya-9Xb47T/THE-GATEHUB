@@ -157,11 +157,19 @@ async function copyAssetsToVersionStore(
 
   const stored: AssetInventoryEntry[] = [];
   for (const asset of assets) {
-    const srcPath = path.join(PROJECTS_DIR, projectId, asset.storedFilename);
+    let srcPath = path.join(PROJECTS_DIR, projectId, asset.storedFilename);
+    if (!fs.existsSync(srcPath)) {
+      const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+      srcPath =
+        (await hydrateLocalUpload(`/uploads/projects/${projectId}/${asset.storedFilename}`)) || srcPath;
+    }
     if (!fs.existsSync(srcPath)) continue;
 
     const versionFilename = `${randomUUID()}${path.extname(asset.name)}`;
-    fs.copyFileSync(srcPath, path.join(destDir, versionFilename));
+    const destPath = path.join(destDir, versionFilename);
+    fs.copyFileSync(srcPath, destPath);
+    const { persistAtPublicRelative } = await import("../middlewares/persistUpload.js");
+    await persistAtPublicRelative(destPath, `latex/${projectId}/${versionId}/${versionFilename}`);
     stored.push({ ...asset, storedFilename: versionFilename });
   }
   return stored;
@@ -397,12 +405,23 @@ async function restoreAssetsFromVersion(
   const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
 
   for (const asset of assets) {
-    const srcPath = path.join(srcDir, asset.storedFilename);
+    let srcPath = path.join(srcDir, asset.storedFilename);
+    if (!fs.existsSync(srcPath)) {
+      const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+      srcPath =
+        (await hydrateLocalUpload(`/uploads/latex/${projectId}/${versionId}/${asset.storedFilename}`)) ||
+        srcPath;
+    }
     if (!fs.existsSync(srcPath)) continue;
 
     const destFilename = `${randomUUID()}${path.extname(asset.name)}`;
-    fs.copyFileSync(srcPath, path.join(destDir, destFilename));
-    const s3Url = `${baseUrl}/uploads/projects/${projectId}/${destFilename}`;
+    const destPath = path.join(destDir, destFilename);
+    fs.copyFileSync(srcPath, destPath);
+    const { persistAtPublicRelative } = await import("../middlewares/persistUpload.js");
+    const publicPath = await persistAtPublicRelative(destPath, `projects/${projectId}/${destFilename}`);
+    const s3Url = publicPath.startsWith("http")
+      ? publicPath
+      : `${baseUrl}${publicPath}`;
 
     const existing = await prisma.latexFile.findUnique({
       where: { projectId_path: { projectId, path: asset.path } },

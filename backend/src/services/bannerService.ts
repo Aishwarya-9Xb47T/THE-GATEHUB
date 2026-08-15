@@ -3,6 +3,8 @@ import path from "path";
 import { randomUUID } from "crypto";
 import OpenAI from "openai";
 import { isFirebaseConfigured, uploadBannerToFirebase, type BannerStorageRecord } from "./firebaseStorageService.js";
+import { isB2Configured } from "./b2StorageService.js";
+import { persistGeneratedFile } from "../middlewares/persistUpload.js";
 
 const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 const BANNERS_DIR = path.join(UPLOAD_DIR, "banners");
@@ -209,6 +211,37 @@ async function persistBanner(
   const now = new Date().toISOString();
   const filename = `${bannerId}${ext}`;
   const thumbFilename = `thumb-${bannerId}${ext}`;
+
+  if (isB2Configured()) {
+    const bannerTmp = path.join(BANNERS_DIR, filename);
+    const thumbTmp = path.join(THUMBS_DIR, thumbFilename);
+    fs.mkdirSync(THUMBS_DIR, { recursive: true });
+    fs.writeFileSync(bannerTmp, bannerBuffer);
+    fs.writeFileSync(thumbTmp, thumbBuffer);
+    await persistGeneratedFile({
+      localPath: bannerTmp,
+      prefix: "banners",
+      fileName: filename,
+      contentType: ext === ".png" ? "image/png" : "image/jpeg",
+    });
+    await persistGeneratedFile({
+      localPath: thumbTmp,
+      prefix: "banners",
+      extraPath: "thumbs",
+      fileName: thumbFilename,
+      contentType: ext === ".png" ? "image/png" : "image/jpeg",
+    });
+    return {
+      bannerId,
+      bannerUrl: publicUrl(`/uploads/banners/${filename}`),
+      thumbnailUrl: publicUrl(`/uploads/banners/thumbs/${thumbFilename}`),
+      source: meta.source,
+      category: meta.category,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
   fs.writeFileSync(path.join(BANNERS_DIR, filename), bannerBuffer);
   fs.writeFileSync(path.join(THUMBS_DIR, thumbFilename), thumbBuffer);
 

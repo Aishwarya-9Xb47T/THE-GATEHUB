@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "../utils/prisma.js";
 import { getPlatformSettings } from "./platformSettingsService.js";
+import { persistGeneratedFile } from "../middlewares/persistUpload.js";
 
 function invoiceNumber(): string {
   const d = new Date();
@@ -82,7 +83,12 @@ export async function createInvoiceForOrder(params: {
   const fileName = `${invNum}.html`;
   const filePath = path.join(uploadDir, fileName);
   fs.writeFileSync(filePath, html, "utf8");
-  const publicPath = `/uploads/invoices/${fileName}`;
+  const publicPath = await persistGeneratedFile({
+    localPath: filePath,
+    prefix: "invoices",
+    fileName,
+    contentType: "text/html; charset=utf-8",
+  });
 
   return prisma.invoice.create({
     data: {
