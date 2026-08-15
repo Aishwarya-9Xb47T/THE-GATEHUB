@@ -1,7 +1,8 @@
 import fs from "fs";
 import fsPromises from "fs/promises";
 import path from "path";
-import { spawn } from "child_process";
+import os from "os";
+import { spawn, execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../utils/prisma.js";
@@ -422,8 +423,79 @@ async function runCommand(command: string, args: string[], timeoutMs: number, op
   });
 }
 
-// Find available LaTeX compilers
-function findCompiler(compiler: 'pdflatex' | 'xelatex' | 'lualatex'): string | null {
+function resolveOnPath(bin: string): string | null {
+  try {
+    const cmd = process.platform === "win32" ? "where" : "which";
+    const out = execFileSync(cmd, [bin], { encoding: "utf8" })
+      .trim()
+      .split(/\r?\n/)
+      .find(Boolean);
+    return out && fs.existsSync(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function readTinyTexPathFile(compiler: string): string | null {
+  const marker = path.join(process.cwd(), ".tinytex", `${compiler}.path`);
+  try {
+    if (!fs.existsSync(marker)) return null;
+    const stored = fs.readFileSync(marker, "utf8").trim();
+    return stored && fs.existsSync(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function findTinyTexBinary(compiler: string): string | null {
+  const fromMarker = readTinyTexPathFile(compiler);
+  if (fromMarker) return fromMarker;
+
+  const names = process.platform === "win32" ? [`${compiler}.exe`] : [compiler];
+  const direct = [
+    path.join(process.cwd(), ".tinytex", "bin", "x86_64-linux", compiler),
+    path.join(process.cwd(), ".tinytex", "bin", "aarch64-linux", compiler),
+    path.join(os.homedir(), ".TinyTeX", "bin", "x86_64-linux", compiler),
+    path.join(os.homedir(), ".tinytex", "bin", "x86_64-linux", compiler),
+  ];
+  for (const candidate of direct) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  const roots = [
+    path.join(process.cwd(), ".tinytex"),
+    path.join(os.homedir(), ".TinyTeX"),
+    path.join(os.homedir(), ".tinytex"),
+  ];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    const stack = [root];
+    let steps = 0;
+    while (stack.length && steps < 80) {
+      const dir = stack.pop() as string;
+      steps += 1;
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const ent of entries) {
+        const full = path.join(dir, ent.name);
+        if (ent.isFile() && names.includes(ent.name)) return full;
+        if (
+          ent.isDirectory() &&
+          /^(bin|TinyTeX|\.TinyTeX|x86_64-linux|aarch64-linux|universal-darwin)$/i.test(ent.name)
+        ) {
+          stack.push(full);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function resolveLatexCompiler(compiler: "pdflatex" | "xelatex" | "lualatex"): string | null {
   const envKey =
     compiler === "pdflatex"
       ? process.env.LATEX_PDFLATEX_PATH
@@ -433,20 +505,38 @@ function findCompiler(compiler: 'pdflatex' | 'xelatex' | 'lualatex'): string | n
 
   const possiblePaths = [
     envKey,
-    // Common install locations (no developer-machine home paths)
+    findTinyTexBinary(compiler),
     `C:\\Program Files\\MiKTeX\\miktex\\bin\\x64\\${compiler}.exe`,
     `C:\\Program Files\\MiKTeX 2.9\\miktex\\bin\\x64\\${compiler}.exe`,
     `/usr/bin/${compiler}`,
     `/usr/local/bin/${compiler}`,
-    compiler, // PATH lookup via spawn
+    resolveOnPath(compiler),
   ].filter(Boolean) as string[];
 
   for (const candidate of possiblePaths) {
-    if (candidate === compiler || fs.existsSync(candidate)) {
-      return candidate;
-    }
+    // Never treat the bare command name as "found" — that caused spawn ENOENT on Render.
+    if (candidate === compiler) continue;
+    if (fs.existsSync(candidate)) return path.resolve(candidate);
   }
   return null;
+}
+
+export function ensureLatexBinOnPath(): string | null {
+  const pdflatexPath = resolveLatexCompiler("pdflatex");
+  if (!pdflatexPath) return null;
+  const binDir = path.dirname(pdflatexPath);
+  const current = process.env.PATH || "";
+  if (!current.split(path.delimiter).includes(binDir)) {
+    process.env.PATH = `${binDir}${path.delimiter}${current}`;
+  }
+  if (!process.env.LATEX_PDFLATEX_PATH) {
+    process.env.LATEX_PDFLATEX_PATH = pdflatexPath;
+  }
+  return pdflatexPath;
+}
+
+function findCompiler(compiler: "pdflatex" | "xelatex" | "lualatex"): string | null {
+  return resolveLatexCompiler(compiler);
 }
 
 // CRITICAL: Fix working directory - pdflatex must run INSIDE workspaceDir
@@ -457,8 +547,11 @@ async function runLatexPass(
 ): Promise<{ exitCode: number; output: string; duration: number; fullCommand: string }> {
   const compilerPath = findCompiler(compiler);
   if (!compilerPath) {
-    throw new Error(`${compiler} not found. Please ensure MiKTeX is installed.`);
+    throw new Error(
+      `${compiler} not found. Install a LaTeX engine, set LATEX_PDFLATEX_PATH, or deploy the Docker image.`
+    );
   }
+  console.log(`[LATEX] using ${compiler}: ${compilerPath}`);
   
   // CRITICAL: Sanitize path - remove newlines and trim
   workspaceDir = workspaceDir.trim();
@@ -504,7 +597,10 @@ async function runLatexPass(
 
 // Run BibTeX if needed
 async function runBibtexPass(workspaceDir: string, timeoutMs: number): Promise<{ exitCode: number; output: string; duration: number }> {
-  const bibtexPath = findCompiler('pdflatex')?.replace('pdflatex.exe', 'bibtex.exe') || 'bibtex';
+  const pdflatexPath = findCompiler("pdflatex");
+  const bibtexPath = pdflatexPath
+    ? pdflatexPath.replace(/pdflatex(\.exe)?$/i, (_match, ext: string | undefined) => `bibtex${ext || ""}`)
+    : "bibtex";
   
   const args = ["main"];
   

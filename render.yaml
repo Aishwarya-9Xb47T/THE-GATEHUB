@@ -1,6 +1,12 @@
 services:
+  # Existing Native Node services do NOT switch automatically when this file is pushed.
+  # Dashboard: Settings → Build & Deploy → Source → Edit → Runtime = Docker.
+  # Dockerfile path: ./backend/Dockerfile
+  # Docker build context: .   (repository root — required for shared/lesson-body)
+  # Root Directory: leave EMPTY (do not set backend)
   - type: web
     name: gatehub-backend
+    runtime: docker
     env: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .

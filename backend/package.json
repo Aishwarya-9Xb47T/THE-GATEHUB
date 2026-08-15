@@ -7,7 +7,7 @@
     "dev": "node -e \"const cp=require('child_process'); const run=()=>{ const p=cp.spawn('npm', ['run', 'dev:inner'], {stdio:'inherit', shell:true}); p.on('exit', (code)=>{ if(code!==0){ console.log('Backend crashed, restarting in 3s...'); setTimeout(run, 3000); } }); }; run();\"",
     "dev:backend": "npm run dev",
     "dev:inner": "tsx watch src/index.ts",
-    "build": "tsc -p ../shared/lesson-body/tsconfig.json && node scripts/build.js",
+    "build": "node scripts/ensure-pdflatex.mjs && tsc -p ../shared/lesson-body/tsconfig.json && node scripts/build.js",
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push --skip-generate",

@@ -16,6 +16,14 @@ fi
 UPLOAD_ROOT="${UPLOAD_DIR:-/app/uploads}"
 mkdir -p "$UPLOAD_ROOT" "$UPLOAD_ROOT/latex" "$UPLOAD_ROOT/latex/pdfs" /app/data
 
+if ! command -v pdflatex >/dev/null 2>&1; then
+  echo "[entrypoint] FATAL: pdflatex is not on PATH in the runtime image"
+  echo "[entrypoint] PATH=${PATH}"
+  exit 1
+fi
+echo "[entrypoint] $(pdflatex --version | head -n 1)"
+echo "[entrypoint] pdflatex=$(command -v pdflatex)"
+
 echo "[entrypoint] Applying Prisma migrations (prisma migrate deploy)..."
 npx prisma migrate deploy
 

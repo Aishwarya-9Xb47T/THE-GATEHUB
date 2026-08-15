@@ -41,6 +41,8 @@ pids/
 tmp/
 temp/
 latex-temp/
+.tinytex/
+**/.tinytex/
 coverage/
 .nyc_output/
 

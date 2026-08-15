@@ -8,6 +8,7 @@
 **/.vite
 **/coverage
 **/*.log
+**/.tinytex/
 latex-temp
 backend/uploads
 uploads

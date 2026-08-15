@@ -352,10 +352,13 @@ app.get("/api/health", async (_req, res) => {
     const { prisma } = await import("./utils/prisma.js");
     await prisma.$queryRaw`SELECT 1`;
     const storage = await pingB2Storage();
+    const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");
+    const pdflatexPath = ensureLatexBinOnPath();
     res.json({
       status: "ok",
       database: "connected",
       storage,
+      latex: pdflatexPath ? "available" : "missing",
       timestamp: new Date().toISOString(),
     });
   } catch {
@@ -389,6 +392,9 @@ async function initializeBackgroundServices() {
     await bootstrapAiProviders();
     await ensureDocIndexLoaded();
     logBannerStudioStartupStatus();
+    const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");
+    const pdflatexPath = ensureLatexBinOnPath();
+    console.log(`[LATEX] pdflatex: ${pdflatexPath || "MISSING"}`);
     console.log("[SUCCESS] Background services initialized.");
   } catch (err) {
     console.error("[ERROR] Background initialization failed:", err);
