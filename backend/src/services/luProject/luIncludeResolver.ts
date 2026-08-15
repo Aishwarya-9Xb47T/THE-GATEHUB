@@ -71,18 +71,15 @@ function lessonContextFromSource(
   sourcePath: string
 ): { lessonId: string; lessonDir: string } | null {
   const normalized = normalizeProjectPath(sourcePath);
-  const asLessonFile = normalized.match(/^(.*\/)(lesson[\s_-]*\d+)\.tex$/i);
-  if (asLessonFile) {
-    const lessonId = normalizeLessonSlug(asLessonFile[2]);
-    const parent = asLessonFile[1];
-    const lessonDir = `${parent}${lessonId}`;
-    return { lessonId, lessonDir };
+  const asWrapper = normalized.match(/^(\/[^/]+\/[^/]+)\/([^/]+)\.tex$/i);
+  if (asWrapper && !/^(track|module|main|metadata|videos)$/i.test(asWrapper[2])) {
+    const lessonId = normalizeLessonSlug(asWrapper[2]);
+    return { lessonId, lessonDir: `${asWrapper[1]}/${lessonId}` };
   }
-  const insideLesson = normalized.match(/^(.*\/lesson[\s_-]*\d+)\/[^/]+\.tex$/i);
+  const insideLesson = normalized.match(/^(\/[^/]+\/[^/]+\/([^/]+))\//i);
   if (insideLesson) {
-    const lessonDir = insideLesson[1].replace(/(lesson)[\s_-]*(\d+)/i, (_, _p, n) => `lesson-${String(n).padStart(2, "0")}`);
-    const lessonId = lessonDir.match(/lesson-\d+$/i)?.[0];
-    if (lessonId) return { lessonId, lessonDir };
+    const lessonId = normalizeLessonSlug(insideLesson[2]);
+    return { lessonId, lessonDir: `${insideLesson[1].replace(/\/[^/]+$/, "")}/${lessonId}` };
   }
   return null;
 }

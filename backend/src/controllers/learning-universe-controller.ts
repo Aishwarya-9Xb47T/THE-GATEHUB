@@ -358,11 +358,12 @@ export async function publishLearningUniverse(
   }
 
   if (options.compiledPackage && options.projectId) {
-    const projectJson = getProjectJsonFromFiles(await loadProjectFiles(options.projectId));
+    const projectFiles = await loadProjectFiles(options.projectId);
+    const projectJson = getProjectJsonFromFiles(projectFiles);
     if (!projectJson) {
       throw new Error("LU v2 publish requires project.json");
     }
-    publishFromCompiledPackage(parsed, projectJson, options.compiledPackage);
+    publishFromCompiledPackage(parsed, projectJson, options.compiledPackage, projectFiles);
     assertPublishCompiledIntegrity(parsed, options.compiledPackage);
   } else if (options.projectId) {
     throw new Error(

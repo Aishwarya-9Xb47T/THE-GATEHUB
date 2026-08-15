@@ -138,20 +138,26 @@ export function buildProjectTexEntries(project: LuProjectJson): ProjectTexEntry[
             comp.file ||
             componentFilePath(track.folder, mod.folder, lesson.id, comp.id, comp.kind);
           comp.file = compPath;
-          entries.push({ path: compPath, content: emitLeafComponentTex(comp, null) });
+          entries.push({ path: compPath, content: emitLeafComponentTex(comp as LuLessonComponentRef, null) });
 
           for (const child of comp.children ?? []) {
             const childPath =
               child.file ||
               componentFilePath(track.folder, mod.folder, lesson.id, child.id, comp.kind);
             child.file = childPath;
-            entries.push({ path: childPath, content: emitLeafComponentTex(child, comp) });
+            entries.push({
+              path: childPath,
+              content: emitLeafComponentTex(child as LuLessonComponentRef, comp as LuLessonComponentRef),
+            });
           }
 
           if (CHILD_CONTAINER_KINDS.has(comp.kind as LuLessonComponentKind)) {
             const idx = entries.findIndex((e) => e.path === compPath);
             if (idx >= 0) {
-              entries[idx] = { path: compPath, content: emitContainerOrchestrationTex(comp) };
+              entries[idx] = {
+                path: compPath,
+                content: emitContainerOrchestrationTex(comp as LuLessonComponentRef),
+              };
             }
           }
         }

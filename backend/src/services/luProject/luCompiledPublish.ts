@@ -17,6 +17,7 @@ import {
   dropNonPublishableDocumentBlocks,
   isLessonCompiledDocumentPath,
 } from "./luPublishIntegrity.js";
+import { assertPublishSourceOfTruth } from "./luPublishSourceOfTruth.js";
 
 export {
   assertPublishCompiledIntegrity,
@@ -32,7 +33,8 @@ export {
 export function publishFromCompiledPackage(
   parsed: ParsedLearningUniverse,
   project: LuProjectJson,
-  compiled: LuCompiledPackage
+  compiled: LuCompiledPackage,
+  savedFiles: ProjectFileRecord[] = []
 ): void {
   applyCompiledPackageToParsed(parsed, project, compiled);
   const dropped = dropNonPublishableDocumentBlocks(parsed, compiled);
@@ -43,6 +45,9 @@ export function publishFromCompiledPackage(
         `[PublishIntegrity] dsl-orphan lesson=${JSON.stringify(ref.lessonTitle)} title=${JSON.stringify(ref.title)} path=${ref.compiledSourcePath ?? "(none)"}`
       );
     }
+  }
+  if (savedFiles.length) {
+    assertPublishSourceOfTruth(savedFiles, compiled, parsed);
   }
 }
 

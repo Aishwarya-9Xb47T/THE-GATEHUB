@@ -24,10 +24,15 @@ import type {
 } from "./luCompiledPackageSchema.js";
 import { LU_COMPILED_PACKAGE_VERSION } from "./luCompiledPackageSchema.js";
 import {
-  isLessonLeafDocumentPath,
-  isNonPublishableCompileArtifact,
+  canonicalDocumentIdentity,
+  isPublishableCompiledDocument,
   isPublishableCompiledDocumentPath,
 } from "./luPublishIntegrity.js";
+import {
+  isInteractiveOnlyTex,
+  lessonDirectoryFromDocumentPath,
+  listSavedPublishableSourcePaths,
+} from "./luPublishSourceOfTruth.js";
 import { sanitizeAIContentForLaTeX } from "../../utils/aiContentSanitizer.js";
 
 function consumeCommandArgumentBraces(tex: string, startIdx: number): { content: string; endIdx: number } | null {
@@ -200,72 +205,11 @@ const INTERACTIVE_BLOCK_TYPES = new Set([
   "download",
 ]);
 
-const INTERACTIVE_COMPONENT_KINDS = new Set([
-  "quiz",
-  "question",
-  "practice",
-  "coding-lab",
-  "notebook",
-  "research-paper",
-  "project",
-  "assignment",
-  "resources",
-  "references",
-  "video",
-]);
-
-const INTERACTIVE_TEX_RE =
-  /^\\(?:question|quiz|practice|codinglab|notebook|researchpaper|references|project|assignment|resource|download|video)\s*\{/im;
-
-function componentKindForPath(project: LuProjectJson, filePath: string): string | null {
-  const normalized = normalizeProjectPath(filePath);
-  for (const track of project.tracks) {
-    for (const mod of track.modules) {
-      for (const lesson of mod.lessons) {
-        for (const comp of lesson.components ?? []) {
-          if (comp.file && normalizeProjectPath(comp.file) === normalized) {
-            return comp.kind;
-          }
-          for (const child of comp.children ?? []) {
-            if (child.file && normalizeProjectPath(child.file) === normalized) {
-              return child.kind;
-            }
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function shouldCompileAsDocument(
-  filePath: string,
-  sourceTex: string,
-  project: LuProjectJson
-): boolean {
-  const normalized = normalizeProjectPath(filePath);
-  if (isNonPublishableCompileArtifact(normalized)) return false;
-  if (!isLessonLeafDocumentPath(normalized)) return false;
+function shouldCompileAsDocument(filePath: string, sourceTex: string): boolean {
+  const normalized = canonicalDocumentIdentity(filePath);
+  if (!isPublishableCompiledDocumentPath(normalized)) return false;
   if (/\/videos\.tex$/i.test(normalized)) return false;
-
-  const kind = componentKindForPath(project, filePath);
-  if (kind && INTERACTIVE_COMPONENT_KINDS.has(kind)) return false;
-
-  const compId = (() => {
-    for (const track of project.tracks) {
-      for (const mod of track.modules) {
-        for (const lesson of mod.lessons) {
-          for (const comp of lesson.components ?? []) {
-            if (comp.file && normalizeProjectPath(comp.file) === normalized) return comp.id;
-          }
-        }
-      }
-    }
-    return null;
-  })();
-  if (compId === "videos") return false;
-
-  if (INTERACTIVE_TEX_RE.test(sourceTex.trim())) return false;
+  if (isInteractiveOnlyTex(sourceTex)) return false;
   return true;
 }
 
@@ -395,24 +339,35 @@ export function compileTexFile(
   };
 }
 
-/** Compile every editable lesson file in the project. */
+/** Compile every saved instructor document .tex file, including \\input targets of named/numeric wrappers. */
 export function compileAllLessonTexFiles(
   projectId: string,
   files: ProjectFileRecord[],
-  project: LuProjectJson
+  _project: LuProjectJson
 ): { package: LuCompiledPackage; issues: CompileDiagnostic[] } {
-  const editable = discoverEditableTexFiles(files);
+  const byPath = new Map(
+    files
+      .filter((file) => !file.isFolder)
+      .map((file) => [canonicalDocumentIdentity(file.path), file] as const)
+  );
+  const compilePaths = new Set([
+    ...listSavedPublishableSourcePaths(files),
+    ...discoverEditableTexFiles(files)
+      .filter((file) => shouldCompileAsDocument(file.path, file.content ?? ""))
+      .map((file) => canonicalDocumentIdentity(file.path)),
+  ]);
   const compiledFiles: Record<string, CompiledTexFile> = {};
   const issues: CompileDiagnostic[] = [];
 
-  for (const file of editable) {
-    const content = file.content ?? "";
-    if (!shouldCompileAsDocument(file.path, content, project)) continue;
+  for (const path of [...compilePaths].sort()) {
+    const file = byPath.get(path);
+    const content = file?.content ?? "";
+    if (!shouldCompileAsDocument(path, content)) continue;
 
-    const { compiled, issues: fileIssues } = compileTexFile(file.path, content, files);
+    const { compiled, issues: fileIssues } = compileTexFile(path, content, files);
     issues.push(...fileIssues);
     if (compiled) {
-      compiledFiles[normalizeProjectPath(file.path)] = compiled;
+      compiledFiles[path] = compiled;
     }
   }
 
@@ -450,6 +405,112 @@ function lessonDirectory(
   return normalizeProjectPath(`/${track.folder}/${mod.folder}/${slug}`);
 }
 
+function compiledFileForPath(
+  compiled: LuCompiledPackage,
+  path: string
+): CompiledTexFile | undefined {
+  const identity = canonicalDocumentIdentity(path);
+  return compiled.files[identity] ?? compiled.files[normalizeProjectPath(path)] ?? compiled.files[path];
+}
+
+function emptyParsedLesson(title: string): ParsedLearningUniverse["tracks"][number]["modules"][number]["lessons"][number] {
+  return {
+    title,
+    overviewMarkdown: "",
+    contentBlocks: [],
+    videos: [],
+    resources: [],
+  };
+}
+
+function ensureParsedLesson(
+  parsed: ParsedLearningUniverse,
+  track: LuProjectTrackRef,
+  mod: LuProjectModuleRef,
+  lessonRef: LuProjectLessonRef,
+  trackIdx: number,
+  modIdx: number,
+  lessonIdx: number
+): ParsedLearningUniverse["tracks"][number]["modules"][number]["lessons"][number] {
+  while (parsed.tracks.length <= trackIdx) {
+    parsed.tracks.push({
+      title: track.title,
+      description: track.description ?? "",
+      modules: [],
+    });
+  }
+  const parsedTrack = parsed.tracks[trackIdx];
+  while (parsedTrack.modules.length <= modIdx) {
+    parsedTrack.modules.push({
+      title: mod.title,
+      description: "",
+      lessons: [],
+    });
+  }
+  const parsedMod = parsedTrack.modules[modIdx];
+  while (parsedMod.lessons.length <= lessonIdx) {
+    parsedMod.lessons.push(emptyParsedLesson(lessonRef.title));
+  }
+  return parsedMod.lessons[lessonIdx];
+}
+
+function ensureLessonForDirectory(
+  parsed: ParsedLearningUniverse,
+  project: LuProjectJson,
+  lessonDir: string
+): ParsedLearningUniverse["tracks"][number]["modules"][number]["lessons"][number] {
+  for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
+    const track = project.tracks[trackIdx];
+    for (let modIdx = 0; modIdx < track.modules.length; modIdx++) {
+      const mod = track.modules[modIdx];
+      for (let lessonIdx = 0; lessonIdx < mod.lessons.length; lessonIdx++) {
+        const lessonRef = mod.lessons[lessonIdx];
+        if (lessonDirectory(track, mod, lessonRef) !== lessonDir) continue;
+        return ensureParsedLesson(parsed, track, mod, lessonRef, trackIdx, modIdx, lessonIdx);
+      }
+    }
+  }
+
+  const parts = lessonDir.split("/").filter(Boolean);
+  const title = parts[parts.length - 1] ?? "Lesson";
+  if (!parsed.tracks[0]) {
+    parsed.tracks.push({ title: parts[0] ?? "Track", description: "", modules: [] });
+  }
+  if (!parsed.tracks[0].modules[0]) {
+    parsed.tracks[0].modules.push({ title: parts[1] ?? "Module", description: "", lessons: [] });
+  }
+  const created = emptyParsedLesson(title);
+  parsed.tracks[0].modules[0].lessons.push(created);
+  return created;
+}
+
+function stampCompiledSource(
+  block: { type: string; content?: unknown; compiledSourcePath?: string; title?: string },
+  compiledFile: CompiledTexFile
+): void {
+  const sourcePath = canonicalDocumentIdentity(compiledFile.path);
+  block.compiledSourcePath = sourcePath;
+  if (block.content && typeof block.content === "object") {
+    const content = block.content as {
+      compiledSourcePath?: string;
+      sourceTex?: string;
+      nodes?: unknown;
+      title?: string;
+    };
+    content.compiledSourcePath = sourcePath;
+    content.sourceTex = compiledFile.sourceTex;
+    if (!content.nodes) content.nodes = compiledFile.nodes;
+    if (!content.title) content.title = compiledFile.title;
+  } else {
+    block.content = {
+      title: compiledFile.title,
+      compiledSourcePath: sourcePath,
+      sourceTex: compiledFile.sourceTex,
+      nodes: compiledFile.nodes,
+    };
+  }
+}
+
 function pushCompiledDocumentBlock(
   nextBlocks: Array<{ type: string; content: unknown; compiledSourcePath?: string; title?: string }>,
   compiledFile: CompiledTexFile,
@@ -460,7 +521,7 @@ function pushCompiledDocumentBlock(
     compiledFile.sourceTex,
     title ?? compiledFile.title
   );
-  const sourcePath = normalizeProjectPath(compiledFile.path);
+  const sourcePath = canonicalDocumentIdentity(compiledFile.path);
   const hasDocument = blocks.some((block) => block.type === "document");
   const videoOnly =
     compiledFile.nodes.length > 0 &&
@@ -469,17 +530,19 @@ function pushCompiledDocumentBlock(
     blocks.push({
       type: "document",
       title: title ?? compiledFile.title,
-      content: compiledFile.sourceTex,
+      content: {
+        title: title ?? compiledFile.title,
+        compiledSourcePath: sourcePath,
+        sourceTex: compiledFile.sourceTex,
+        nodes: compiledFile.nodes,
+      },
       sourceTex: compiledFile.sourceTex,
       nodes: compiledFile.nodes,
     });
   }
   for (const block of blocks) {
     if (block.type === "document") {
-      block.compiledSourcePath = sourcePath;
-      if (block.content && typeof block.content === "object") {
-        (block.content as { compiledSourcePath?: string }).compiledSourcePath = sourcePath;
-      }
+      stampCompiledSource(block, compiledFile);
       nextBlocks.push({
         type: block.type,
         content: block.content,
@@ -527,81 +590,103 @@ export function applyCompiledPackageToParsed(
   project: LuProjectJson,
   compiled: LuCompiledPackage
 ): void {
-  for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
-    const track = project.tracks[trackIdx];
-    const parsedTrack = parsed.tracks[trackIdx];
-    if (!parsedTrack) continue;
+  const usedCompiledPaths = new Set<string>();
 
-    for (let modIdx = 0; modIdx < track.modules.length; modIdx++) {
-      const mod = track.modules[modIdx];
-      const parsedMod = parsedTrack.modules[modIdx];
-      if (!parsedMod) continue;
+  const applyLesson = (
+    parsedLesson: ParsedLearningUniverse["tracks"][number]["modules"][number]["lessons"][number],
+    track: LuProjectTrackRef,
+    mod: LuProjectModuleRef,
+    lessonRef: LuProjectLessonRef
+  ) => {
+    const parsedBlocks = [...parsedLesson.contentBlocks];
+    const usedParsed = new Set<number>();
+    const nextBlocks: Array<{ type: string; content: unknown }> = [];
+    const lessonDir = lessonDirectory(track, mod, lessonRef);
+    const localUsed = new Set<string>();
 
-      for (let lessonIdx = 0; lessonIdx < mod.lessons.length; lessonIdx++) {
-        const lessonRef = mod.lessons[lessonIdx];
-        const parsedLesson = parsedMod.lessons[lessonIdx];
-        if (!parsedLesson) continue;
-
-        const parsedBlocks = [...parsedLesson.contentBlocks];
-        const usedParsed = new Set<number>();
-        const usedCompiledPaths = new Set<string>();
-        const nextBlocks: Array<{ type: string; content: unknown }> = [];
-        const lessonDir = lessonDirectory(track, mod, lessonRef);
-
-        for (const comp of sortedComponents(lessonRef)) {
-          if (CHILD_CONTAINER_KINDS.has(comp.kind as never)) {
-            const interactive = takeInteractiveBlock(parsedBlocks, comp.kind, usedParsed);
-            if (interactive) nextBlocks.push(interactive);
-            for (const child of comp.children ?? []) {
-              const childPath = child.file ? normalizeProjectPath(child.file) : "";
-              const compiledFile = childPath ? compiled.files[childPath] : undefined;
-              if (compiledFile && isPublishableCompiledDocumentPath(childPath)) {
-                pushCompiledDocumentBlock(nextBlocks, compiledFile, child.title);
-                usedCompiledPaths.add(childPath);
-              }
-            }
-            continue;
-          }
-
-          const compPath = comp.file ? normalizeProjectPath(comp.file) : "";
-          const compiledFile = compPath ? compiled.files[compPath] : undefined;
-
-          if (compiledFile && isPublishableCompiledDocumentPath(compPath)) {
-            pushCompiledDocumentBlock(nextBlocks, compiledFile, comp.title);
-            usedCompiledPaths.add(compPath);
-            continue;
-          }
-
-          if (INTERACTIVE_BLOCK_TYPES.has(comp.kind.toLowerCase())) {
-            const interactive = takeInteractiveBlock(parsedBlocks, comp.kind, usedParsed);
-            if (interactive) nextBlocks.push(interactive);
+    for (const comp of sortedComponents(lessonRef)) {
+      if (CHILD_CONTAINER_KINDS.has(comp.kind as never)) {
+        const interactive = takeInteractiveBlock(parsedBlocks, comp.kind, usedParsed);
+        if (interactive && interactive.type !== "document") nextBlocks.push(interactive);
+        for (const child of comp.children ?? []) {
+          const childPath = child.file ? canonicalDocumentIdentity(child.file) : "";
+          const compiledFile = childPath ? compiledFileForPath(compiled, childPath) : undefined;
+          if (compiledFile && isPublishableCompiledDocument(childPath, compiledFile)) {
+            pushCompiledDocumentBlock(nextBlocks, compiledFile, child.title);
+            localUsed.add(canonicalDocumentIdentity(compiledFile.path));
           }
         }
+        continue;
+      }
 
-        for (const [path, compiledFile] of Object.entries(compiled.files)) {
-          const normalized = normalizeProjectPath(path);
-          if (usedCompiledPaths.has(normalized)) continue;
-          if (!isPublishableCompiledDocumentPath(normalized)) continue;
-          if (!normalized.startsWith(`${lessonDir}/`)) continue;
-          pushCompiledDocumentBlock(nextBlocks, compiledFile);
-          usedCompiledPaths.add(normalized);
-        }
+      const compPath = comp.file ? canonicalDocumentIdentity(comp.file) : "";
+      const compiledFile = compPath ? compiledFileForPath(compiled, compPath) : undefined;
 
-        parsedLesson.contentBlocks = nextBlocks;
-        if (nextBlocks.length > 0) {
-          const overviewDoc = nextBlocks.find(
-            (b) =>
-              b.type === "document" &&
-              typeof b.content === "object" &&
-              /^overview$/i.test(String((b.content as { title?: string }).title ?? ""))
-          );
-          if (overviewDoc && typeof overviewDoc.content === "object") {
-            const c = overviewDoc.content as { sourceTex?: string };
-            if (c.sourceTex) parsedLesson.overviewMarkdown = c.sourceTex;
-          }
-        }
+      if (compiledFile && isPublishableCompiledDocument(compPath, compiledFile)) {
+        pushCompiledDocumentBlock(nextBlocks, compiledFile, comp.title);
+        localUsed.add(canonicalDocumentIdentity(compiledFile.path));
+        continue;
+      }
+
+      if (INTERACTIVE_BLOCK_TYPES.has(comp.kind.toLowerCase())) {
+        const interactive = takeInteractiveBlock(parsedBlocks, comp.kind, usedParsed);
+        if (interactive && interactive.type !== "document") nextBlocks.push(interactive);
       }
     }
+
+    for (const [path, compiledFile] of Object.entries(compiled.files)) {
+      const normalized = canonicalDocumentIdentity(path);
+      if (localUsed.has(normalized) || usedCompiledPaths.has(normalized)) continue;
+      if (!isPublishableCompiledDocument(normalized, compiledFile)) continue;
+      if (!normalized.startsWith(`${lessonDir}/`)) continue;
+      pushCompiledDocumentBlock(nextBlocks, compiledFile);
+      localUsed.add(normalized);
+    }
+
+    parsedLesson.contentBlocks = nextBlocks;
+    for (const path of localUsed) usedCompiledPaths.add(path);
+
+    const overviewDoc = nextBlocks.find(
+      (b) =>
+        b.type === "document" &&
+        typeof b.content === "object" &&
+        /^overview$/i.test(String((b.content as { title?: string }).title ?? ""))
+    );
+    if (overviewDoc && typeof overviewDoc.content === "object") {
+      const c = overviewDoc.content as { sourceTex?: string };
+      if (c.sourceTex) parsedLesson.overviewMarkdown = c.sourceTex;
+    }
+  };
+
+  for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
+    const track = project.tracks[trackIdx];
+    for (let modIdx = 0; modIdx < track.modules.length; modIdx++) {
+      const mod = track.modules[modIdx];
+      for (let lessonIdx = 0; lessonIdx < mod.lessons.length; lessonIdx++) {
+        const lessonRef = mod.lessons[lessonIdx];
+        const parsedLesson = ensureParsedLesson(
+          parsed,
+          track,
+          mod,
+          lessonRef,
+          trackIdx,
+          modIdx,
+          lessonIdx
+        );
+        applyLesson(parsedLesson, track, mod, lessonRef);
+      }
+    }
+  }
+
+  for (const [path, compiledFile] of Object.entries(compiled.files)) {
+    const identity = canonicalDocumentIdentity(path);
+    if (usedCompiledPaths.has(identity)) continue;
+    if (!isPublishableCompiledDocument(identity, compiledFile)) continue;
+    const lessonDir = lessonDirectoryFromDocumentPath(identity);
+    if (!lessonDir) continue;
+    const parsedLesson = ensureLessonForDirectory(parsed, project, lessonDir);
+    pushCompiledDocumentBlock(parsedLesson.contentBlocks, compiledFile);
+    usedCompiledPaths.add(identity);
   }
 }
 
