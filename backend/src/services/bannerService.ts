@@ -5,6 +5,19 @@ import OpenAI from "openai";
 import { isFirebaseConfigured, uploadBannerToFirebase, type BannerStorageRecord } from "./firebaseStorageService.js";
 import { isB2Configured } from "./b2StorageService.js";
 import { persistGeneratedFile } from "../middlewares/persistUpload.js";
+import {
+  formatBannerProviderStartupLines,
+  getBannerFallbackChain,
+  getSelectedBannerProvider,
+  isOpenAiBannerKeyConfigured,
+  isPexelsConfigured,
+  isUnsplashConfigured,
+  publicBannerKeyPresence,
+  unsplashAuthorizationHeader,
+  type BannerProviderMode,
+} from "./bannerProviderConfig.js";
+
+export { getSelectedBannerProvider, type BannerProviderMode };
 
 const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 const BANNERS_DIR = path.join(UPLOAD_DIR, "banners");
@@ -19,17 +32,9 @@ const OPENAI_IMAGE_SIZE = "1536x1024" as const;
 
 let openaiClient: OpenAI | null | undefined;
 
-function maskApiKey(key?: string): string {
-  if (!key) return "(missing)";
-  const trimmed = key.trim();
-  if (trimmed.length < 12) return "(invalid)";
-  return `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}`;
-}
-
 function getOpenAIApiKey(): string | null {
-  const key = process.env.OPENAI_API_KEY?.trim();
-  if (!key || key.length < 20 || key === "your-openai-api-key") return null;
-  return key;
+  if (!isOpenAiBannerKeyConfigured()) return null;
+  return process.env.OPENAI_API_KEY?.trim() || null;
 }
 
 function getOpenAIClient(): OpenAI | null {
@@ -44,13 +49,6 @@ export type BannerProviderHealth = {
   connected: boolean;
   status: "connected" | "failed" | "not_configured";
   message?: string;
-};
-
-export type BannerGenerateResult = {
-  banners: StoredBanner[];
-  provider: string;
-  warnings: string[];
-  usedFallback: boolean;
 };
 
 function errorPriority(message: string): number {
@@ -276,7 +274,7 @@ export async function storeBannerBuffer(buffer: Buffer, ext = ".jpg", source = "
 }
 
 async function searchPexels(query: string, page: number, perPage: number): Promise<BannerSearchResult[]> {
-  const key = process.env.PEXELS_API_KEY;
+  const key = process.env.PEXELS_API_KEY?.trim();
   if (!key) return [];
 
   const res = await fetch(
@@ -307,12 +305,12 @@ async function searchPexels(query: string, page: number, perPage: number): Promi
 }
 
 async function searchUnsplash(query: string, page: number, perPage: number): Promise<BannerSearchResult[]> {
-  const key = process.env.UNSPLASH_API_KEY;
+  const key = process.env.UNSPLASH_API_KEY?.trim();
   if (!key) return [];
 
   const res = await fetch(
     `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${perPage}&page=${page}&orientation=landscape`,
-    { headers: { Authorization: `Client-ID ${key}` } }
+    { headers: { Authorization: unsplashAuthorizationHeader(key) } }
   );
   if (!res.ok) return [];
 
@@ -642,16 +640,6 @@ async function generateFallbackBanners(
   return { banners, provider: provider || "curated" };
 }
 
-export type BannerProviderMode = "pexels" | "unsplash" | "openai" | "auto";
-
-export function getSelectedBannerProvider(): BannerProviderMode {
-  const val = (process.env.BANNER_PROVIDER || "pexels").toLowerCase().trim();
-  if (val === "pexels" || val === "unsplash" || val === "openai" || val === "auto") {
-    return val as BannerProviderMode;
-  }
-  return "pexels";
-}
-
 export type BannerAttemptLog = {
   provider: string;
   success: boolean;
@@ -680,18 +668,7 @@ export async function generateBannersWithFallback(
 
   console.log(`[Banner Studio] Selected provider mode: ${selectedProvider}`);
 
-  let fallbackChain: Array<"pexels" | "unsplash" | "openai" | "curated"> = [];
-
-  if (selectedProvider === "pexels") {
-    fallbackChain = ["pexels", "unsplash", "curated"];
-  } else if (selectedProvider === "unsplash") {
-    fallbackChain = ["unsplash", "pexels", "curated"];
-  } else if (selectedProvider === "openai") {
-    fallbackChain = ["openai", "pexels", "unsplash", "curated"];
-  } else {
-    // auto mode: try stock photo providers first to avoid unnecessary OpenAI usage/billing errors
-    fallbackChain = ["pexels", "unsplash", "openai", "curated"];
-  }
+  const fallbackChain = getBannerFallbackChain(selectedProvider);
 
   const banners: StoredBanner[] = [];
   const attempts: BannerAttemptLog[] = [];
@@ -882,7 +859,7 @@ async function testUnsplashHealth(): Promise<BannerProviderHealth> {
 
   try {
     const res = await fetch("https://api.unsplash.com/photos/random?count=1", {
-      headers: { Authorization: `Client-ID ${key}` },
+      headers: { Authorization: unsplashAuthorizationHeader(key) },
       signal: AbortSignal.timeout(10_000),
     });
     if (res.ok) return { configured: true, connected: true, status: "connected" };
@@ -954,36 +931,25 @@ export async function testBannerProviderHealth() {
     env: {
       cwd: process.cwd(),
       selectedProvider: getSelectedBannerProvider(),
-      openaiKey: maskApiKey(process.env.OPENAI_API_KEY),
-      unsplashKey: maskApiKey(process.env.UNSPLASH_API_KEY),
-      pexelsKey: maskApiKey(process.env.PEXELS_API_KEY),
+      ...publicBannerKeyPresence(),
     },
   };
 }
 
 export function logBannerStudioStartupStatus() {
-  const status = getBannerProviderStatus();
-  const selectedProvider = getSelectedBannerProvider();
-  console.log("[Banner Studio] Provider configuration:");
-  console.log(`  BANNER_PROVIDER: ${selectedProvider}`);
-  console.log(`  OPENAI_API_KEY: ${status.openai ? `set (${maskApiKey(process.env.OPENAI_API_KEY)})` : "MISSING"}`);
-  console.log(`  UNSPLASH_API_KEY: ${status.unsplash ? `set (${maskApiKey(process.env.UNSPLASH_API_KEY)})` : "missing"}`);
-  console.log(`  PEXELS_API_KEY: ${status.pexels ? `set (${maskApiKey(process.env.PEXELS_API_KEY)})` : "missing"}`);
-  console.log(`  Image model preference: ${process.env.OPENAI_IMAGE_MODEL || OPENAI_IMAGE_MODELS[0]}`);
+  for (const line of formatBannerProviderStartupLines()) {
+    console.log(line);
+  }
   console.log(`  Upload dir: ${BANNERS_DIR}`);
 }
 
 /** Static provider flags (fast, no network) */
 export function getBannerProviderStatus() {
-  const pexels = !!process.env.PEXELS_API_KEY?.trim();
-  const unsplash = !!process.env.UNSPLASH_API_KEY?.trim();
-  const google = !!(process.env.GOOGLE_CUSTOM_SEARCH_API_KEY?.trim() && googleCseId());
-  const openai = !!getOpenAIApiKey();
   return {
-    pexels,
-    unsplash,
-    google,
-    openai,
+    pexels: isPexelsConfigured(),
+    unsplash: isUnsplashConfigured(),
+    google: !!(process.env.GOOGLE_CUSTOM_SEARCH_API_KEY?.trim() && googleCseId()),
+    openai: isOpenAiBannerKeyConfigured(),
     firebase: isFirebaseConfigured(),
     templates: true,
     curated: true,

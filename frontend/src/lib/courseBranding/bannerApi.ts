@@ -54,7 +54,13 @@ export async function getBannerHealth() {
       templates: BannerProviderHealthEntry;
       curated: BannerProviderHealthEntry;
       firebase: BannerProviderHealthEntry;
-      env?: { cwd: string; openaiKey: string; unsplashKey: string; pexelsKey: string };
+      env?: {
+        cwd: string;
+        selectedProvider?: string;
+        openai: "configured" | "not_configured";
+        unsplash: "configured" | "not_configured";
+        pexels: "configured" | "not_configured";
+      };
     };
   }>("/banners/health");
 }

@@ -97,12 +97,12 @@ export function BannerStudioHealth() {
 
         {data?.env && (
           <p className="text-[11px] text-muted-foreground">
-            Server keys: OpenAI {data.env.openaiKey} · Unsplash {data.env.unsplashKey} · Pexels {data.env.pexelsKey}
+            Server keys: OpenAI {data.env.openai} · Unsplash {data.env.unsplash} · Pexels {data.env.pexels}
           </p>
         )}
 
         <p className="text-xs text-muted-foreground">
-          If OpenAI fails, Banner Studio automatically falls back to Unsplash → Pexels → curated templates so generation never stops.
+          Selected provider is Pexels. Unsplash is an optional fallback. OpenAI is not required for this banner flow.
         </p>
       </CardContent>
     </Card>
