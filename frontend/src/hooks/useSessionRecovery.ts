@@ -142,6 +142,10 @@ export function useSessionRecovery({
     return submittedInteractionsRef.current[interactionId] !== undefined;
   }, []);
 
+  const getInteractionSubmission = useCallback((interactionId: string) => {
+    return submittedInteractionsRef.current[interactionId] ?? null;
+  }, []);
+
   const recordInteractionSubmission = useCallback((interactionId: string, response: unknown) => {
     submittedInteractionsRef.current[interactionId] = {
       response,
@@ -175,6 +179,7 @@ export function useSessionRecovery({
     connectionStatus,
     registerWebSocket,
     isInteractionSubmitted,
+    getInteractionSubmission,
     recordInteractionSubmission,
     manualReconnect,
     fetchRecoveryState,

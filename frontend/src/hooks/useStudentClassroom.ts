@@ -11,6 +11,12 @@ import { useToastStore } from '@/store/toastStore';
 import { getUserIdFromToken } from '@/lib/auth';
 import { useSessionRecovery } from '@/hooks/useSessionRecovery';
 import { apiUrl, getWsConnectTarget } from "@/lib/api";
+import {
+  mergeClassroomSessionSnapshot,
+  restoreSubmissionForActivePoll,
+  selectLiveInstructorSlide,
+  shouldRejectDuplicateStudentPollSubmit,
+} from '@/lib/classroom/studentPollOverlay';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -164,7 +170,11 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     settings?: Record<string, unknown>;
     navigation?: NavigationMode | string;
     submittedInteractions?: Record<string, { response: unknown; submittedAt: string }>;
-  }, recoveryApi?: { recordInteractionSubmission: (id: string, response: unknown) => void }) => {
+  }, recoveryApi?: {
+    recordInteractionSubmission: (id: string, response: unknown) => void;
+    isInteractionSubmitted?: (id: string) => boolean;
+    getInteractionSubmission?: (id: string) => { response: unknown; submittedAt: string } | null;
+  }) => {
     if (snapshot.navigation) {
       setNavigation(snapshot.navigation as NavigationMode);
     }
@@ -179,16 +189,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
       if (!curr) return curr;
       return {
         ...curr,
-        session: {
-          ...curr.session,
-          currentSlideId: snapshot.currentSlideId !== undefined
-            ? snapshot.currentSlideId
-            : curr.session.currentSlideId,
-          activeInteractionId: snapshot.activeInteractionId !== undefined
-            ? snapshot.activeInteractionId
-            : curr.session.activeInteractionId,
-          settings: { ...(curr.session.settings || {}), ...(snapshot.settings || {}) },
-        },
+        session: mergeClassroomSessionSnapshot(curr.session, snapshot),
       };
     });
 
@@ -224,14 +225,25 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     if (snapshot.submittedInteractions && recoveryApi) {
       for (const [interactionId, sub] of Object.entries(snapshot.submittedInteractions)) {
         recoveryApi.recordInteractionSubmission(interactionId, sub.response);
-        if (snapshot.activeInteractionId === interactionId) {
-          setSubmission({
-            interactionId,
-            response: sub.response,
-            submittedAt: sub.submittedAt,
-          });
-        }
       }
+    }
+
+    let restored = restoreSubmissionForActivePoll({
+      activeInteractionId: activeId,
+      submittedInteractions: snapshot.submittedInteractions,
+    });
+    if (!restored && activeId && recoveryApi?.getInteractionSubmission) {
+      const existing = recoveryApi.getInteractionSubmission(activeId);
+      if (existing) {
+        restored = {
+          interactionId: activeId,
+          response: existing.response,
+          submittedAt: existing.submittedAt,
+        };
+      }
+    }
+    if (restored) {
+      setSubmission(restored);
     }
   }, []);
 
@@ -457,13 +469,9 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
         if (message.data?.summary || message.data?.results) {
           setPollResults(message.data.summary || message.data.results);
           setPollRemaining(0);
-          if (message.data?.interaction) {
-            setActiveInteraction(message.data.interaction);
-          }
-        } else {
-          setActiveInteraction(null);
-          setRevealed(false);
         }
+        setActiveInteraction(null);
+        setRevealed(false);
         break;
 
       case 'poll:results':
@@ -677,8 +685,23 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     if (!viewData?.session.activeInteractionId || !resolvedSessionId) return;
     const interactionId = viewData.session.activeInteractionId;
     const startedAt = Date.now();
+    const allowChangeAnswer = Boolean(activeInteraction?.settings?.allowChangeAnswer);
 
-    if (recovery.isInteractionSubmitted(interactionId) && !activeInteraction?.settings?.allowChangeAnswer) {
+    const applyLocalSubmission = (submittedResponse: unknown, submittedAt?: string) => {
+      recovery.recordInteractionSubmission(interactionId, submittedResponse);
+      setSubmission({
+        interactionId,
+        response: submittedResponse,
+        submittedAt: submittedAt ?? new Date().toISOString(),
+      });
+    };
+
+    if (shouldRejectDuplicateStudentPollSubmit({
+      alreadySubmitted: recovery.isInteractionSubmitted(interactionId),
+      allowChangeAnswer,
+    })) {
+      const existing = recovery.getInteractionSubmission(interactionId);
+      applyLocalSubmission(existing?.response ?? response, existing?.submittedAt);
       toast({ title: 'Already submitted', description: 'You have already answered this.', variant: 'destructive' });
       return;
     }
@@ -694,11 +717,16 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || err.message || 'Submit failed');
+        const message = err.error || err.message || 'Submit failed';
+        if (/already submitted/i.test(String(message))) {
+          const existing = recovery.getInteractionSubmission(interactionId);
+          applyLocalSubmission(existing?.response ?? response, existing?.submittedAt);
+          return;
+        }
+        throw new Error(message);
       }
-      recovery.recordInteractionSubmission(interactionId, response);
+      applyLocalSubmission(response);
       toast({ title: 'Response submitted!', description: 'Your answer was sent to the instructor.' });
-      setSubmission({ interactionId, response, submittedAt: new Date().toISOString() });
     } catch (error: any) {
       toast({
         title: 'Could not submit',
@@ -706,7 +734,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
         variant: 'destructive',
       });
     }
-  }, [viewData, resolvedSessionId, recovery, toast]);
+  }, [viewData, resolvedSessionId, recovery, toast, activeInteraction]);
 
   const selfNavigate = useCallback((direction: 'next' | 'previous') => {
     if (!viewData) return;
@@ -751,9 +779,9 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
   const closeChat = useCallback(() => setChatOpen(false), []);
 
   // ── Derived values
-  const currentSlide = viewData?.presentation.slides.find(
-    (s) => s.id === viewData.session.currentSlideId
-  ) ?? null;
+  const currentSlide = viewData
+    ? selectLiveInstructorSlide(viewData.presentation.slides, viewData.session.currentSlideId)
+    : null;
   const currentIndex = viewData?.presentation.slides.findIndex(
     (s) => s.id === viewData?.session.currentSlideId
   ) ?? -1;

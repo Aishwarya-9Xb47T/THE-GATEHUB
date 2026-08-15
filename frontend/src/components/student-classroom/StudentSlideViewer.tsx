@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Radio, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SlideRenderer } from '@/components/classroom/SlideRenderer';
 import { InteractionOverlay, type Interaction } from '@/components/classroom/InteractionOverlay';
+import {
+  resolveStudentPollOverlay,
+  studentPollOverlayAutoDismissMs,
+} from '@/lib/classroom/studentPollOverlay';
 import type { NavigationMode } from '@/hooks/useStudentClassroom';
 
 interface Slide {
@@ -57,9 +61,37 @@ export function StudentSlideViewer({
   remainingSeconds,
 }: Props) {
   const isLocked = navigation === 'locked';
-  const awaitingAnswer = Boolean(activeInteraction && currentSlide && !submission);
+  const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const expired = remainingSeconds === 0;
   const hasSubmitted = Boolean(submission && activeInteraction);
-  const keepOverlay = Boolean(activeInteraction && currentSlide);
+  const overlayPlan = resolveStudentPollOverlay({
+    hasActiveInteraction: Boolean(activeInteraction),
+    hasSlide: Boolean(currentSlide),
+    hasSubmitted,
+    instructorClosed: false,
+    expired,
+    confirmationElapsedMs: overlayDismissed ? Number.POSITIVE_INFINITY : (hasSubmitted ? 0 : null),
+  });
+  const keepOverlay = overlayPlan.visible && !overlayDismissed;
+  const awaitingAnswer = Boolean(activeInteraction && currentSlide && !submission && keepOverlay);
+
+  useEffect(() => {
+    setOverlayDismissed(false);
+  }, [activeInteraction?.id]);
+
+  useEffect(() => {
+    const autoDismissMs = studentPollOverlayAutoDismissMs({
+      hasSubmitted,
+      expired,
+      instructorClosed: false,
+    });
+    if (autoDismissMs == null) {
+      if (!hasSubmitted && !expired) setOverlayDismissed(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setOverlayDismissed(true), autoDismissMs);
+    return () => window.clearTimeout(timer);
+  }, [activeInteraction?.id, hasSubmitted, expired]);
 
   const isCorrect = (() => {
     if (!submission || !activeInteraction?.settings?.correctAnswer) return undefined;
