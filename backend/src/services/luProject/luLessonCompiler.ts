@@ -240,6 +240,8 @@ function shouldCompileAsDocument(
 ): boolean {
   const normalized = normalizeProjectPath(filePath);
   if (/\/videos\.tex$/i.test(normalized)) return false;
+  if (/\/metadata\.tex$/i.test(normalized)) return false;
+  if (/\/main\.tex$/i.test(normalized)) return false;
 
   const kind = componentKindForPath(project, filePath);
   if (kind && INTERACTIVE_COMPONENT_KINDS.has(kind)) return false;
@@ -292,7 +294,7 @@ function rewriteAssetNodes(
     const kind = node.type === "image" ? "image" : "video";
     const resolved = resolveProjectMediaAssetRef(ref, files, kind);
     if (!resolved) {
-      const pos = findRefPosition(sourceTex, node.ref);
+      const pos = findRefPosition(sourceTex, ref);
       issues.push({
         severity: "error",
         file: filePath,
@@ -304,7 +306,7 @@ function rewriteAssetNodes(
       continue;
     }
     const resolvedPath = normalizeProjectPath(resolved.path);
-    node.ref = canonicalAssetFilename(node.ref, resolved);
+    node.ref = canonicalAssetFilename(ref, resolved);
     assets.push({ ref: node.ref, resolvedPath, kind });
   }
 
@@ -378,7 +380,7 @@ export function compileTexFile(
   return {
     compiled: {
       path,
-      command: parsedCmd?.command,
+      command: parsedCmd && "command" in parsedCmd ? String(parsedCmd.command ?? "") || undefined : undefined,
       title: doc.title,
       sourceTex: content,
       nodes,
@@ -431,12 +433,20 @@ function lessonDirectory(
   mod: LuProjectModuleRef,
   lesson: LuProjectLessonRef
 ): string {
-  const slug = lesson.file.replace(/\.tex$/i, "");
+  const fromId = lesson.id?.trim();
+  const fromFile =
+    lesson.file
+      .replace(/\\/g, "/")
+      .replace(/\.tex$/i, "")
+      .split("/")
+      .filter(Boolean)
+      .pop() || "";
+  const slug = fromId || fromFile;
   return normalizeProjectPath(`/${track.folder}/${mod.folder}/${slug}`);
 }
 
 function pushCompiledDocumentBlock(
-  nextBlocks: Array<{ type: string; content: unknown }>,
+  nextBlocks: Array<{ type: string; content: unknown; compiledSourcePath?: string; title?: string }>,
   compiledFile: CompiledTexFile,
   title?: string
 ): void {
@@ -445,7 +455,21 @@ function pushCompiledDocumentBlock(
     compiledFile.sourceTex,
     title ?? compiledFile.title
   );
-  nextBlocks.push(...blocks);
+  const sourcePath = normalizeProjectPath(compiledFile.path);
+  for (const block of blocks) {
+    if (block.type === "document") {
+      block.compiledSourcePath = sourcePath;
+      if (block.content && typeof block.content === "object") {
+        (block.content as { compiledSourcePath?: string }).compiledSourcePath = sourcePath;
+      }
+    }
+    nextBlocks.push({
+      type: block.type,
+      content: block.content,
+      compiledSourcePath: typeof block.compiledSourcePath === "string" ? block.compiledSourcePath : sourcePath,
+      title: typeof block.title === "string" ? block.title : undefined,
+    });
+  }
 }
 
 function takeInteractiveBlock(
@@ -531,14 +555,15 @@ export function applyCompiledPackageToParsed(
         }
 
         for (const [path, compiledFile] of Object.entries(compiled.files)) {
-          if (usedCompiledPaths.has(path)) continue;
-          if (!path.startsWith(`${lessonDir}/`)) continue;
+          const normalized = normalizeProjectPath(path);
+          if (usedCompiledPaths.has(normalized)) continue;
+          if (!normalized.startsWith(`${lessonDir}/`)) continue;
           pushCompiledDocumentBlock(nextBlocks, compiledFile);
-          usedCompiledPaths.add(path);
+          usedCompiledPaths.add(normalized);
         }
 
+        parsedLesson.contentBlocks = nextBlocks;
         if (nextBlocks.length > 0) {
-          parsedLesson.contentBlocks = nextBlocks;
           const overviewDoc = nextBlocks.find(
             (b) =>
               b.type === "document" &&
