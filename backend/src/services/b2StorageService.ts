@@ -247,7 +247,7 @@ export async function getObjectStream(
     contentType: out.ContentType,
     contentLength: out.ContentLength,
     contentRange: out.ContentRange,
-    status: range ? 206 : 200,
+    status: out.$metadata.httpStatusCode || (range ? 206 : 200),
   };
 }
 

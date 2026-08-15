@@ -48,6 +48,10 @@ RUN apt-get update \
     ca-certificates \
     openssl \
     curl \
+    python3 \
+    gcc \
+    g++ \
+    default-jdk-headless \
     texlive-latex-base \
     texlive-latex-recommended \
     texlive-fonts-recommended \
@@ -57,6 +61,11 @@ RUN apt-get update \
   && test -x /usr/bin/pdflatex \
   && command -v pdflatex \
   && pdflatex --version \
+  && test -x /usr/bin/python3 \
+  && ln -sf /usr/bin/python3 /usr/bin/python \
+  && command -v gcc \
+  && command -v g++ \
+  && command -v javac \
   && chmod +x /docker-entrypoint.sh \
   && mkdir -p uploads uploads/latex uploads/latex/pdfs data \
   && DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build" npx prisma generate

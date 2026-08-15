@@ -97,6 +97,21 @@ async function identifyUploadUser(req: AuthRequest): Promise<{ id: string; role:
   }
 }
 
+const PUBLISHED_PROJECT_MEDIA_EXT =
+  /\.(mp4|webm|mov|m4v|mkv|ogv|ogg|png|jpe?g|gif|webp|svg)$/i;
+
+export async function canAccessPublishedSourceProjectMedia(
+  projectId: string,
+  relativePath: string
+): Promise<boolean> {
+  if (!PUBLISHED_PROJECT_MEDIA_EXT.test(relativePath)) return false;
+  const published = await prisma.learningUniverse.findFirst({
+    where: { sourceProjectId: projectId, status: "published" },
+    select: { id: true },
+  });
+  return Boolean(published);
+}
+
 async function canAccessProjectUpload(
   userId: string,
   role: Role,
@@ -126,12 +141,16 @@ export async function requireUploadAccess(req: AuthRequest, res: Response, next:
     return next();
   }
 
+  const projectMatch = relative.match(/^projects\/([^/]+)\//i);
+  if (projectMatch && (await canAccessPublishedSourceProjectMedia(projectMatch[1], relative))) {
+    return next();
+  }
+
   const user = await identifyUploadUser(req);
   if (!user) {
     return res.status(401).json({ success: false, error: "Authentication required to access uploads" });
   }
 
-  const projectMatch = relative.match(/^projects\/([^/]+)\//i);
   if (projectMatch) {
     const allowed = await canAccessProjectUpload(user.id, user.role, projectMatch[1]);
     if (!allowed) {

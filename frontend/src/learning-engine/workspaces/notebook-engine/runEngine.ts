@@ -43,7 +43,11 @@ export async function executeCodeCell(
   store.getState().setRuntimeStatus("busy");
 
   try {
-    const res = await api<{ success: boolean; output: string }>("/resources/execute", {
+    const res = await api<{
+      success: boolean;
+      output: string;
+      educationalError?: { errorType?: string; rawError?: string };
+    }>("/resources/execute", {
       method: "POST",
       body: { language, code: cell.source },
       signal: controller.signal,
@@ -53,19 +57,30 @@ export async function executeCodeCell(
 
     const elapsed = Math.round(performance.now() - started);
     const stdout = res.data?.output ?? "";
-    const stderr = res.error ?? "";
+    const errType = res.data?.educationalError?.errorType || "";
+    const failed = !res.data?.success;
+    const rawError = res.data?.educationalError?.rawError || res.error || "";
+    const stderr = failed ? rawError || stdout || "Execution failed" : "";
+    const status =
+      errType === "Timeout" || /timed out/i.test(stderr)
+        ? "error"
+        : errType === "UnsupportedLanguage"
+          ? "error"
+          : res.data?.success
+            ? "success"
+            : "error";
 
     store.getState().setCellOutput(
       cellId,
       {
         stdout: res.data?.success ? stdout : "",
-        stderr: res.data?.success ? "" : stderr || stdout || "Execution failed",
+        stderr,
         executionTimeMs: elapsed,
-        status: res.data?.success ? "success" : "error",
+        status,
         result: stdout,
         renderedHtml: null,
       },
-      res.data?.success ? "success" : "error",
+      status,
       (cell.executionCount ?? 0) + 1
     );
   } catch (err: any) {

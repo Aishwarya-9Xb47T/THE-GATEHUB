@@ -14,7 +14,7 @@ import {
 } from "./luPublishIntegrity.js";
 
 const INTERACTIVE_ONLY_TEX_RE =
-  /^\\(?:question|quiz|practice|codinglab|notebook|video)\s*\{/im;
+  /^\\(?:question|quiz|practice|codinglab|notebook|video|researchpaper|project|assignment)\s*\{/im;
 
 export function isInteractiveOnlyTex(sourceTex: string): boolean {
   return INTERACTIVE_ONLY_TEX_RE.test((sourceTex ?? "").trim());

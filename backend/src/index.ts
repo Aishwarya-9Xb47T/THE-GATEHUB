@@ -73,9 +73,8 @@ import {
   getUploadRoot,
   requireUploadAccess,
   resolveSafeUploadPath,
-  sendUploadFile,
 } from "./middlewares/uploadAccess.js";
-import { serveStoredUpload } from "./middlewares/persistUpload.js";
+import { serveStoredUpload, streamLocalUpload } from "./middlewares/persistUpload.js";
 import { pingB2Storage } from "./services/b2StorageService.js";
 
 registerBuiltinQuestionPlugins();
@@ -216,20 +215,24 @@ app.use("/uploads", requireUploadAccess as any, (req, res, next) => {
   next();
 });
 
-app.get("/uploads/projects/:projectId/:filename", async (req, res) => {
+async function serveProjectUpload(req: Request, res: Response) {
   const { projectId, filename } = req.params;
   const relative = `projects/${projectId}/${filename}`;
   const filePath = resolveSafeUploadPath(relative);
   if (!filePath) {
     return res.status(400).json({ success: false, error: "Invalid path" });
   }
+  const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
   if (fs.existsSync(filePath)) {
-    return sendUploadFile(res, filePath);
+    return streamLocalUpload(res, filePath, { range, method: req.method });
   }
-  const served = await serveStoredUpload(res, relative);
+  const served = await serveStoredUpload(res, relative, { range, method: req.method, asVideo: true });
   if (served) return;
   return res.status(404).json({ success: false, error: "File not found" });
-});
+}
+
+app.head("/uploads/projects/:projectId/:filename", serveProjectUpload);
+app.get("/uploads/projects/:projectId/:filename", serveProjectUpload);
 
 app.use("/uploads", express.static(getUploadRoot(), {
   setHeaders(res, filePath) {
@@ -302,39 +305,19 @@ app.get("/uploads/*", requireUploadAccess as any, async (req, res, next) => {
   const ext = path.extname(filePath).toLowerCase();
   const isVideo = [".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"].includes(ext);
 
+  const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
+
   if (isVideo) {
     if (fs.existsSync(filePath)) {
-      const stat = fs.statSync(filePath);
-      const fileSize = stat.size;
-      const range = req.headers.range;
-      const contentType = `video/${ext.slice(1) === "mov" ? "quicktime" : ext.slice(1)}`;
-
-      if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunkSize = end - start + 1;
-        const file = fs.createReadStream(filePath, { start, end });
-        res.writeHead(206, {
-          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-          "Accept-Ranges": "bytes",
-          "Content-Length": chunkSize,
-          "Content-Type": contentType,
-          "X-Content-Type-Options": "nosniff",
-        });
-        return file.pipe(res);
-      }
-
-      res.writeHead(200, {
-        "Content-Length": fileSize,
-        "Content-Type": contentType,
-        "X-Content-Type-Options": "nosniff",
-      });
-      return fs.createReadStream(filePath).pipe(res);
+      return streamLocalUpload(res, filePath, { range, method: req.method });
     }
 
-    const redirected = await serveStoredUpload(res, relativePath, { asVideo: true });
-    if (redirected) return;
+    const streamed = await serveStoredUpload(res, relativePath, {
+      asVideo: true,
+      range,
+      method: req.method,
+    });
+    if (streamed) return;
     return res.status(404).json({ success: false, error: "Video not found" });
   }
 
@@ -342,7 +325,21 @@ app.get("/uploads/*", requireUploadAccess as any, async (req, res, next) => {
     return next();
   }
 
-  const served = await serveStoredUpload(res, relativePath, { range: req.headers.range });
+  const served = await serveStoredUpload(res, relativePath, { range, method: req.method });
+  if (served) return;
+  return next();
+});
+
+app.head("/uploads/*", requireUploadAccess as any, async (req, res, next) => {
+  const relativePath = String((req.params as Record<string, string>)[0] || "");
+  const filePath = resolveSafeUploadPath(relativePath);
+  if (!filePath) {
+    return res.status(400).json({ success: false, error: "Invalid path" });
+  }
+  if (fs.existsSync(filePath)) {
+    return streamLocalUpload(res, filePath, { method: "HEAD" });
+  }
+  const served = await serveStoredUpload(res, relativePath, { method: "HEAD" });
   if (served) return;
   return next();
 });

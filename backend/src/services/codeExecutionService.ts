@@ -2,12 +2,6 @@
  * Educational code execution service.
  */
 import { createHash } from "crypto";
-import fs from "fs";
-import fsPromises from "fs/promises";
-import os from "os";
-import path from "path";
-import { exec } from "child_process";
-import { v4 as uuidv4 } from "uuid";
 import {
   blockingValidationIssues,
   compareOutput,
@@ -16,6 +10,7 @@ import {
   validateCode,
   type ExecutionEducationalResult,
 } from "./codeEducationalService.js";
+import { executeSandboxed } from "./codeExecution/sandboxExecutor.js";
 
 function computeHash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -54,110 +49,49 @@ export async function executeEducationalCode(options: {
     }
   }
 
-  const executionId = uuidv4();
-  const tempDir = os.tmpdir();
-  let tempFileName = "";
-  let command = "";
-  const extraCleanup: string[] = [];
+  const sandboxed = await executeSandboxed(lang, code);
+  const combined = [sandboxed.stdout, sandboxed.stderr].filter(Boolean).join("\n").trim();
+  const outputMatchesExpected =
+    expectedOutput !== undefined && expectedOutput !== ""
+      ? compareOutput(sandboxed.stdout, expectedOutput)
+      : null;
 
-  try {
-    if (lang === "python") {
-      tempFileName = `temp_${executionId}.py`;
-      command = `python "${path.join(tempDir, tempFileName)}"`;
-    } else if (lang === "javascript") {
-      tempFileName = `temp_${executionId}.js`;
-      command = `node "${path.join(tempDir, tempFileName)}"`;
-    } else if (lang === "typescript") {
-      tempFileName = `temp_${executionId}.ts`;
-      command = `npx ts-node "${path.join(tempDir, tempFileName)}"`;
-    } else if (lang === "java") {
-      tempFileName = `Main_${executionId.replace(/-/g, "")}.java`;
-      const className = `Main_${executionId.replace(/-/g, "")}`;
-      const javaSource = code.includes("class ")
-        ? code
-        : `public class ${className} {\n  public static void main(String[] args) {\n${code
-            .split("\n")
-            .map((line) => `    ${line}`)
-            .join("\n")}\n  }\n}\n`;
-      await fsPromises.writeFile(path.join(tempDir, tempFileName), javaSource);
-      command = `javac "${path.join(tempDir, tempFileName)}" && java -cp "${tempDir}" ${className}`;
-      extraCleanup.push(path.join(tempDir, `${className}.class`));
-    } else if (lang === "c") {
-      const exeName = process.platform === "win32" ? `temp_${executionId}.exe` : `temp_${executionId}`;
-      tempFileName = `temp_${executionId}.c`;
-      command = `gcc "${path.join(tempDir, tempFileName)}" -o "${path.join(tempDir, exeName)}" && "${path.join(tempDir, exeName)}"`;
-      extraCleanup.push(path.join(tempDir, exeName));
-    } else if (lang === "cpp") {
-      const exeName = process.platform === "win32" ? `temp_${executionId}.exe` : `temp_${executionId}`;
-      tempFileName = `temp_${executionId}.cpp`;
-      command = `g++ "${path.join(tempDir, tempFileName)}" -o "${path.join(tempDir, exeName)}" && "${path.join(tempDir, exeName)}"`;
-      extraCleanup.push(path.join(tempDir, exeName));
-    } else {
-      return {
-        success: false,
-        output: `Unsupported language: ${options.language}`,
-        educationalError: {
-          errorType: "UnsupportedLanguage",
-          rawError: `Unsupported language: ${options.language}`,
-          line: null,
-          explanation: "Supported languages: Python, JavaScript, TypeScript, Java, C, C++.",
-          hints: [],
-        },
-      };
-    }
-
-    const tempFilePath = path.join(tempDir, tempFileName);
-    if (lang !== "java") {
-      await fsPromises.writeFile(tempFilePath, code);
-    }
-
-    const result: { stdout: string; stderr: string; error: Error | null } = await new Promise(
-      (resolve) => {
-        exec(command, { timeout: 10000, maxBuffer: 1024 * 1024, cwd: tempDir, shell: true }, (error, stdout, stderr) => {
-          resolve({ stdout, stderr, error: error ?? null });
-        });
-      }
-    );
-
-    const outputMatchesExpected =
-      expectedOutput !== undefined && expectedOutput !== ""
-        ? compareOutput(result.stdout, expectedOutput)
-        : null;
-
-    if (result.error) {
-      if (result.error.message?.includes("SIGTERM") || (result.error as NodeJS.ErrnoException).killed) {
-        return {
-          success: false,
-          output: "Execution timed out (limit: 10 seconds)",
-          educationalError: explainExecutionError("Execution timed out", code, lang),
-        };
-      }
-
-      const errText = result.stderr || result.error.message;
-      return {
-        success: false,
-        output: errText,
-        educationalError: explainExecutionError(errText, code, lang),
-        outputMatchesExpected: false,
-      };
-    }
-
+  if (sandboxed.status === "timeout") {
     return {
-      success: true,
-      output: result.stdout || "Program finished with no output.",
-      outputMatchesExpected,
+      success: false,
+      output: sandboxed.stderr || "Execution timed out (limit: 8 seconds)",
+      educationalError: explainExecutionError("Execution timed out", code, lang),
+      outputMatchesExpected: false,
     };
-  } finally {
-    try {
-      const tempFilePath = path.join(tempDir, tempFileName);
-      if (tempFileName && fs.existsSync(tempFilePath)) await fsPromises.unlink(tempFilePath);
-      for (const artifact of extraCleanup) {
-        if (fs.existsSync(artifact)) await fsPromises.unlink(artifact);
-      }
-    } catch {
-      /* ignore cleanup errors */
-    }
   }
+  if (sandboxed.status === "unsupported") {
+    return {
+      success: false,
+      output: sandboxed.stderr,
+      educationalError: {
+        errorType: "UnsupportedLanguage",
+        rawError: sandboxed.stderr,
+        line: null,
+        explanation: sandboxed.stderr,
+        hints: ["Python uses python3, JavaScript uses node, C/C++/Java require compilers in the execution image."],
+      },
+    };
+  }
+  if (!sandboxed.success) {
+    const errText = combined || "Runtime error";
+    return {
+      success: false,
+      output: errText,
+      educationalError: explainExecutionError(errText, code, lang),
+      outputMatchesExpected: false,
+    };
+  }
+
+  return {
+    success: true,
+    output: sandboxed.stdout || "Program finished with no output.",
+    outputMatchesExpected,
+  };
 }
 
 export interface CodingLabTestCaseInput {

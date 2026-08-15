@@ -240,26 +240,47 @@ router.get("/:id/assets/:filename", optionalAuthenticate, async (req: AuthReques
           lu.sourceProjectId,
           physical
         );
+        const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
         if (fs.existsSync(projectPath)) {
-          return res.sendFile(projectPath);
+          const { streamLocalUpload } = await import("../middlewares/persistUpload.js");
+          return streamLocalUpload(res, projectPath, { range, method: req.method });
         }
-        const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
+        const { hydrateLocalUpload, serveStoredUpload } = await import("../middlewares/persistUpload.js");
         const hydrated = await hydrateLocalUpload(hit.s3Url);
-        if (hydrated) return res.sendFile(hydrated);
+        if (hydrated) {
+          const { streamLocalUpload } = await import("../middlewares/persistUpload.js");
+          return streamLocalUpload(res, hydrated, { range, method: req.method });
+        }
+        const relative = String(hit.s3Url)
+          .replace(/^https?:\/\/[^/]+/i, "")
+          .replace(/^\/uploads\//, "")
+          .replace(/^uploads\//, "");
+        const streamed = await serveStoredUpload(res, relative, { range, method: req.method });
+        if (streamed) return;
       }
     }
 
     if (!asset) {
       return res.status(404).json({ success: false, error: "Asset not found" });
     }
+    const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
+    const { streamLocalUpload, serveStoredUpload, hydrateLocalUpload } = await import(
+      "../middlewares/persistUpload.js"
+    );
     const assetPath = path.join(ASSETS_DIR, id, asset.storedFilename);
-    if (!fs.existsSync(assetPath)) {
-      const { hydrateLocalUpload } = await import("../middlewares/persistUpload.js");
-      const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
-      if (hydrated) return res.sendFile(hydrated);
-      return res.status(404).json({ success: false, error: "Asset file not found" });
+    if (fs.existsSync(assetPath)) {
+      return streamLocalUpload(res, assetPath, { range, method: req.method, mimeType: asset.mimeType });
     }
-    res.sendFile(assetPath);
+    const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
+    if (hydrated) {
+      return streamLocalUpload(res, hydrated, { range, method: req.method, mimeType: asset.mimeType });
+    }
+    const streamed = await serveStoredUpload(res, `learning-universes/${id}/${asset.storedFilename}`, {
+      range,
+      method: req.method,
+    });
+    if (streamed) return;
+    return res.status(404).json({ success: false, error: "Asset file not found" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: "Failed to serve asset" });

@@ -8,8 +8,6 @@ import {
   buildObjectKeyWithName,
   publicPathFromKey,
   b2KeyFromPublicPath,
-  isVideoPublicPath,
-  getSignedGetUrl,
   getObjectStream,
   headObject,
   deleteObject,
@@ -19,8 +17,20 @@ import {
   type B2Prefix,
 } from "../services/b2StorageService.js";
 import { getUploadRoot, resolveSafeUploadPath } from "./uploadAccess.js";
+import {
+  isVideoUploadPath,
+  mimeFromUploadPath as mimeFromExt,
+  parseByteRange,
+} from "../utils/uploadMedia.js";
 
 export type { B2Prefix };
+export { isVideoUploadPath, parseByteRange };
+
+export function mimeFromUploadPath(filePath: string, fallback?: string): string {
+  const fromExt = mimeFromExt(filePath, "");
+  if (fromExt) return fromExt;
+  return detectContentType(filePath, fallback);
+}
 
 function prefixFromMime(file: Express.Multer.File, explicit?: B2Prefix): B2Prefix {
   if (explicit) return explicit;
@@ -180,14 +190,54 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
   return dest;
 }
 
+export function streamLocalUpload(
+  res: Response,
+  filePath: string,
+  options?: { range?: string; method?: string; mimeType?: string }
+): boolean {
+  if (!fs.existsSync(filePath)) return false;
+  const stat = fs.statSync(filePath);
+  const mime = options?.mimeType || mimeFromUploadPath(filePath);
+  const range = parseByteRange(options?.range, stat.size);
+  const tag = isVideoUploadPath(filePath) ? "VIDEO_STREAM" : "ASSET_RESOLVE";
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Type", mime);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (range) {
+    const chunkSize = range.end - range.start + 1;
+    console.log(`[${tag}] path=${path.basename(filePath)} mime=${mime} range=${options?.range} status=206`);
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${range.start}-${range.end}/${stat.size}`);
+    res.setHeader("Content-Length", String(chunkSize));
+    if (options?.method === "HEAD") {
+      res.end();
+      return true;
+    }
+    fs.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+    return true;
+  }
+  console.log(`[${tag}] path=${path.basename(filePath)} mime=${mime} range=none status=200`);
+  res.status(200);
+  res.setHeader("Content-Length", String(stat.size));
+  if (options?.method === "HEAD") {
+    res.end();
+    return true;
+  }
+  fs.createReadStream(filePath).pipe(res);
+  return true;
+}
+
 export async function serveStoredUpload(
   res: Response,
   relativePath: string,
-  options?: { range?: string; asVideo?: boolean }
+  options?: { range?: string; asVideo?: boolean; method?: string }
 ): Promise<boolean> {
   const local = resolveSafeUploadPath(relativePath);
   if (local && fs.existsSync(local)) {
-    return false;
+    return streamLocalUpload(res, local, {
+      range: options?.range,
+      method: options?.method,
+    });
   }
 
   if (!isB2Configured()) return false;
@@ -195,19 +245,39 @@ export async function serveStoredUpload(
   const meta = await headObject(key);
   if (!meta) return false;
 
-  if (options?.asVideo) {
-    const signed = await getSignedGetUrl(key);
-    res.redirect(302, signed);
+  const mime = meta.contentType && meta.contentType !== "application/octet-stream"
+    ? meta.contentType
+    : mimeFromUploadPath(key, meta.contentType);
+  const tag = options?.asVideo || isVideoUploadPath(key) ? "VIDEO_STREAM" : "ASSET_RESOLVE";
+
+  if (options?.method === "HEAD") {
+    console.log(`[${tag}] key=${key} mime=${mime} range=${options?.range || "none"} status=200 head=1`);
+    res.status(200);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Content-Type", mime);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (meta.contentLength != null) res.setHeader("Content-Length", String(meta.contentLength));
+    res.end();
     return true;
   }
 
   const streamed = await getObjectStream(key, options?.range);
-  res.status(streamed.status);
+  const status = streamed.status;
+  const contentType = streamed.contentType && streamed.contentType !== "application/octet-stream"
+    ? streamed.contentType
+    : mime;
+  console.log(`[${tag}] key=${key} mime=${contentType} range=${options?.range || "none"} status=${status}`);
+  res.status(status);
   res.setHeader("X-Content-Type-Options", "nosniff");
-  if (streamed.contentType) res.setHeader("Content-Type", streamed.contentType);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Type", contentType);
   if (streamed.contentLength != null) res.setHeader("Content-Length", String(streamed.contentLength));
   if (streamed.contentRange) res.setHeader("Content-Range", streamed.contentRange);
-  if (options?.range) res.setHeader("Accept-Ranges", "bytes");
+  streamed.body.on("error", (err) => {
+    console.error(`[${tag}] stream_error key=${key} message=${err instanceof Error ? err.message : "unknown"}`);
+    if (!res.headersSent) res.status(502).end();
+    else res.destroy();
+  });
   streamed.body.pipe(res);
   return true;
 }

@@ -188,6 +188,16 @@ function sanitizeInstructorTexContent(tex: string): string {
   return result;
 }
 
+const WORKSPACE_COMPONENT_KINDS = new Set([
+  "coding-lab",
+  "notebook",
+  "research-paper",
+  "project",
+  "assignment",
+  "practice",
+  "video",
+]);
+
 const INTERACTIVE_BLOCK_TYPES = new Set([
   "quiz",
   "practice",
@@ -616,6 +626,12 @@ export function applyCompiledPackageToParsed(
             localUsed.add(canonicalDocumentIdentity(compiledFile.path));
           }
         }
+        continue;
+      }
+
+      if (WORKSPACE_COMPONENT_KINDS.has(comp.kind)) {
+        const interactive = takeInteractiveBlock(parsedBlocks, comp.kind, usedParsed);
+        if (interactive && interactive.type !== "document") nextBlocks.push(interactive);
         continue;
       }
 

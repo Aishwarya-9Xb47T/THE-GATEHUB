@@ -14,6 +14,7 @@ export default defineConfig({
       "src/lib/contentBuilder/**/*.test.ts",
       "src/lib/classroom/**/*.test.ts",
       "src/lib/pptxSvgPostProcess.test.ts",
+      "src/lib/resolveLearningUniverseAsset.test.ts",
     ],
   },
   resolve: {

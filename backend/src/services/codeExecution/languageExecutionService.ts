@@ -579,85 +579,30 @@ async function executeRun(
   config: LanguageExecutionConfig,
   startTime: number
 ): Promise<WorkspaceExecutionResult> {
-  const executionId = uuidv4();
-  const tempDir = os.tmpdir();
-  const ext = config.sourceExtensions[0] || '.txt';
-  const tempFile = path.join(tempDir, `run_${executionId}${ext}`);
-  
-  try {
-    await fs.writeFile(tempFile, request.code);
-    
-    const runCommand = config.interpreter || config.runCommand || 'python';
-    const runArgs = [
-      ...(config.runArguments || []),
-      tempFile,
-    ];
-    
-    const stdout: string[] = [];
-    const stderr: string[] = [];
-    
-    const child = spawn(runCommand, runArgs, {
-      cwd: request.workingDirectory || tempDir,
-      env: { ...process.env, ...request.environmentVariables },
-      timeout: request.timeLimit || 10000,
-    });
-    
-    if (request.stdin) {
-      child.stdin.write(request.stdin);
-      child.stdin.end();
-    }
-    
-    child.stdout.on('data', (data) => stdout.push(data.toString()));
-    child.stderr.on('data', (data) => stderr.push(data.toString()));
-    
-    await new Promise<void>((resolve, reject) => {
-      child.on('close', (code) => {
-        if (code === 0 || code === null) {
-          resolve();
-        } else {
-          reject(new Error(`Process exited with code ${code}`));
-        }
-      });
-      child.on('error', reject);
-    });
-    
-    return {
-      success: true,
-      exitCode: 0,
-      executionTimeMs: Date.now() - startTime,
-      memoryUsageMb: 0,
-      stdin: request.stdin || '',
-      stdout: stdout.join(''),
-      stderr: stderr.join(''),
-      diagnostics: parseDiagnostics(stderr.join(''), config.language),
-      timestamp: new Date(),
-      workspaceId: 'temp',
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      exitCode: error.code || 1,
-      executionTimeMs: Date.now() - startTime,
-      memoryUsageMb: 0,
-      stdin: request.stdin || '',
-      stdout: '',
-      stderr: error.message,
-      diagnostics: parseDiagnostics(error.message || '', config.language),
-      errors: [{
-        type: 'runtime',
-        message: error.message,
-        recoverable: false,
-      }],
-      timestamp: new Date(),
-      workspaceId: 'temp',
-    };
-  } finally {
-    try {
-      await fs.unlink(tempFile);
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
+  const { executeSandboxed } = await import("./sandboxExecutor.js");
+  const sandboxed = await executeSandboxed(config.language || request.language || "python", request.code);
+  const ok = sandboxed.success;
+  return {
+    success: ok,
+    exitCode: sandboxed.exitCode ?? (ok ? 0 : 1),
+    executionTimeMs: Date.now() - startTime,
+    memoryUsageMb: 0,
+    stdin: request.stdin || "",
+    stdout: sandboxed.stdout,
+    stderr: sandboxed.stderr,
+    diagnostics: parseDiagnostics(sandboxed.stderr, config.language),
+    errors: ok
+      ? undefined
+      : [
+          {
+            type: sandboxed.status === "timeout" ? "timeout" : sandboxed.status === "compile_error" ? "compile" : "runtime",
+            message: sandboxed.stderr || sandboxed.stdout || "Execution failed",
+            recoverable: false,
+          },
+        ],
+    timestamp: new Date(),
+    workspaceId: "temp",
+  };
 }
 
 async function executeDebug(

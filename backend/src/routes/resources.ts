@@ -19,7 +19,7 @@ resourceRouter.post("/content/save", authenticate, requireRole("instructor", "ad
 resourceRouter.get("/content/:courseId", resourceController.getResourceContent);
 
 // Code execution
-resourceRouter.post("/execute", resourceController.executeCode);
-resourceRouter.post("/coding-lab/execute", resourceController.executeCodingLab);
-resourceRouter.post("/coding-lab/submit", resourceController.submitCodingLab);
+resourceRouter.post("/execute", authenticate, resourceController.executeCode);
+resourceRouter.post("/coding-lab/execute", authenticate, resourceController.executeCodingLab);
+resourceRouter.post("/coding-lab/submit", authenticate, resourceController.submitCodingLab);
 

@@ -183,17 +183,19 @@ export function VideoPlayer(props: VideoPlayerProps) {
     streamFallback && resolvedUrl !== streamFallback ? streamFallback : undefined;
 
   return (
-    <UploadedVideoPlayer
-      src={resolvedUrl}
-      fallbackSrc={fallback}
-      mimeType={uploadMime}
-      title={title}
-      className={className}
-      captions={captions}
-      onProgress={onProgress}
-      onTimeUpdate={onTimeUpdate}
-      resumeAt={resumeAt}
-    />
+    <MediaInteractionGuard mode="native" className={className} label={title || "Uploaded video"}>
+      <UploadedVideoPlayer
+        src={resolvedUrl}
+        fallbackSrc={fallback}
+        mimeType={uploadMime}
+        title={title}
+        className="w-full h-full"
+        captions={captions}
+        onProgress={onProgress}
+        onTimeUpdate={onTimeUpdate}
+        resumeAt={resumeAt}
+      />
+    </MediaInteractionGuard>
   );
 }
 

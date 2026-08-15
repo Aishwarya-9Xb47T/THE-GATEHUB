@@ -10,7 +10,7 @@ import { AppError } from "../middlewares/errorHandler.js";
 import { isAdminRole } from "../utils/roles.js";
 import { resolveLectureVideoFilePath, videoContentTypeFromPath } from "../utils/lectureVideoPath.js";
 import { persistMulterFile, serveStoredUpload, localPathIfExists } from "../middlewares/persistUpload.js";
-import { b2KeyFromPublicPath, isB2Configured, getSignedGetUrl } from "../services/b2StorageService.js";
+import { b2KeyFromPublicPath, isB2Configured } from "../services/b2StorageService.js";
 
 export const lectureRouter = Router({ mergeParams: true });
 
@@ -104,11 +104,16 @@ async function streamLectureVideo(req: AuthRequest, res: import("express").Respo
     const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
 
     if ((!filePath || !fs.existsSync(filePath)) && lecture?.videoUrl && isB2Configured()) {
-      const key = b2KeyFromPublicPath(lecture.videoUrl);
-      if (key) {
-        const signed = await getSignedGetUrl(key);
-        return res.redirect(302, signed);
-      }
+      const relative = String(lecture.videoUrl)
+        .replace(/^https?:\/\/[^/]+/i, "")
+        .replace(/^\/uploads\//, "")
+        .replace(/^uploads\//, "");
+      console.log(`[VIDEO_STREAM] lecture=${lecture.id} storage=${relative} range=${req.headers.range || "none"}`);
+      const served = await serveStoredUpload(res, relative, {
+        asVideo: true,
+        range: typeof req.headers.range === "string" ? req.headers.range : undefined,
+      });
+      if (served) return;
     }
 
     if (!filePath || !fs.existsSync(filePath)) {
