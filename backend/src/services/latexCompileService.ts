@@ -455,6 +455,8 @@ function findTinyTexBinary(compiler: string): string | null {
   const direct = [
     path.join(process.cwd(), ".tinytex", "bin", "x86_64-linux", compiler),
     path.join(process.cwd(), ".tinytex", "bin", "aarch64-linux", compiler),
+    path.join(process.cwd(), ".TinyTeX", "bin", "x86_64-linux", compiler),
+    path.join(process.cwd(), ".TinyTeX", "bin", "aarch64-linux", compiler),
     path.join(os.homedir(), ".TinyTeX", "bin", "x86_64-linux", compiler),
     path.join(os.homedir(), ".tinytex", "bin", "x86_64-linux", compiler),
   ];
@@ -464,6 +466,7 @@ function findTinyTexBinary(compiler: string): string | null {
 
   const roots = [
     path.join(process.cwd(), ".tinytex"),
+    path.join(process.cwd(), ".TinyTeX"),
     path.join(os.homedir(), ".TinyTeX"),
     path.join(os.homedir(), ".tinytex"),
   ];

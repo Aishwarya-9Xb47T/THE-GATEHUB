@@ -43,6 +43,8 @@ temp/
 latex-temp/
 .tinytex/
 **/.tinytex/
+.TinyTeX/
+**/.TinyTeX/
 coverage/
 .nyc_output/
 
