@@ -23,6 +23,11 @@ import type {
   LuCompiledPackage,
 } from "./luCompiledPackageSchema.js";
 import { LU_COMPILED_PACKAGE_VERSION } from "./luCompiledPackageSchema.js";
+import {
+  isLessonLeafDocumentPath,
+  isNonPublishableCompileArtifact,
+  isPublishableCompiledDocumentPath,
+} from "./luPublishIntegrity.js";
 import { sanitizeAIContentForLaTeX } from "../../utils/aiContentSanitizer.js";
 
 function consumeCommandArgumentBraces(tex: string, startIdx: number): { content: string; endIdx: number } | null {
@@ -239,9 +244,9 @@ function shouldCompileAsDocument(
   project: LuProjectJson
 ): boolean {
   const normalized = normalizeProjectPath(filePath);
+  if (isNonPublishableCompileArtifact(normalized)) return false;
+  if (!isLessonLeafDocumentPath(normalized)) return false;
   if (/\/videos\.tex$/i.test(normalized)) return false;
-  if (/\/metadata\.tex$/i.test(normalized)) return false;
-  if (/\/main\.tex$/i.test(normalized)) return false;
 
   const kind = componentKindForPath(project, filePath);
   if (kind && INTERACTIVE_COMPONENT_KINDS.has(kind)) return false;
@@ -456,19 +461,38 @@ function pushCompiledDocumentBlock(
     title ?? compiledFile.title
   );
   const sourcePath = normalizeProjectPath(compiledFile.path);
+  const hasDocument = blocks.some((block) => block.type === "document");
+  const videoOnly =
+    compiledFile.nodes.length > 0 &&
+    compiledFile.nodes.every((node) => node.type === "video" || node.kind === "video");
+  if (!hasDocument && !videoOnly) {
+    blocks.push({
+      type: "document",
+      title: title ?? compiledFile.title,
+      content: compiledFile.sourceTex,
+      sourceTex: compiledFile.sourceTex,
+      nodes: compiledFile.nodes,
+    });
+  }
   for (const block of blocks) {
     if (block.type === "document") {
       block.compiledSourcePath = sourcePath;
       if (block.content && typeof block.content === "object") {
         (block.content as { compiledSourcePath?: string }).compiledSourcePath = sourcePath;
       }
+      nextBlocks.push({
+        type: block.type,
+        content: block.content,
+        compiledSourcePath: sourcePath,
+        title: typeof block.title === "string" ? block.title : undefined,
+      });
+    } else {
+      nextBlocks.push({
+        type: block.type,
+        content: block.content,
+        title: typeof block.title === "string" ? block.title : undefined,
+      });
     }
-    nextBlocks.push({
-      type: block.type,
-      content: block.content,
-      compiledSourcePath: typeof block.compiledSourcePath === "string" ? block.compiledSourcePath : sourcePath,
-      title: typeof block.title === "string" ? block.title : undefined,
-    });
   }
 }
 
@@ -531,7 +555,7 @@ export function applyCompiledPackageToParsed(
             for (const child of comp.children ?? []) {
               const childPath = child.file ? normalizeProjectPath(child.file) : "";
               const compiledFile = childPath ? compiled.files[childPath] : undefined;
-              if (compiledFile) {
+              if (compiledFile && isPublishableCompiledDocumentPath(childPath)) {
                 pushCompiledDocumentBlock(nextBlocks, compiledFile, child.title);
                 usedCompiledPaths.add(childPath);
               }
@@ -542,7 +566,7 @@ export function applyCompiledPackageToParsed(
           const compPath = comp.file ? normalizeProjectPath(comp.file) : "";
           const compiledFile = compPath ? compiled.files[compPath] : undefined;
 
-          if (compiledFile) {
+          if (compiledFile && isPublishableCompiledDocumentPath(compPath)) {
             pushCompiledDocumentBlock(nextBlocks, compiledFile, comp.title);
             usedCompiledPaths.add(compPath);
             continue;
@@ -557,6 +581,7 @@ export function applyCompiledPackageToParsed(
         for (const [path, compiledFile] of Object.entries(compiled.files)) {
           const normalized = normalizeProjectPath(path);
           if (usedCompiledPaths.has(normalized)) continue;
+          if (!isPublishableCompiledDocumentPath(normalized)) continue;
           if (!normalized.startsWith(`${lessonDir}/`)) continue;
           pushCompiledDocumentBlock(nextBlocks, compiledFile);
           usedCompiledPaths.add(normalized);
