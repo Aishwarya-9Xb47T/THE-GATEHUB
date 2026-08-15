@@ -18,6 +18,37 @@ export type VideoPlacementStrategy =
 
 const UPLOAD_VIDEO_EXT = /\.(mp4|webm|mov|avi|mkv|m4v)$/i;
 
+/** Durable path under /uploads, e.g. videos/<uuid>.mp4 — never strip the prefix. */
+export function relativeUploadPathFromRef(fileRef: string): string {
+  const cleaned = fileRef.trim().replace(/[\r\n]+/g, "").replace(/\\/g, "/").split("?")[0];
+  const marker = "/uploads/";
+  const idx = cleaned.indexOf(marker);
+  if (idx !== -1) return cleaned.slice(idx + marker.length).replace(/^\/+/, "");
+  if (cleaned.startsWith("uploads/")) return cleaned.slice("uploads/".length).replace(/^\/+/, "");
+  return cleaned.replace(/^\/+/, "");
+}
+
+/** Candidate /uploads/... paths to hydrate from B2 (durable videos/ key first, then original refs, then basename). */
+export function architectUploadStorageRefs(mapping: { file?: string; url?: string }): string[] {
+  const refs: string[] = [];
+  const seen = new Set<string>();
+  const add = (value?: string) => {
+    if (!value?.trim()) return;
+    const relative = relativeUploadPathFromRef(value);
+    if (!relative) return;
+    const publicPath = `/uploads/${relative}`;
+    if (seen.has(publicPath)) return;
+    seen.add(publicPath);
+    refs.push(publicPath);
+  };
+  const basename = path.basename(relativeUploadPathFromRef(mapping.file || mapping.url || ""));
+  if (basename) add(`videos/${basename}`);
+  add(mapping.url);
+  add(mapping.file);
+  if (basename) add(basename);
+  return refs;
+}
+
 export function youTubeThumbnailUrl(videoId: string): string {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }
@@ -47,15 +78,16 @@ export function normalizeVideoMapping(v: VideoMapping, index: number): VideoMapp
 
   const fileRef = (v.file || v.url || "").trim();
   if (!fileRef) return null;
-  const basename = path.basename(fileRef.replace(/^.*\/uploads\//, "").replace(/\\/g, "/"));
+  const relative = relativeUploadPathFromRef(fileRef);
+  const basename = path.basename(relative);
   if (!UPLOAD_VIDEO_EXT.test(basename)) return null;
 
   return {
     ...v,
-    file: basename,
-    url: v.url || `/uploads/${basename}`,
+    file: relative,
+    url: `/uploads/${relative}`,
     order: v.order ?? index,
-    uploadedVideoPath: basename,
+    uploadedVideoPath: relative,
     uploadedVideoName: v.uploadedVideoName || v.title || basename,
   };
 }

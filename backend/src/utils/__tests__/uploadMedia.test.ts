@@ -74,6 +74,28 @@ describe("relative upload persistence", () => {
       "/uploads/learning-universes/u1/a.mp4"
     );
   });
+
+  it("maps architect lecture videos to uploads/videos/... B2 keys", async () => {
+    const { b2KeyFromPublicPath } = await import("../../services/b2StorageService.js");
+    expect(b2KeyFromPublicPath("/uploads/videos/abc.mp4")).toBe("uploads/videos/abc.mp4");
+    expect(b2KeyFromPublicPath("https://example.com/uploads/videos/abc.mp4")).toBe(
+      "uploads/videos/abc.mp4"
+    );
+    expect(b2KeyFromPublicPath("https://example.com\n/uploads/videos/abc.mp4")).toBe(
+      "uploads/videos/abc.mp4"
+    );
+    expect(b2KeyFromPublicPath("/uploads/abc.mp4")).toBe("uploads/abc.mp4");
+  });
+
+  it("detects Backblaze NoSuchKey / Key not found without treating API-key errors as missing objects", async () => {
+    const { isMissingObjectError } = await import("../../services/b2StorageService.js");
+    expect(isMissingObjectError({ name: "NoSuchKey", message: "Key not found" })).toBe(true);
+    expect(isMissingObjectError(new Error("Key not found"))).toBe(true);
+    expect(isMissingObjectError(new Error("API key not found. Please pass a valid API key."))).toBe(
+      false
+    );
+    expect(isMissingObjectError(new Error("OPENAI_API_KEY not found"))).toBe(false);
+  });
 });
 
 describe("published Learning Universe video access", () => {

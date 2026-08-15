@@ -6,6 +6,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { prisma } from "../../utils/prisma.js";
 import type { VideoMapping } from "./types.js";
+import { architectUploadStorageRefs } from "./videoAssignmentEngine.js";
 import type { ParsedLearningUniverse } from "../../controllers/learning-universe-parser.js";
 import { collectMediaReferences } from "../learningUniverseMedia.js";
 import { loadProjectFiles } from "../luProject/luProjectFiles.js";
@@ -158,12 +159,15 @@ export async function syncAllProjectVideosToUniverse(
 }
 
 async function resolveUploadSourcePath(ref: string): Promise<string | null> {
-  const trimmed = ref.trim();
+  const trimmed = ref.trim().replace(/[\r\n]+/g, "");
   if (!trimmed) return null;
 
   const basename = path.basename(trimmed.replace(/\\/g, "/"));
+  const relative = trimmed.replace(/^\/uploads\//, "").replace(/^uploads\//, "");
   const candidates = [
     path.join(UPLOAD_DIR, trimmed),
+    path.join(UPLOAD_DIR, relative),
+    path.join(UPLOAD_DIR, "videos", basename),
     path.join(UPLOAD_DIR, basename),
     trimmed.startsWith("/uploads/") ? path.join(process.cwd(), trimmed.replace(/^\//, "")) : null,
   ].filter(Boolean) as string[];
@@ -190,10 +194,11 @@ async function resolveUploadSourcePath(ref: string): Promise<string | null> {
     if (fs.existsSync(p)) return p;
   }
 
-  if (trimmed.includes("/uploads/") || trimmed.startsWith("uploads/")) {
-    return resolveStoredUploadPath(trimmed);
+  for (const stored of architectUploadStorageRefs({ file: trimmed, url: trimmed })) {
+    const hydrated = await resolveStoredUploadPath(stored);
+    if (hydrated && fs.existsSync(hydrated)) return hydrated;
   }
-  return resolveStoredUploadPath(`/uploads/${basename}`);
+  return null;
 }
 
 /** Register uploaded video files as LearningUniverseAsset records. */
@@ -222,7 +227,22 @@ export async function syncArchitectMediaAssets(
     });
     if (existing) continue;
 
-    const srcPath = await resolveUploadSourcePath(mapping.file || mapping.url || basename);
+    let srcPath: string | null = null;
+    try {
+      for (const stored of architectUploadStorageRefs(mapping)) {
+        srcPath = await resolveUploadSourcePath(stored);
+        if (srcPath) break;
+      }
+      if (!srcPath) {
+        srcPath = await resolveUploadSourcePath(mapping.file || mapping.url || basename);
+      }
+    } catch (err) {
+      console.warn(
+        `[AI Architect] Video hydrate failed for ${basename}:`,
+        err instanceof Error ? err.message : err
+      );
+      continue;
+    }
     if (!srcPath) {
       console.warn(`[AI Architect] Video file not found for asset sync: ${basename}`);
       continue;

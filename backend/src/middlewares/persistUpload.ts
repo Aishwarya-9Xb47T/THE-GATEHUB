@@ -14,6 +14,7 @@ import {
   downloadObjectToFile,
   unlinkQuietly,
   detectContentType,
+  isMissingObjectError,
   type B2Prefix,
 } from "../services/b2StorageService.js";
 import { getUploadRoot, resolveSafeUploadPath, normalizeUploadRelativePath } from "./uploadAccess.js";
@@ -222,6 +223,7 @@ export function localPathIfExists(stored: string): string | null {
 }
 
 export async function hydrateLocalUpload(stored: string): Promise<string | null> {
+  if (!stored?.trim()) return null;
   const existing = localPathIfExists(stored);
   if (existing) return existing;
   if (!isB2Configured()) return null;
@@ -231,8 +233,17 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
   const dest = resolveSafeUploadPath(relative);
   if (!dest) return null;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  await downloadObjectToFile(key, dest);
-  return dest;
+  try {
+    await downloadObjectToFile(key, dest);
+    return dest;
+  } catch (err) {
+    await unlinkQuietly(dest);
+    if (isMissingObjectError(err)) {
+      console.warn("[storage] B2 object missing during hydrate:", key);
+      return null;
+    }
+    throw err;
+  }
 }
 
 export function streamLocalUpload(

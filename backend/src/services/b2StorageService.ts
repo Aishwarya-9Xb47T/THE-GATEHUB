@@ -122,7 +122,7 @@ export function publicPathFromKey(key: string): string {
 
 /** Map a stored /uploads/... path (or absolute URL containing /uploads/) to a B2 object key. */
 export function b2KeyFromPublicPath(stored: string): string | null {
-  const trimmed = stored.trim();
+  const trimmed = String(stored || "").trim().replace(/[\r\n]+/g, "");
   if (!trimmed) return null;
   let relative = trimmed;
   try {
@@ -139,6 +139,24 @@ export function b2KeyFromPublicPath(stored: string): string | null {
     return null;
   }
   return `uploads/${relative.slice(idx + marker.length).replace(/^\/+/, "").split("?")[0]}`;
+}
+
+/** Backblaze S3 GetObject/HeadObject miss — message is often exactly "Key not found". */
+export function isMissingObjectError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const rec = err as {
+    name?: string;
+    Code?: string;
+    code?: string;
+    message?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const name = String(rec.name || rec.Code || rec.code || "");
+  if (/NoSuchKey|NoSuchObject/i.test(name)) return true;
+  const message = String(rec.message || "").trim();
+  if (/^key not found$/i.test(message)) return true;
+  if (/specified key does not exist/i.test(message)) return true;
+  return false;
 }
 
 /** Persist relative /uploads/... paths in Neon — never localhost or signed URLs. */

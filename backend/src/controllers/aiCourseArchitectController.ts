@@ -58,39 +58,84 @@ import {
   readStructuredRecord,
 } from "../services/productRoutingService.js";
 import { hasOpenAiKey } from "../services/aiCourseArchitect/openaiClient.js";
+import { isMissingObjectError } from "../services/b2StorageService.js";
 
 /** Prevents concurrent duplicate generates for the same instructor. */
 const activeGenerations = new Map<string, number>();
 
-function friendlyArchitectError(err: unknown): AppError {
-  if (err instanceof AppError) return err;
+function architectError(
+  statusCode: number,
+  message: string,
+  details: { code: string; stage: string; retryable: boolean }
+): AppError {
+  return new AppError(statusCode, message, true, details);
+}
+
+function friendlyArchitectError(err: unknown, stage = "generate"): AppError {
+  if (err instanceof AppError) {
+    if (!err.details) {
+      err.details = {
+        code: err.statusCode === 400 ? "ARCHITECT_VALIDATION" : "ARCHITECT_ERROR",
+        stage,
+        retryable: err.statusCode >= 500 || err.statusCode === 429 || err.statusCode === 503,
+      };
+    } else if (!err.details.stage) {
+      err.details = { ...err.details, stage };
+    }
+    return err;
+  }
   const message = err instanceof Error ? err.message : "Course generation failed";
   const lower = message.toLowerCase();
+  if (isMissingObjectError(err) || /^key not found$/i.test(message.trim())) {
+    console.error("[AI Architect] Storage object missing during generate:", {
+      stage,
+      message,
+      name: err instanceof Error ? err.name : undefined,
+    });
+    return architectError(
+      409,
+      "An uploaded lecture video could not be found in storage. Re-upload the video in Video & Banner, then generate again. The course was not published.",
+      { code: "MEDIA_OBJECT_NOT_FOUND", stage, retryable: true }
+    );
+  }
   if (lower.includes("openai") && (lower.includes("key") || lower.includes("api key") || lower.includes("401"))) {
-    return new AppError(
+    return architectError(
       503,
-      "AI provider is not configured or the API key is invalid. Set OPENAI_API_KEY and try again.",
+      "AI provider is not configured or the API key is invalid. Set OPENAI_API_KEY on the backend service and try again.",
+      { code: "AI_PROVIDER_KEY", stage, retryable: false }
     );
   }
   if (lower.includes("quota") || lower.includes("rate limit") || lower.includes("429")) {
-    return new AppError(
+    return architectError(
       503,
       "AI provider rate limit or quota was reached. Your progress was not published. Please retry in a few minutes.",
+      { code: "AI_PROVIDER_QUOTA", stage, retryable: true }
     );
   }
   if (lower.includes("timeout") || lower.includes("etimedout") || lower.includes("aborted")) {
-    return new AppError(
+    return architectError(
       504,
       "Course generation timed out. Completed stages were not saved for this attempt — please retry.",
+      { code: "GENERATION_TIMEOUT", stage, retryable: true }
     );
   }
   if (lower.includes("unexpected token") || lower.includes("json")) {
-    return new AppError(
+    return architectError(
       502,
       "The AI returned invalid structured data. Please retry generation. No corrupt course was published.",
+      { code: "AI_INVALID_JSON", stage, retryable: true }
     );
   }
-  return new AppError(500, message.replace(/^Error:\s*/i, ""));
+  console.error("[AI Architect] Generation failed:", { stage, message });
+  return architectError(
+    500,
+    `Course generation failed during ${stage}. Please retry. No incomplete course was published.`,
+    {
+      code: "GENERATION_FAILED",
+      stage,
+      retryable: true,
+    }
+  );
 }
 
 function parseInterview(body: unknown): AICourseArchitectInterview {
@@ -274,28 +319,48 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   const userId = req.user!.id;
 
   if (activeGenerations.has(userId)) {
-    throw new AppError(
+    throw architectError(
       409,
       "A course generation is already running for your account. Please wait for it to finish before starting another.",
+      { code: "GENERATION_IN_PROGRESS", stage: "prepare", retryable: true }
     );
   }
   activeGenerations.set(userId, Date.now());
+
+  let stage = "prepare";
+  let draftId: string | undefined;
+  let projectId: string | undefined;
+
+  const rollbackDraft = async () => {
+    if (projectId) {
+      await prisma.latexProject.delete({ where: { id: projectId } }).catch(() => {});
+    }
+    if (draftId) {
+      await prisma.learningUniverse.delete({ where: { id: draftId } }).catch(() => {});
+    }
+  };
 
   try {
   if (!hasOpenAiKey() && !process.env.ANTHROPIC_API_KEY && !process.env.GOOGLE_AI_API_KEY && !process.env.GEMINI_API_KEY) {
     console.warn("[AI Architect] No AI provider keys configured — generation will use heuristics / degraded mode");
   }
 
+  stage = "parse-interview";
   const interview = parseInterview(req.body?.interview);
   let blueprint = req.body?.blueprint as ArchitectBlueprint;
   const approved = req.body?.approved !== false;
 
   if (!blueprint?.modules?.length) {
+    stage = "plan-blueprint";
     blueprint = await generateCourseBlueprint(interview);
   }
 
   if (!approved) {
-    throw new AppError(400, "Curriculum blueprint must be approved before generation");
+    throw architectError(400, "Curriculum blueprint must be approved before generation", {
+      code: "BLUEPRINT_NOT_APPROVED",
+      stage,
+      retryable: false,
+    });
   }
 
   const normalizedVideoMappings = normalizeVideoMappings(interview.videoStrategy.mappings);
@@ -304,15 +369,20 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     interview.videoStrategy.mappings.length > 0 &&
     normalizedVideoMappings.length < interview.videoStrategy.mappings.length
   ) {
-    throw new AppError(
+    throw architectError(
       422,
-      `${interview.videoStrategy.mappings.length - normalizedVideoMappings.length} instructor video(s) failed validation. Fix invalid YouTube URLs or upload formats before generating.`
+      `${interview.videoStrategy.mappings.length - normalizedVideoMappings.length} instructor video(s) failed validation. Fix invalid YouTube URLs or upload formats before generating.`,
+      { code: "VIDEO_VALIDATION_FAILED", stage: "validate-videos", retryable: false }
     );
   }
 
   const videoIssues = validateVideoMappingsForPublish(normalizedVideoMappings);
   if (videoIssues.length > 0 && interview.videoStrategy.includeVideos !== false) {
-    throw new AppError(422, `Video validation failed: ${videoIssues.slice(0, 3).join("; ")}`);
+    throw architectError(422, `Video validation failed: ${videoIssues.slice(0, 3).join("; ")}`, {
+      code: "VIDEO_VALIDATION_FAILED",
+      stage: "validate-videos",
+      retryable: false,
+    });
   }
 
   const interviewWithVideos: AICourseArchitectInterview = {
@@ -328,6 +398,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   blueprint = applyVideoAssignments(blueprint, interviewWithVideos);
 
   if (isPlanned) {
+    stage = "content-generation";
     try {
       const populated = await generateApprovedCourseContent(blueprint, interviewWithVideos);
       blueprint = populated.blueprint;
@@ -337,7 +408,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
       if (isArchitectAiQuotaError(err)) {
         qualityReport = performQualityReview(blueprint, interviewWithVideos);
       } else {
-        throw friendlyArchitectError(err);
+        throw friendlyArchitectError(err, stage);
       }
     }
   } else {
@@ -346,6 +417,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
 
   blueprint = applyVideoAssignments(blueprint, interviewWithVideos);
 
+  stage = "delivery-pipeline";
   const delivery = await runDeliveryPipeline({ interview: interviewWithVideos, blueprint });
   blueprint = delivery.blueprint;
   const qaWarning =
@@ -359,19 +431,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   const bannerUrl = interview.banner?.bannerUrl;
   const thumbnailUrl = interview.banner?.thumbnailUrl || bannerUrl;
 
-  let draftId: string | undefined;
-  let projectId: string | undefined;
-
-  const rollbackDraft = async () => {
-    if (projectId) {
-      await prisma.latexProject.delete({ where: { id: projectId } }).catch(() => {});
-    }
-    if (draftId) {
-      await prisma.learningUniverse.delete({ where: { id: draftId } }).catch(() => {});
-    }
-  };
-
-  try {
+  stage = "create-draft";
   const categoryId = await resolveValidCategoryId(interview.courseInfo.categoryId);
   const draft = await createLearningUniverseDraft(userId, {
     title: blueprint.courseTitle,
@@ -389,6 +449,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   });
   draftId = draft.id;
 
+  stage = "create-latex-project";
   const project = await prisma.latexProject.create({
     data: { title: blueprint.courseTitle, ownerId: userId },
   });
@@ -396,16 +457,36 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
 
   let built: ReturnType<typeof buildProjectFromBlueprint>;
   try {
+    stage = "build-latex-project";
     built = delivery.projectBuild ?? buildProjectFromBlueprint(blueprint, interviewWithVideos);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Project build failed";
-    throw new AppError(500, `Failed to build LaTeX project from blueprint: ${message}`);
+    throw architectError(500, `Failed to build LaTeX project from blueprint: ${message}`, {
+      code: "LATEX_BUILD_FAILED",
+      stage,
+      retryable: true,
+    });
   }
   const mainTex = buildMainTexFromProject(built.project);
+  stage = "write-latex-project";
   await writeLuProjectToDb(project.id, built.project, built.files, mainTex);
 
-  await syncArchitectMediaAssets(draft.id, normalizedVideoMappings);
+  stage = "sync-media";
+  try {
+    await syncArchitectMediaAssets(draft.id, normalizedVideoMappings);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[AI Architect] Media sync error:", {
+      stage,
+      message,
+      name: err instanceof Error ? err.name : undefined,
+    });
+    if (!isMissingObjectError(err) && !/^key not found$/i.test(message)) {
+      throw friendlyArchitectError(err, stage);
+    }
+  }
 
+  stage = "validate-project";
   const validationReport = await validateGeneratedProject({
     projectId: project.id,
     project: built.project,
@@ -415,7 +496,11 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
 
   if (!validationReport.passed) {
     await rollbackDraft();
-    throw new AppError(422, `Generation validation failed: ${validationReport.missingFiles.slice(0, 3).join("; ")}`);
+    throw architectError(
+      422,
+      `Generation validation failed: ${validationReport.missingFiles.slice(0, 3).join("; ")}`,
+      { code: "VALIDATION_FAILED", stage, retryable: true }
+    );
   }
 
   let generatedThumbnail = thumbnailUrl;
@@ -428,6 +513,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     }
   }
 
+  stage = "persist-course";
   const existingStructured = readStructuredRecord(draft.structuredData);
   await prisma.learningUniverse.update({
     where: { id: draft.id },
@@ -525,9 +611,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   });
   } catch (err) {
     await rollbackDraft();
-    if (err instanceof AppError) throw err;
-    throw friendlyArchitectError(err);
-  }
+    throw friendlyArchitectError(err, stage);
   } finally {
     activeGenerations.delete(userId);
   }

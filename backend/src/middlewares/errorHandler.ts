@@ -6,7 +6,8 @@ export class AppError extends Error {
   constructor(
     public statusCode: number,
     message: string,
-    public isOperational = true
+    public isOperational = true,
+    public details?: { code: string; stage?: string; retryable?: boolean }
   ) {
     super(message);
     Object.setPrototypeOf(this, AppError.prototype);
@@ -28,6 +29,17 @@ export function errorHandler(
   }
 
   if (err instanceof AppError) {
+    if (err.details?.code) {
+      return res.status(err.statusCode).json({
+        success: false,
+        error: {
+          code: err.details.code,
+          message: err.message,
+          stage: err.details.stage,
+          retryable: err.details.retryable ?? false,
+        },
+      });
+    }
     return res.status(err.statusCode).json({ success: false, error: err.message });
   }
 
