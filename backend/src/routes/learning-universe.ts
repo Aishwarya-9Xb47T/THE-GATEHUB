@@ -568,14 +568,13 @@ router.post("/:id/duplicate", authenticate, requireRole("instructor", "admin"), 
       const projectAssetPath = path.join(projectDir, storedProjectFilename);
       fs.copyFileSync(sourcePath, projectAssetPath);
 
-      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
       await prisma.latexFile.create({
         data: {
           projectId: project.id,
           name: asset.filename,
           path: `/${asset.filename}`,
           isFolder: false,
-          s3Url: `${baseUrl}/uploads/projects/${project.id}/${storedProjectFilename}`,
+          s3Url: `/uploads/projects/${project.id}/${storedProjectFilename}`,
           content: null,
         },
       });

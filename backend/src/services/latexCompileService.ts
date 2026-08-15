@@ -779,6 +779,29 @@ async function clearPreviousArtifacts(workspaceDir: string): Promise<void> {
   );
 }
 
+async function resolveLuResearchContext(workspaceId?: string): Promise<{
+  universeId: string | null;
+  projectIds: string[];
+}> {
+  if (!workspaceId) return { universeId: null, projectIds: [] };
+  const projectIds = [workspaceId];
+  if (!workspaceId.startsWith("lu-research-")) {
+    return { universeId: null, projectIds };
+  }
+  const universeId = workspaceId.slice("lu-research-".length).split("-")[0] || null;
+  if (!universeId) return { universeId: null, projectIds };
+  try {
+    const universe = await prisma.learningUniverse.findUnique({
+      where: { id: universeId },
+      select: { sourceProjectId: true },
+    });
+    if (universe?.sourceProjectId) projectIds.push(universe.sourceProjectId);
+  } catch {
+    /* ignore */
+  }
+  return { universeId, projectIds };
+}
+
 // Enhanced project asset preparation (images, videos, etc.)
 async function prepareProjectAssets(
   latexCode: string, 
@@ -804,8 +827,9 @@ async function prepareProjectAssets(
   }
 
   const sourceDirs = [LATEX_UPLOAD_ROOT, path.join(UPLOAD_ROOT, "resources")];
-  if (workspaceId && typeof workspaceId === 'string' && workspaceId.trim().length > 0) {
-    sourceDirs.push(path.join(UPLOAD_ROOT, "projects", workspaceId));
+  const { universeId: researchUniverseId, projectIds } = await resolveLuResearchContext(workspaceId);
+  for (const pid of projectIds) {
+    sourceDirs.push(path.join(UPLOAD_ROOT, "projects", pid));
   }
 
   console.log(`[DEEP DEBUG] --- ASSET PREP START ---`);
@@ -813,19 +837,15 @@ async function prepareProjectAssets(
   console.log(`[DEEP DEBUG] Workspace Dir: ${workspaceDir}`);
 
   // 1. If we have a project ID, query DB for logical-to-physical mapping
-  if (workspaceId) {
-    const projectDir = path.join(UPLOAD_ROOT, "projects", workspaceId);
-    
+  if (projectIds.length) {
     try {
-      // Fetch all files for this project from DB
       const dbFiles = await prisma.latexFile.findMany({
-        where: { projectId: workspaceId, isFolder: false }
+        where: { projectId: { in: projectIds }, isFolder: false }
       });
       
-      console.log(`[LATEX-TRACE] Found ${dbFiles.length} files in DB for project ${workspaceId}`);
+      console.log(`[LATEX-TRACE] Found ${dbFiles.length} files in DB for projects ${projectIds.join(",")}`);
       
       for (const file of dbFiles) {
-        // We only care about images/videos for mapping
         const ext = path.extname(file.name).toLowerCase();
         const isAsset = ['.png', '.jpg', '.jpeg', '.gif', '.pdf', '.svg', '.mp4', '.webm', '.mov', '.webp'].includes(ext);
         
@@ -833,6 +853,7 @@ async function prepareProjectAssets(
           const physicalFilename = physicalFilenameFromS3Url(file.s3Url);
           const sanitizedLogicalName = sanitizeFilename(file.name);
           const logicalPath = file.path.replace(/^\//, "");
+          const projectDir = path.join(UPLOAD_ROOT, "projects", file.projectId);
 
           const sourcePath = path.join(projectDir, physicalFilename);
           const destPath = path.join(workspaceDir, sanitizedLogicalName);
@@ -872,12 +893,32 @@ async function prepareProjectAssets(
     }
   }
 
+  if (researchUniverseId) {
+    try {
+      const luAssets = await prisma.learningUniverseAsset.findMany({
+        where: { learningUniverseId: researchUniverseId },
+      });
+      for (const asset of luAssets) {
+        const stored = `/uploads/learning-universes/${researchUniverseId}/${asset.storedFilename}`;
+        const resolved = await hydrateLocalUpload(stored);
+        if (!resolved || !fs.existsSync(resolved)) continue;
+        const destName = sanitizeFilename(asset.filename);
+        const destPath = path.join(workspaceDir, destName);
+        fs.copyFileSync(resolved, destPath);
+        registerAssetMapping(mapping, [asset.filename, destName], destName);
+        console.log(`[LATEX-TRACE] Hydrated LU asset ${asset.filename} -> ${destName}`);
+      }
+    } catch (err: any) {
+      console.warn(`[LATEX-TRACE] LU research asset hydration skipped: ${err.message}`);
+    }
+  }
+
   // 2. Also check for specifically referenced images that might be in global LATEX_UPLOAD_ROOT
   let dbFilesForLookup: Array<{ name: string; path: string; s3Url: string | null }> = [];
-  if (workspaceId) {
+  if (projectIds.length) {
     try {
       dbFilesForLookup = await prisma.latexFile.findMany({
-        where: { projectId: workspaceId, isFolder: false },
+        where: { projectId: { in: projectIds }, isFolder: false },
         select: { name: true, path: true, s3Url: true },
       });
     } catch {
@@ -1385,10 +1426,16 @@ async function compileLatexLocallyInner(
     for (const file of options.inlineWorkspaceFiles) {
       const relative = file.name.replace(/^\//, "").replace(/\\/g, "/");
       const ext = path.extname(relative).toLowerCase();
-      if (![".tex", ".bib", ".sty", ".cls"].includes(ext)) continue;
+      const textExts = [".tex", ".bib", ".sty", ".cls"];
+      const imageExts = [".png", ".jpg", ".jpeg", ".gif", ".pdf", ".svg", ".webp"];
+      if (![...textExts, ...imageExts].includes(ext)) continue;
       const destPath = path.join(workspaceDir, relative);
       await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
-      await fsPromises.writeFile(destPath, file.content, "utf8");
+      if (imageExts.includes(ext) && file.content && !file.content.includes("\n") && /^[A-Za-z0-9+/=\s]+$/.test(file.content.slice(0, 80))) {
+        await fsPromises.writeFile(destPath, Buffer.from(file.content, "base64"));
+      } else {
+        await fsPromises.writeFile(destPath, file.content, "utf8");
+      }
     }
   }
 

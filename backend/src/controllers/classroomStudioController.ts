@@ -417,8 +417,21 @@ export async function updateCurrentSlide(req: Request, res: Response, next: Next
     const instructorId = getUserId(req);
     const { slideId } = req.body;
 
+    const existing = await prisma.classroomSession.findUnique({
+      where: { id },
+      select: { activeInteractionId: true, instructorId: true },
+    });
+    if (existing?.activeInteractionId) {
+      try {
+        await pollService.closePoll(id, instructorId, existing.activeInteractionId, { asInstructor: true });
+      } catch {
+        /* not a live poll or already closed */
+      }
+    }
+
     const session = await sessionService.updateCurrentSlide(id, slideId, instructorId);
     updateSessionRuntimeState(id, { currentSlideId: slideId, activeInteractionId: null });
+    console.log(`[CLASSROOM_SLIDE] session=${id} slide=${slideId} instructor=${instructorId}`);
 
     broadcastToSessionId(id, {
       type: 'slide:change',
@@ -607,6 +620,7 @@ export async function getSessionRecoveryState(req: Request, res: Response, next:
     const userId = getUserId(req);
 
     const session = await sessionService.getSessionById(sessionId);
+    const isInstructor = session.instructorId === userId;
     const participant = await prisma.classroomParticipant.findUnique({
       where: { sessionId_userId: { sessionId, userId } },
       include: {
@@ -615,6 +629,9 @@ export async function getSessionRecoveryState(req: Request, res: Response, next:
         },
       },
     });
+    if (!isInstructor && !participant) {
+      throw new AppError(403, 'Not authorized to recover this session');
+    }
 
     const submittedInteractions: Record<string, { response: unknown; submittedAt: string }> = {};
     for (const r of participant?.responses ?? []) {
@@ -732,6 +749,15 @@ export async function getResponses(req: Request, res: Response, next: NextFuncti
   try {
     const { sessionId } = req.params;
     const { interactionId } = req.query;
+    const userId = getUserId(req);
+    const session = await prisma.classroomSession.findUnique({
+      where: { id: sessionId },
+      select: { instructorId: true },
+    });
+    if (!session) throw new AppError(404, 'Session not found');
+    if (session.instructorId !== userId) {
+      throw new AppError(403, 'Only the instructor can view raw responses');
+    }
 
     const responses = interactionId
       ? await responseService.getResponsesByInteraction(sessionId, interactionId as string)
@@ -1459,6 +1485,15 @@ export async function revealInteractionAnswer(req: Request, res: Response, next:
 export async function exportSessionCsv(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
+    const instructorId = getUserId(req);
+    const session = await prisma.classroomSession.findUnique({
+      where: { id },
+      select: { instructorId: true },
+    });
+    if (!session) throw new AppError(404, 'Session not found');
+    if (session.instructorId !== instructorId) {
+      throw new AppError(403, 'Only the instructor can export this session');
+    }
     const csvData = await analyticsService.exportSessionCSV(id);
 
     res.setHeader('Content-Type', 'text/csv');
@@ -1472,6 +1507,15 @@ export async function exportSessionCsv(req: Request, res: Response, next: NextFu
 export async function exportSessionPdf(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
+    const instructorId = getUserId(req);
+    const session = await prisma.classroomSession.findUnique({
+      where: { id },
+      select: { instructorId: true },
+    });
+    if (!session) throw new AppError(404, 'Session not found');
+    if (session.instructorId !== instructorId) {
+      throw new AppError(403, 'Only the instructor can export this session');
+    }
     const pdfBuffer = await analyticsService.generateDetailedSessionPDF(id);
 
     res.setHeader('Content-Type', 'application/pdf');

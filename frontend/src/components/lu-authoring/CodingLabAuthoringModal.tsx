@@ -196,7 +196,6 @@ export function CodingLabAuthoringModal({
                   <option value="java">Java</option>
                   <option value="c">C</option>
                   <option value="cpp">C++</option>
-                  <option value="sql">SQL</option>
                 </select>
               </div>
             </div>

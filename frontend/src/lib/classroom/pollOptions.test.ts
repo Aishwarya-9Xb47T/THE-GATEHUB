@@ -21,6 +21,15 @@ describe('pollOptions', () => {
     options = relabelPollOptions(options.filter((_, i) => i !== 1));
     expect(options.map((o) => o.label)).toEqual(['A', 'B']);
     expect(options[1]?.text).toBe('Semantic Analysis');
+    const six = relabelPollOptions([
+      createEmptyOption(0),
+      createEmptyOption(1),
+      createEmptyOption(2),
+      createEmptyOption(3),
+      createEmptyOption(4),
+      createEmptyOption(5),
+    ]);
+    expect(six.map((o) => o.label)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
     expect(MAX_POLL_OPTIONS).toBe(10);
   });
 

@@ -89,7 +89,7 @@ export const CODE_LANGUAGES = [
 ] as const;
 
 export const PRACTICE_LANGUAGES = [
-  "python", "javascript", "html", "css", "sql", "java", "c", "cpp", "csharp", "go",
+  "python", "javascript", "typescript", "java", "c", "cpp", "html", "css",
 ] as const;
 
 export const QUIZ_QUESTION_TYPES = [

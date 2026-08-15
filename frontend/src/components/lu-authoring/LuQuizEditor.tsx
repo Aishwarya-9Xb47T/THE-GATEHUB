@@ -962,7 +962,7 @@ function QuestionEditor({
               onChange={(e) => set("language", e.target.value)}
               className={`w-full rounded border px-2 py-1.5 text-sm ${fieldClass}`}
             >
-              {["python", "javascript", "typescript", "java", "c", "cpp", "go", "rust", "sql"].map((lang) => (
+              {["python", "javascript", "typescript", "java", "c", "cpp"].map((lang) => (
                 <option key={lang} value={lang}>
                   {lang}
                 </option>

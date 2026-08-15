@@ -177,5 +177,6 @@ export function useSessionRecovery({
     isInteractionSubmitted,
     recordInteractionSubmission,
     manualReconnect,
+    fetchRecoveryState,
   };
 }

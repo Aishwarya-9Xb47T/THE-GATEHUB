@@ -14,7 +14,7 @@ import { apiUrl, getWsConnectTarget } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NavigationMode = 'locked' | 'previous' | 'next' | 'free';
+export type NavigationMode = 'locked' | 'previous' | 'next' | 'free' | 'explore';
 
 export interface ChatMessage {
   id: string;
@@ -347,12 +347,21 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
 
       console.log('[StudentClassroom] Connecting WebSocket', { sessionId: sid });
       connectWebSocketRef.current(sid);
+
+      try {
+        const recoveryState = await recovery.fetchRecoveryState();
+        if (recoveryState) {
+          applyClassroomSnapshot(recoveryState, recovery);
+        }
+      } catch {
+        /* initial view still usable without recovery payload */
+      }
     } catch (error: any) {
       console.error('[StudentClassroom] Failed to fetch session:', error);
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
+  }, [sessionId, recovery, applyClassroomSnapshot]);
 
   const fetchChatHistory = async (sid: string) => {
     try {
@@ -749,8 +758,10 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     (s) => s.id === viewData?.session.currentSlideId
   ) ?? -1;
   const totalSlides = viewData?.presentation.slides.length ?? 0;
-  const canGoPrev = navigation !== 'locked' && currentIndex > 0;
-  const canGoNext = navigation !== 'locked' && currentIndex < totalSlides - 1;
+  const canGoPrev =
+    (navigation === 'free' || navigation === 'previous' || navigation === 'explore') && currentIndex > 0;
+  const canGoNext =
+    (navigation === 'free' || navigation === 'next' || navigation === 'explore') && currentIndex < totalSlides - 1;
   const isCurrentSlideBookmarked = currentSlideId ? bookmarks.includes(currentSlideId) : false;
 
   return {

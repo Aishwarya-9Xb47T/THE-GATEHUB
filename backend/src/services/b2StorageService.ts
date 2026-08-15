@@ -38,7 +38,7 @@ export const B2_PREFIXES = [
 
 export type B2Prefix = (typeof B2_PREFIXES)[number];
 
-const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".ogv", ".ogg"]);
 const SIGNED_URL_TTL_SECONDS = 10 * 60;
 const MULTIPART_THRESHOLD_BYTES = 8 * 1024 * 1024;
 
@@ -141,6 +141,13 @@ export function b2KeyFromPublicPath(stored: string): string | null {
   return `uploads/${relative.slice(idx + marker.length).replace(/^\/+/, "").split("?")[0]}`;
 }
 
+/** Persist relative /uploads/... paths in Neon — never localhost or signed URLs. */
+export function toRelativeUploadPath(stored: string): string {
+  const key = b2KeyFromPublicPath(stored);
+  if (key) return publicPathFromKey(key);
+  return stored.replace(/\?.*$/, "");
+}
+
 export function isVideoPublicPath(stored: string): boolean {
   const key = b2KeyFromPublicPath(stored) || stored;
   const ext = path.extname(key.split("?")[0]).toLowerCase();
@@ -156,7 +163,7 @@ export async function uploadFile(params: {
   const bucket = requireBucket();
   const contentType = params.contentType || detectContentType(params.key);
   const body = createReadStream(params.filePath);
-  console.log("[B2] Upload started:", params.key);
+  console.log("[MEDIA_B2] upload_start key=" + params.key);
   try {
     const upload = new Upload({
       client,
@@ -171,9 +178,9 @@ export async function uploadFile(params: {
       leavePartsOnError: false,
     });
     await upload.done();
-    console.log("[B2] Upload completed:", params.key);
+    console.log("[MEDIA_B2] upload_complete key=" + params.key);
   } catch (err) {
-    console.error("[B2] Upload failed:", params.key, err instanceof Error ? err.message : "unknown error");
+    console.error("[MEDIA_B2] upload_failed key=" + params.key + " message=" + (err instanceof Error ? err.message : "unknown"));
     throw err;
   }
 }
@@ -185,7 +192,7 @@ export async function uploadStream(params: {
 }): Promise<void> {
   const client = getClient();
   const bucket = requireBucket();
-  console.log("[B2] Upload started:", params.key);
+  console.log("[MEDIA_B2] upload_start key=" + params.key);
   try {
     const upload = new Upload({
       client,
@@ -200,9 +207,9 @@ export async function uploadStream(params: {
       leavePartsOnError: false,
     });
     await upload.done();
-    console.log("[B2] Upload completed:", params.key);
+    console.log("[MEDIA_B2] upload_complete key=" + params.key);
   } catch (err) {
-    console.error("[B2] Upload failed:", params.key, err instanceof Error ? err.message : "unknown error");
+    console.error("[MEDIA_B2] upload_failed key=" + params.key + " message=" + (err instanceof Error ? err.message : "unknown"));
     throw err;
   }
 }

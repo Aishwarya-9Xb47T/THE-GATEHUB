@@ -13,6 +13,11 @@ const VIDEO_MIME: Record<string, string> = {
   ".avi": "video/x-msvideo",
 };
 
+export type InspectedByteRange =
+  | { type: "none" }
+  | { type: "unsatisfiable" }
+  | { type: "valid"; start: number; end: number };
+
 export function mimeFromUploadPath(filePath: string, fallback = "application/octet-stream"): string {
   const ext = path.extname(filePath.split("?")[0]).toLowerCase();
   if (VIDEO_MIME[ext]) return VIDEO_MIME[ext];
@@ -23,17 +28,42 @@ export function isVideoUploadPath(filePath: string): boolean {
   return VIDEO_EXT.has(path.extname(filePath.split("?")[0]).toLowerCase());
 }
 
+/** RFC 7233 byte-range inspection. Unsatisfiable ranges must yield HTTP 416, not 200. */
+export function inspectByteRange(
+  rangeHeader: string | undefined,
+  fileSize: number
+): InspectedByteRange {
+  if (!rangeHeader?.trim()) return { type: "none" };
+  if (fileSize <= 0) return { type: "unsatisfiable" };
+  const match = rangeHeader.trim().match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match) return { type: "unsatisfiable" };
+
+  const hasStart = match[1] !== "";
+  const hasEnd = match[2] !== "";
+  if (!hasStart && !hasEnd) return { type: "unsatisfiable" };
+
+  let start: number;
+  let end: number;
+  if (!hasStart && hasEnd) {
+    const suffix = parseInt(match[2], 10);
+    if (!Number.isFinite(suffix) || suffix <= 0) return { type: "unsatisfiable" };
+    start = Math.max(0, fileSize - suffix);
+    end = fileSize - 1;
+  } else {
+    start = parseInt(match[1], 10);
+    end = hasEnd ? parseInt(match[2], 10) : fileSize - 1;
+  }
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || start >= fileSize) {
+    return { type: "unsatisfiable" };
+  }
+  return { type: "valid", start, end: Math.min(end, fileSize - 1) };
+}
+
 export function parseByteRange(
   rangeHeader: string | undefined,
   fileSize: number
 ): { start: number; end: number } | null {
-  if (!rangeHeader || fileSize <= 0) return null;
-  const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
-  if (!match) return null;
-  const start = match[1] ? parseInt(match[1], 10) : 0;
-  const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || start >= fileSize) {
-    return null;
-  }
-  return { start, end: Math.min(end, fileSize - 1) };
+  const inspected = inspectByteRange(rangeHeader, fileSize);
+  return inspected.type === "valid" ? { start: inspected.start, end: inspected.end } : null;
 }

@@ -24,6 +24,21 @@ fi
 echo "[entrypoint] $(pdflatex --version | head -n 1)"
 echo "[entrypoint] pdflatex=$(command -v pdflatex)"
 
+for bin in python3 node gcc g++ java javac; do
+  if ! command -v "$bin" >/dev/null 2>&1; then
+    echo "[entrypoint] FATAL: $bin is not on PATH in the runtime image"
+    echo "[entrypoint] PATH=${PATH}"
+    exit 1
+  fi
+  echo "[entrypoint] $bin=$(command -v $bin)"
+done
+python3 --version | head -n 1 | sed 's/^/[entrypoint] /'
+node --version | sed 's/^/[entrypoint] node /'
+gcc --version | head -n 1 | sed 's/^/[entrypoint] /'
+g++ --version | head -n 1 | sed 's/^/[entrypoint] /'
+java -version 2>&1 | head -n 1 | sed 's/^/[entrypoint] /'
+javac -version 2>&1 | sed 's/^/[entrypoint] /'
+
 echo "[entrypoint] Applying Prisma migrations (prisma migrate deploy)..."
 npx prisma migrate deploy
 

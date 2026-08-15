@@ -67,3 +67,13 @@ describe("resolveVideoSource published uploads", () => {
     expect(fromLocal?.url).not.toContain("/uploads/projects/");
   });
 });
+
+describe("inferUploadVideoMime", () => {
+  it("matches backend MIME for uploaded formats", async () => {
+    const { inferUploadVideoMime } = await import("./videoUtils");
+    expect(inferUploadVideoMime("/uploads/a.mp4")).toBe("video/mp4");
+    expect(inferUploadVideoMime("/uploads/a.m4v")).toBe("video/mp4");
+    expect(inferUploadVideoMime("/uploads/a.webm")).toBe("video/webm");
+    expect(inferUploadVideoMime("/uploads/a.ogg")).toBe("video/ogg");
+  });
+});

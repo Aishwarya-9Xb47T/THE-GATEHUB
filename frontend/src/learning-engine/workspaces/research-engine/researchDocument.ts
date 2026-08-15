@@ -3,6 +3,21 @@ import type { ProjectFile, ResearchDocument } from "./types";
 import { createFile } from "./types";
 import { sanitizeAiPayloadToLatex } from "@/lib/latex/latexSanitizer";
 import { validateAndRepairLatex } from "@/lib/latex/latexValidator";
+import { rewritePersistedMediaHost } from "@/lib/courseMediaUrls";
+
+function normalizeCompilePdfUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const rewritten = rewritePersistedMediaHost(url);
+  try {
+    const parsed = new URL(rewritten, "https://placeholder.local");
+    if (parsed.pathname.startsWith("/uploads/latex/pdfs/")) {
+      return parsed.pathname;
+    }
+  } catch {
+    /* keep */
+  }
+  return rewritten;
+}
 
 function migrateLegacyFile(raw: Record<string, unknown>): ProjectFile {
   const name = String(raw.name ?? "untitled.tex");
@@ -49,6 +64,10 @@ ${sanitized.abstract}
 
 ${sanitized.body || `\\section{Introduction}\nWrite your introduction here.\n`}
 
+\\section{References}
+\\bibliographystyle{plain}
+\\bibliography{references}
+
 \\end{document}
 `;
 
@@ -94,6 +113,11 @@ export function hydrateResearchDocument(
           .filter((f) => f.fileId === activeFileId || f.name === "main.tex")
           .map((f) => ({ fileId: f.fileId, pinned: f.name === "main.tex" }));
 
+  const rawCompile = (saved.lastCompile as ResearchDocument["lastCompile"]) ?? null;
+  const lastCompile = rawCompile
+    ? { ...rawCompile, pdfUrl: normalizeCompilePdfUrl(rawCompile.pdfUrl) }
+    : null;
+
   return {
     version: 2,
     projectId,
@@ -102,7 +126,7 @@ export function hydrateResearchDocument(
     openTabs,
     activeFileId,
     mainFileId: mainFile.fileId,
-    lastCompile: (saved.lastCompile as ResearchDocument["lastCompile"]) ?? null,
+    lastCompile,
     updatedAt: String(saved.updatedAt ?? new Date().toISOString()),
   };
 }

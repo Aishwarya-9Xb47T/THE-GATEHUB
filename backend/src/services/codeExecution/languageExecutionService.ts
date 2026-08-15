@@ -4,16 +4,8 @@
  * Provides separate actions: Run, Compile, Debug, Test, Submit.
  * Returns detailed output: stdin, stdout, stderr, diagnostics, stack traces, timing, memory.
  */
-import { spawn, exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs/promises';
-import os from 'os';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import type { LanguageExecutionConfig } from '../aiCourseArchitect/schemas/lessonBlockSchemas.js';
 import type { WorkspaceExecutionResult } from '../aiCourseArchitect/schemas/interactiveWorkspaceFramework.js';
-
-const execAsync = promisify(exec);
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -510,68 +502,14 @@ async function executeCompile(
   config: LanguageExecutionConfig,
   startTime: number
 ): Promise<WorkspaceExecutionResult> {
-  if (!config.compileCommand) {
+  if (!config.compileCommand && !["c", "cpp", "java"].includes((config.language || "").toLowerCase())) {
     return createErrorResult(
       new Error(`Language ${config.language} does not support compilation`),
       request,
       startTime
     );
   }
-  
-  const executionId = uuidv4();
-  const tempDir = os.tmpdir();
-  const ext = config.sourceExtensions[0] || '.txt';
-  const tempFile = path.join(tempDir, `compile_${executionId}${ext}`);
-  
-  try {
-    await fs.writeFile(tempFile, request.code);
-    
-    const compileCmd = config.compileCommand;
-    const compileArgs = [
-      ...config.compileFlags || [],
-      tempFile,
-      ...(config.linkFlags || []),
-    ];
-    
-    const { stdout, stderr } = await execAsync(`${compileCmd} ${compileArgs.join(' ')}`, {
-      timeout: request.timeLimit || 10000,
-    });
-    
-    return {
-      success: true,
-      exitCode: 0,
-      executionTimeMs: Date.now() - startTime,
-      memoryUsageMb: 0,
-      stdout,
-      stderr,
-      diagnostics: parseDiagnostics(stderr, config.language),
-      timestamp: new Date(),
-      workspaceId: 'temp',
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      exitCode: error.code || 1,
-      executionTimeMs: Date.now() - startTime,
-      memoryUsageMb: 0,
-      stdout: error.stdout || '',
-      stderr: error.stderr || error.message,
-      diagnostics: parseDiagnostics(error.stderr || error.message, config.language),
-      errors: [{
-        type: 'compilation',
-        message: error.message,
-        recoverable: false,
-      }],
-      timestamp: new Date(),
-      workspaceId: 'temp',
-    };
-  } finally {
-    try {
-      await fs.unlink(tempFile);
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
+  return executeRun(request, config, startTime);
 }
 
 async function executeRun(

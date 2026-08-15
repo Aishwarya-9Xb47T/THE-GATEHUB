@@ -18,13 +18,58 @@ import {
 } from "../services/b2StorageService.js";
 import { getUploadRoot, resolveSafeUploadPath } from "./uploadAccess.js";
 import {
+  inspectByteRange,
   isVideoUploadPath,
   mimeFromUploadPath as mimeFromExt,
-  parseByteRange,
 } from "../utils/uploadMedia.js";
 
 export type { B2Prefix };
-export { isVideoUploadPath, parseByteRange };
+export { isVideoUploadPath };
+
+function allowedMediaOrigins(): string[] {
+  const isProduction = process.env.NODE_ENV === "production";
+  return [
+    ...(isProduction ? [] : ["http://localhost:5173", "http://localhost:5174"]),
+    process.env.CLIENT_URL,
+    process.env.FRONTEND_URL,
+  ]
+    .filter(Boolean)
+    .map((o) => String(o).replace(/\/$/, ""));
+}
+
+export function applyUploadCorsHeaders(res: Response, originHeader?: string): void {
+  const origin = originHeader?.replace(/\/$/, "");
+  const allowed = allowedMediaOrigins();
+  const isDevLocal = process.env.NODE_ENV !== "production" && origin && /^http:\/\/localhost:\d+$/.test(origin);
+  if (origin && (allowed.includes(origin) || isDevLocal)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  } else if (process.env.CLIENT_URL) {
+    res.setHeader("Access-Control-Allow-Origin", String(process.env.CLIENT_URL).replace(/\/$/, ""));
+  }
+  res.setHeader(
+    "Access-Control-Expose-Headers",
+    "Accept-Ranges, Content-Range, Content-Length, Content-Type"
+  );
+}
+
+function mediaLog(
+  tag: "MEDIA_RESOLVE" | "MEDIA_STREAM" | "MEDIA_RANGE" | "MEDIA_B2",
+  fields: Record<string, string | number | boolean | undefined>
+): void {
+  const parts = Object.entries(fields)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${v}`);
+  console.log(`[${tag}] ${parts.join(" ")}`);
+}
+
+function sendUnsatisfiableRange(res: Response, fileSize: number): void {
+  mediaLog("MEDIA_RANGE", { status: 416, size: fileSize });
+  res.status(416);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Range", `bytes */${fileSize}`);
+  res.end();
+}
 
 export function mimeFromUploadPath(filePath: string, fallback?: string): string {
   const fromExt = mimeFromExt(filePath, "");
@@ -193,31 +238,64 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
 export function streamLocalUpload(
   res: Response,
   filePath: string,
-  options?: { range?: string; method?: string; mimeType?: string }
+  options?: { range?: string; method?: string; mimeType?: string; origin?: string }
 ): boolean {
   if (!fs.existsSync(filePath)) return false;
   const stat = fs.statSync(filePath);
   const mime = options?.mimeType || mimeFromUploadPath(filePath);
-  const range = parseByteRange(options?.range, stat.size);
-  const tag = isVideoUploadPath(filePath) ? "VIDEO_STREAM" : "ASSET_RESOLVE";
+  const inspected = inspectByteRange(options?.range, stat.size);
+  applyUploadCorsHeaders(res, options?.origin);
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", mime);
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
-  if (range) {
-    const chunkSize = range.end - range.start + 1;
-    console.log(`[${tag}] path=${path.basename(filePath)} mime=${mime} range=${options?.range} status=206`);
+
+  mediaLog("MEDIA_RESOLVE", {
+    path: path.basename(filePath),
+    mime,
+    range: options?.range || "none",
+    source: "local",
+  });
+
+  if (inspected.type === "unsatisfiable") {
+    sendUnsatisfiableRange(res, stat.size);
+    return true;
+  }
+
+  if (inspected.type === "valid") {
+    const chunkSize = inspected.end - inspected.start + 1;
+    mediaLog("MEDIA_RANGE", {
+      path: path.basename(filePath),
+      mime,
+      range: options?.range,
+      status: 206,
+      length: chunkSize,
+    });
+    mediaLog("MEDIA_STREAM", {
+      path: path.basename(filePath),
+      mime,
+      status: 206,
+      source: "local",
+    });
     res.status(206);
-    res.setHeader("Content-Range", `bytes ${range.start}-${range.end}/${stat.size}`);
+    res.setHeader("Content-Range", `bytes ${inspected.start}-${inspected.end}/${stat.size}`);
     res.setHeader("Content-Length", String(chunkSize));
     if (options?.method === "HEAD") {
       res.end();
       return true;
     }
-    fs.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+    fs.createReadStream(filePath, { start: inspected.start, end: inspected.end }).pipe(res);
     return true;
   }
-  console.log(`[${tag}] path=${path.basename(filePath)} mime=${mime} range=none status=200`);
+
+  mediaLog("MEDIA_STREAM", {
+    path: path.basename(filePath),
+    mime,
+    range: "none",
+    status: 200,
+    length: stat.size,
+    source: "local",
+  });
   res.status(200);
   res.setHeader("Content-Length", String(stat.size));
   if (options?.method === "HEAD") {
@@ -231,53 +309,102 @@ export function streamLocalUpload(
 export async function serveStoredUpload(
   res: Response,
   relativePath: string,
-  options?: { range?: string; asVideo?: boolean; method?: string }
+  options?: { range?: string; asVideo?: boolean; method?: string; origin?: string }
 ): Promise<boolean> {
   const local = resolveSafeUploadPath(relativePath);
   if (local && fs.existsSync(local)) {
     return streamLocalUpload(res, local, {
       range: options?.range,
       method: options?.method,
+      origin: options?.origin,
     });
   }
 
   if (!isB2Configured()) return false;
   const key = `uploads/${relativePath.replace(/^\/+/, "")}`;
   const meta = await headObject(key);
-  if (!meta) return false;
+  if (!meta) {
+    mediaLog("MEDIA_B2", { key, found: 0 });
+    return false;
+  }
 
-  const mime = meta.contentType && meta.contentType !== "application/octet-stream"
-    ? meta.contentType
-    : mimeFromUploadPath(key, meta.contentType);
-  const tag = options?.asVideo || isVideoUploadPath(key) ? "VIDEO_STREAM" : "ASSET_RESOLVE";
+  const size = meta.contentLength ?? 0;
+  const mime =
+    meta.contentType && meta.contentType !== "application/octet-stream"
+      ? meta.contentType
+      : mimeFromUploadPath(key, meta.contentType);
+  const inspected = inspectByteRange(options?.range, size);
+  applyUploadCorsHeaders(res, options?.origin);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Type", mime);
+  if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
+
+  mediaLog("MEDIA_RESOLVE", {
+    path: relativePath,
+    key,
+    mime,
+    range: options?.range || "none",
+    source: "b2",
+  });
+  mediaLog("MEDIA_B2", { key, mime, size, found: 1 });
+
+  if (inspected.type === "unsatisfiable") {
+    sendUnsatisfiableRange(res, size);
+    return true;
+  }
+
+  const b2Range =
+    inspected.type === "valid" ? `bytes=${inspected.start}-${inspected.end}` : undefined;
 
   if (options?.method === "HEAD") {
-    console.log(`[${tag}] key=${key} mime=${mime} range=${options?.range || "none"} status=200 head=1`);
-    res.status(200);
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Content-Type", mime);
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
-    if (meta.contentLength != null) res.setHeader("Content-Length", String(meta.contentLength));
+    if (inspected.type === "valid") {
+      const chunkSize = inspected.end - inspected.start + 1;
+      mediaLog("MEDIA_RANGE", { key, mime, range: options?.range, status: 206, head: 1 });
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${inspected.start}-${inspected.end}/${size}`);
+      res.setHeader("Content-Length", String(chunkSize));
+    } else {
+      mediaLog("MEDIA_STREAM", { key, mime, range: "none", status: 200, head: 1 });
+      res.status(200);
+      if (size) res.setHeader("Content-Length", String(size));
+    }
     res.end();
     return true;
   }
 
-  const streamed = await getObjectStream(key, options?.range);
-  const status = streamed.status;
-  const contentType = streamed.contentType && streamed.contentType !== "application/octet-stream"
-    ? streamed.contentType
-    : mime;
-  console.log(`[${tag}] key=${key} mime=${contentType} range=${options?.range || "none"} status=${status}`);
+  const streamed = await getObjectStream(key, b2Range);
+  const status = streamed.status || (b2Range ? 206 : 200);
+  const contentType =
+    streamed.contentType && streamed.contentType !== "application/octet-stream"
+      ? streamed.contentType
+      : mime;
+  if (b2Range) {
+    mediaLog("MEDIA_RANGE", {
+      key,
+      mime: contentType,
+      range: b2Range,
+      status,
+      length: streamed.contentLength,
+    });
+  }
+  mediaLog("MEDIA_STREAM", {
+    key,
+    mime: contentType,
+    range: b2Range || "none",
+    status,
+    length: streamed.contentLength,
+    source: "b2",
+  });
   res.status(status);
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", contentType);
   if (contentType === "application/pdf") res.removeHeader("X-Frame-Options");
   if (streamed.contentLength != null) res.setHeader("Content-Length", String(streamed.contentLength));
   if (streamed.contentRange) res.setHeader("Content-Range", streamed.contentRange);
   streamed.body.on("error", (err) => {
-    console.error(`[${tag}] stream_error key=${key} message=${err instanceof Error ? err.message : "unknown"}`);
+    console.error(
+      `[MEDIA_STREAM] stream_error key=${key} message=${err instanceof Error ? err.message : "unknown"}`
+    );
     if (!res.headersSent) res.status(502).end();
     else res.destroy();
   });

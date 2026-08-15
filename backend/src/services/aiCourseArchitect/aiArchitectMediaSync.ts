@@ -14,6 +14,7 @@ import {
   isProjectVideoAsset,
   resolveProjectAssetRef,
 } from "../luProject/luProjectAssetResolver.js";
+import { mimeFromUploadPath } from "../../utils/uploadMedia.js";
 
 const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 const ASSETS_DIR = path.join(UPLOAD_DIR, "learning-universes");
@@ -24,6 +25,11 @@ function physicalFilenameFromS3Url(s3Url: string): string {
   } catch {
     return path.basename(s3Url.split("?")[0].replace(/\\/g, "/"));
   }
+}
+
+async function resolveStoredUploadPath(stored: string): Promise<string | null> {
+  const { hydrateLocalUpload } = await import("../../middlewares/persistUpload.js");
+  return hydrateLocalUpload(stored);
 }
 
 async function resolveProjectAssetPathFromFiles(
@@ -37,8 +43,7 @@ async function resolveProjectAssetPathFromFiles(
   const physical = physicalFilenameFromS3Url(hit.s3Url);
   const p = path.join(UPLOAD_DIR, "projects", projectId, physical);
   if (fs.existsSync(p)) return p;
-  const { hydrateLocalUpload } = await import("../../middlewares/persistUpload.js");
-  return hydrateLocalUpload(hit.s3Url);
+  return resolveStoredUploadPath(hit.s3Url);
 }
 
 /** Copy all image assets from a LaTeX project into universe storage (publish safety net). */
@@ -62,13 +67,13 @@ export async function syncAllProjectImagesToUniverse(
     if (!basename || seen.has(basename.toLowerCase())) continue;
     seen.add(basename.toLowerCase());
 
-    const srcPath = path.join(
-      UPLOAD_DIR,
-      "projects",
-      projectId,
-      physicalFilenameFromS3Url(file.s3Url)
-    );
-    if (!fs.existsSync(srcPath)) continue;
+    const srcPath =
+      (fs.existsSync(
+        path.join(UPLOAD_DIR, "projects", projectId, physicalFilenameFromS3Url(file.s3Url))
+      )
+        ? path.join(UPLOAD_DIR, "projects", projectId, physicalFilenameFromS3Url(file.s3Url))
+        : null) || (await resolveStoredUploadPath(file.s3Url));
+    if (!srcPath || !fs.existsSync(srcPath)) continue;
 
     const existing = await prisma.learningUniverseAsset.findFirst({
       where: { learningUniverseId: universeId, filename: basename },
@@ -87,7 +92,7 @@ export async function syncAllProjectImagesToUniverse(
       data: {
         filename: basename,
         storedFilename,
-        mimeType: `image/${ext.replace(".", "") || "png"}`,
+        mimeType: mimeFromUploadPath(basename, `image/${ext.replace(".", "") || "png"}`),
         size: statSize,
         learningUniverseId: universeId,
       },
@@ -116,13 +121,13 @@ export async function syncAllProjectVideosToUniverse(
     if (!basename || seen.has(basename.toLowerCase())) continue;
     seen.add(basename.toLowerCase());
 
-    const srcPath = path.join(
-      UPLOAD_DIR,
-      "projects",
-      projectId,
-      physicalFilenameFromS3Url(file.s3Url)
-    );
-    if (!fs.existsSync(srcPath)) continue;
+    const srcPath =
+      (fs.existsSync(
+        path.join(UPLOAD_DIR, "projects", projectId, physicalFilenameFromS3Url(file.s3Url))
+      )
+        ? path.join(UPLOAD_DIR, "projects", projectId, physicalFilenameFromS3Url(file.s3Url))
+        : null) || (await resolveStoredUploadPath(file.s3Url));
+    if (!srcPath || !fs.existsSync(srcPath)) continue;
 
     const existing = await prisma.learningUniverseAsset.findFirst({
       where: { learningUniverseId: universeId, filename: basename },
@@ -141,7 +146,7 @@ export async function syncAllProjectVideosToUniverse(
       data: {
         filename: basename,
         storedFilename,
-        mimeType: `video/${ext.replace(".", "") || "mp4"}`,
+        mimeType: mimeFromUploadPath(basename, `video/${ext.replace(".", "") || "mp4"}`),
         size: statSize,
         learningUniverseId: universeId,
       },
@@ -152,7 +157,7 @@ export async function syncAllProjectVideosToUniverse(
   return synced;
 }
 
-function resolveUploadSourcePath(ref: string): string | null {
+async function resolveUploadSourcePath(ref: string): Promise<string | null> {
   const trimmed = ref.trim();
   if (!trimmed) return null;
 
@@ -185,7 +190,10 @@ function resolveUploadSourcePath(ref: string): string | null {
     if (fs.existsSync(p)) return p;
   }
 
-  return null;
+  if (trimmed.includes("/uploads/") || trimmed.startsWith("uploads/")) {
+    return resolveStoredUploadPath(trimmed);
+  }
+  return resolveStoredUploadPath(`/uploads/${basename}`);
 }
 
 /** Register uploaded video files as LearningUniverseAsset records. */
@@ -214,7 +222,7 @@ export async function syncArchitectMediaAssets(
     });
     if (existing) continue;
 
-    const srcPath = resolveUploadSourcePath(mapping.file || mapping.url || basename);
+    const srcPath = await resolveUploadSourcePath(mapping.file || mapping.url || basename);
     if (!srcPath) {
       console.warn(`[AI Architect] Video file not found for asset sync: ${basename}`);
       continue;
@@ -223,17 +231,17 @@ export async function syncArchitectMediaAssets(
     const ext = path.extname(basename) || path.extname(srcPath) || ".mp4";
     const storedFilename = `${randomUUID()}${ext}`;
     const destPath = path.join(universeAssetsDir, storedFilename);
+    const size = fs.statSync(srcPath).size;
     fs.copyFileSync(srcPath, destPath);
     const { persistAtPublicRelative } = await import("../../middlewares/persistUpload.js");
     await persistAtPublicRelative(destPath, `learning-universes/${universeId}/${storedFilename}`);
 
-    const stat = fs.existsSync(destPath) ? fs.statSync(destPath) : fs.statSync(srcPath);
     await prisma.learningUniverseAsset.create({
       data: {
         filename: basename,
         storedFilename,
-        mimeType: mapping.type === "upload" ? "video/mp4" : "application/octet-stream",
-        size: stat.size,
+        mimeType: mimeFromUploadPath(basename, "video/mp4"),
+        size,
         learningUniverseId: universeId,
       },
     });
@@ -289,8 +297,8 @@ export async function ensureUniverseMediaFromReferences(
     if (existing) continue;
 
     const srcPath =
-      resolveUploadSourcePath(ref.filename) ??
-      resolveUploadSourcePath(basename) ??
+      (await resolveUploadSourcePath(ref.filename)) ??
+      (await resolveUploadSourcePath(basename)) ??
       (sourceProjectId
         ? await resolveProjectAssetPathFromFiles(sourceProjectId, ref.filename, projectFiles)
         : null);
@@ -298,15 +306,18 @@ export async function ensureUniverseMediaFromReferences(
 
     const ext = path.extname(basename) || path.extname(srcPath) || ".png";
     const storedFilename = `${randomUUID()}${ext}`;
-    fs.copyFileSync(srcPath, path.join(universeAssetsDir, storedFilename));
-    const stat = fs.statSync(path.join(universeAssetsDir, storedFilename));
+    const destPath = path.join(universeAssetsDir, storedFilename);
+    const size = fs.statSync(srcPath).size;
+    fs.copyFileSync(srcPath, destPath);
+    const { persistAtPublicRelative } = await import("../../middlewares/persistUpload.js");
+    await persistAtPublicRelative(destPath, `learning-universes/${universeId}/${storedFilename}`);
 
     await prisma.learningUniverseAsset.create({
       data: {
         filename: basename,
         storedFilename,
-        mimeType: "image/png",
-        size: stat.size,
+        mimeType: mimeFromUploadPath(basename, "image/png"),
+        size,
         learningUniverseId: universeId,
       },
     });

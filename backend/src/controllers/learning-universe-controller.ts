@@ -549,8 +549,6 @@ async function linkUniverseAssetsToProject(
   const projectDir = path.join(PROJECTS_DIR, projectId);
   if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true });
 
-  const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
-
   for (const asset of universe.assets) {
     const sourcePath = path.join(ASSETS_DIR, universeId, asset.storedFilename);
     let resolvedSource = sourcePath;
@@ -571,7 +569,7 @@ async function linkUniverseAssetsToProject(
       destPath,
       `projects/${projectId}/${storedProjectFilename}`
     );
-    const s3Url = publicPath.startsWith("http") ? publicPath : `${baseUrl}${publicPath}`;
+    const s3Url = publicPath.startsWith("/") ? publicPath : `/${publicPath}`;
 
     await prisma.latexFile.create({
       data: {

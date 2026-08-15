@@ -11,7 +11,10 @@ export function inferUploadVideoMime(url: string): string {
     case "mkv":
       return "video/x-matroska";
     case "m4v":
-      return "video/x-m4v";
+      return "video/mp4";
+    case "ogv":
+    case "ogg":
+      return "video/ogg";
     default:
       return "video/mp4";
   }

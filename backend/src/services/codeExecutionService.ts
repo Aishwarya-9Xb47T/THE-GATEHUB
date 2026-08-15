@@ -140,7 +140,6 @@ export async function executeCodingLabSuite(options: {
   console.log("[CODING LAB EXECUTION] CODE LENGTH:", code.length);
   console.log("[CODING LAB EXECUTION] CODE LINES:", code.split("\n").length);
   console.log("[CODING LAB EXECUTION] RAW CODE HASH:", computeHash(code));
-  console.log("[CODING LAB EXECUTION] RAW CODE:", code);
   console.log("[CODING LAB EXECUTION] TEST CASES COUNT:", testCases.length);
   console.log("[CODING LAB EXECUTION] TIMEOUT:", timeoutMs);
 

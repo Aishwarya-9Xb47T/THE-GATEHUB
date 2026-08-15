@@ -419,8 +419,11 @@ export async function updateCurrentSlide(
     where: { id: sessionId },
     data: {
       currentSlideId: slideId,
+      activeInteractionId: null,
     },
   });
+
+  console.log(`[CLASSROOM_SLIDE] session=${sessionId} slide=${slideId} previousActive=${session.activeInteractionId || "none"}`);
 
   return updated as any;
 }

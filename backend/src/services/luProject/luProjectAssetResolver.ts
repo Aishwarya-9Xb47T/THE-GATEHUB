@@ -152,10 +152,6 @@ function physicalFilenameFromS3Url(s3Url: string): string {
   }
 }
 
-function apiBaseUrl(): string {
-  return process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
-}
-
 /**
  * Public HTTP URL for a project asset ref — same DB + s3Url resolution as PDF compile (prepareProjectAssets).
  */
@@ -166,11 +162,23 @@ export function resolveProjectAssetPublicUrl(
 ): string {
   const hit = resolveProjectAssetRef(ref, files);
   if (!hit?.s3Url) return "";
-  if (hit.s3Url.startsWith("http://") || hit.s3Url.startsWith("https://")) {
-    return hit.s3Url;
+  const stored = hit.s3Url;
+  if (stored.startsWith("http://") || stored.startsWith("https://")) {
+    try {
+      const parsed = new URL(stored);
+      const host = parsed.hostname;
+      if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") {
+        const relative = parsed.pathname;
+        const base = process.env.API_URL?.replace(/\/$/, "");
+        return base ? `${base}${relative}` : relative;
+      }
+    } catch {
+      /* keep */
+    }
+    return stored;
   }
-  const base = apiBaseUrl();
-  return hit.s3Url.startsWith("/") ? `${base}${hit.s3Url}` : `${base}/${hit.s3Url}`;
+  const base = process.env.API_URL?.replace(/\/$/, "") || "";
+  return stored.startsWith("/") ? `${base}${stored}` : `${base}/${stored}`;
 }
 
 export function resolveProjectAssetPhysicalPath(

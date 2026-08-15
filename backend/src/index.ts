@@ -74,7 +74,8 @@ import {
   requireUploadAccess,
   resolveSafeUploadPath,
 } from "./middlewares/uploadAccess.js";
-import { serveStoredUpload, streamLocalUpload } from "./middlewares/persistUpload.js";
+import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload } from "./middlewares/persistUpload.js";
+import { isVideoUploadPath } from "./utils/uploadMedia.js";
 import { pingB2Storage } from "./services/b2StorageService.js";
 
 registerBuiltinQuestionPlugins();
@@ -189,8 +190,8 @@ async function serveCompiledLatexPdf(req: Request, res: Response) {
       "Content-Length": stat.size,
       "Cache-Control": "no-store, no-cache, must-revalidate",
       Pragma: "no-cache",
-      "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
     });
+    applyUploadCorsHeaders(res, typeof req.headers.origin === "string" ? req.headers.origin : undefined);
     res.removeHeader("X-Frame-Options");
 
     if (req.method === "HEAD") {
@@ -200,7 +201,10 @@ async function serveCompiledLatexPdf(req: Request, res: Response) {
     return fs.createReadStream(filePath).pipe(res);
   }
 
-  const served = await serveStoredUpload(res, `latex/pdfs/${filename}`);
+  const served = await serveStoredUpload(res, `latex/pdfs/${filename}`, {
+    method: req.method,
+    origin: typeof req.headers.origin === "string" ? req.headers.origin : undefined,
+  });
   if (served) return;
   return res.status(404).json({ success: false, error: "PDF not found" });
 }
@@ -224,16 +228,56 @@ async function serveProjectUpload(req: Request, res: Response) {
     return res.status(400).json({ success: false, error: "Invalid path" });
   }
   const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
   if (fs.existsSync(filePath)) {
-    return streamLocalUpload(res, filePath, { range, method: req.method });
+    return streamLocalUpload(res, filePath, { range, method: req.method, origin });
   }
-  const served = await serveStoredUpload(res, relative, { range, method: req.method, asVideo: true });
+  const served = await serveStoredUpload(res, relative, {
+    range,
+    method: req.method,
+    origin,
+    asVideo: isVideoUploadPath(relative),
+  });
   if (served) return;
   return res.status(404).json({ success: false, error: "File not found" });
 }
 
+async function serveAnyUpload(req: Request, res: Response, next: () => void) {
+  const relativePath = String((req.params as Record<string, string>)[0] || req.path.replace(/^\/+/, ""));
+  const filePath = resolveSafeUploadPath(relativePath);
+  if (!filePath) {
+    return res.status(400).json({ success: false, error: "Invalid path" });
+  }
+  const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  console.log(
+    `[MEDIA_RESOLVE] path=${relativePath} method=${req.method} range=${range || "none"} video=${isVideoUploadPath(relativePath) ? 1 : 0}`
+  );
+
+  if (fs.existsSync(filePath)) {
+    return streamLocalUpload(res, filePath, { range, method: req.method, origin });
+  }
+
+  const streamed = await serveStoredUpload(res, relativePath, {
+    asVideo: isVideoUploadPath(relativePath),
+    range,
+    method: req.method,
+    origin,
+  });
+  if (streamed) return;
+  if (isVideoUploadPath(relativePath)) {
+    return res.status(404).json({ success: false, error: "Video not found" });
+  }
+  return next();
+}
+
 app.head("/uploads/projects/:projectId/:filename", serveProjectUpload);
 app.get("/uploads/projects/:projectId/:filename", serveProjectUpload);
+
+// Stream local + B2 objects (GET/HEAD/Range) BEFORE express.static so published
+// media is never served as a stale empty stub and never redirected to a signed URL.
+app.head("/uploads/*", requireUploadAccess as any, serveAnyUpload);
+app.get("/uploads/*", requireUploadAccess as any, serveAnyUpload);
 
 app.use("/uploads", express.static(getUploadRoot(), {
   setHeaders(res, filePath) {
@@ -294,56 +338,6 @@ app.use("/api/learning-platforms", learningPlatformsRouter);
 app.use("/api/classroom-studio", classroomStudioRouter);
 app.use("/api/multimodal-knowledge", multimodalKnowledgeRouter);
 app.use("/api/antigravity-v2", antigravityV2Router);
-
-// Authenticated range streaming for uploaded videos (local) or signed B2 redirect
-app.get("/uploads/*", requireUploadAccess as any, async (req, res, next) => {
-  const relativePath = String((req.params as Record<string, string>)[0] || "");
-  const filePath = resolveSafeUploadPath(relativePath);
-  if (!filePath) {
-    return res.status(400).json({ success: false, error: "Invalid path" });
-  }
-
-  const ext = path.extname(filePath).toLowerCase();
-  const isVideo = [".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"].includes(ext);
-
-  const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
-
-  if (isVideo) {
-    if (fs.existsSync(filePath)) {
-      return streamLocalUpload(res, filePath, { range, method: req.method });
-    }
-
-    const streamed = await serveStoredUpload(res, relativePath, {
-      asVideo: true,
-      range,
-      method: req.method,
-    });
-    if (streamed) return;
-    return res.status(404).json({ success: false, error: "Video not found" });
-  }
-
-  if (fs.existsSync(filePath)) {
-    return next();
-  }
-
-  const served = await serveStoredUpload(res, relativePath, { range, method: req.method });
-  if (served) return;
-  return next();
-});
-
-app.head("/uploads/*", requireUploadAccess as any, async (req, res, next) => {
-  const relativePath = String((req.params as Record<string, string>)[0] || "");
-  const filePath = resolveSafeUploadPath(relativePath);
-  if (!filePath) {
-    return res.status(400).json({ success: false, error: "Invalid path" });
-  }
-  if (fs.existsSync(filePath)) {
-    return streamLocalUpload(res, filePath, { method: "HEAD" });
-  }
-  const served = await serveStoredUpload(res, relativePath, { method: "HEAD" });
-  if (served) return;
-  return next();
-});
 
 app.get("/api/health", async (_req, res) => {
   try {

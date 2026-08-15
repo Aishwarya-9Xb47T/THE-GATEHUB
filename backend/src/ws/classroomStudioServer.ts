@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/jwt.js';
 import { prisma } from '../utils/prisma.js';
 import * as pollService from '../services/classroomStudio/pollService.js';
+import * as responseService from '../services/classroomStudio/responseService.js';
 import type {
   SlideChangeEvent,
   AnnotationEvent,
@@ -90,7 +91,7 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
       // Add to session
       let classroomSession = activeSessions.get(sessionId);
       if (!classroomSession) {
-        console.log('[WS] Creating new classroom session', { sessionId });
+        console.log('[CLASSROOM_WS] Creating new classroom session', { sessionId });
         classroomSession = {
           id: sessionId,
           instructorId: session.instructorId,
@@ -109,7 +110,7 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
       classroomSession.liveSettings = (session.settings as Record<string, any>) || {};
 
       classroomSession.clients.set(userId, ws);
-      console.log('[WS] Client added to session', { sessionId, userId, totalClients: classroomSession.clients.size });
+      console.log('[CLASSROOM_PARTICIPANT] Client added to session', { sessionId, userId, totalClients: classroomSession.clients.size });
 
       // Send welcome message with current state
       const welcomeMessage = {
@@ -123,7 +124,7 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
         },
       };
       ws.send(JSON.stringify(welcomeMessage));
-      console.log('[WS] Welcome message sent', { sessionId, userId });
+      console.log('[CLASSROOM_SYNC] Welcome message sent', { sessionId, userId, slide: classroomSession.currentSlideId, poll: classroomSession.activeInteractionId });
 
       void pollService.resumePollTimer(sessionId, classroomSession.activeInteractionId);
       void pollService.getActivePollSync(sessionId, userId, role).then((sync) => {
@@ -137,7 +138,7 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
           },
         }));
       }).catch((error) => {
-        console.error('[WS] Failed to sync active poll', { sessionId, userId, error });
+        console.error('[CLASSROOM_POLL] Failed to sync active poll', { sessionId, userId, error });
       });
 
       // Notify others that user joined
@@ -148,7 +149,7 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
           role,
         },
       }, userId);
-      console.log('[WS] Participant join broadcast sent', { sessionId, userId });
+      console.log('[CLASSROOM_PARTICIPANT] Participant join broadcast sent', { sessionId, userId });
 
       // Set up heartbeat
       ws.on('pong', () => {
@@ -159,11 +160,11 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
       ws.on('message', async (data: Buffer) => {
         try {
           const message = JSON.parse(data.toString());
-          console.log('[WS] Message received', { sessionId, userId, type: message.type });
+          console.log('[CLASSROOM_WS] Message received', { sessionId, userId, type: message.type });
           await handleMessage(ws, sessionId, userId, role, message);
           ws.send(JSON.stringify({ type: 'ack', data: { eventId: message.eventId ?? null, version: activeSessions.get(sessionId)?.version } }));
         } catch (error) {
-          console.error('[WS] Error handling message:', error);
+          console.error('[CLASSROOM_WS] Error handling message:', error);
           ws.send(
             JSON.stringify({
               type: 'error',
@@ -395,17 +396,22 @@ async function handleSlideChange(
     return;
   }
 
-  // Update session state
+  const previousActive = session.activeInteractionId;
   session.currentSlideId = message.data.slideId;
+  session.activeInteractionId = null;
   session.version += 1;
 
-  // Update database
   await prisma.classroomSession.update({
     where: { id: session.id },
-    data: { currentSlideId: message.data.slideId },
+    data: { currentSlideId: message.data.slideId, activeInteractionId: null },
   });
 
-  // Broadcast to all clients
+  if (previousActive) {
+    void pollService.closePoll(session.id, userId, previousActive, { asInstructor: true }).catch(() => undefined);
+  }
+
+  console.log(`[CLASSROOM_SLIDE] session=${session.id} slide=${message.data.slideId} via=ws`);
+
   broadcastToSession(session.id, { ...message, data: { ...message.data, version: session.version, timestamp: new Date().toISOString() } });
 }
 
@@ -483,10 +489,9 @@ async function handleInteractionLifecycle(
       break;
 
     case 'interaction:reveal':
-      // Broadcast reveal event - doesn't change activeInteractionId
       session.version += 1;
       broadcastToSession(session.id, { type: 'interaction:reveal', data: { interactionId, version: session.version, timestamp: new Date().toISOString() } }, userId);
-      break;
+      return;
   }
 
   // BUG 3 FIX: For activate/launch events, fetch the full interaction from DB
@@ -603,12 +608,10 @@ async function handleResponseSubmit(
   role: string,
   message: any
 ) {
-  // Students submit responses
   if (role !== 'student') {
     return;
   }
 
-  // Store response in database
   const participant = await prisma.classroomParticipant.findUnique({
     where: {
       sessionId_userId: {
@@ -616,38 +619,57 @@ async function handleResponseSubmit(
         userId,
       },
     },
+    include: {
+      user: { select: { firstName: true, lastName: true } },
+    },
   });
 
   if (!participant) {
     return;
   }
 
-  // Broadcast to instructor only with participant info
-  const instructorClient = session.clients.get(session.instructorId);
-  if (instructorClient && instructorClient.readyState === WebSocket.OPEN) {
-    instructorClient.send(JSON.stringify({
-      type: 'response:submit',
+  const interactionId = message.data?.interactionId;
+  if (!interactionId) return;
+
+  try {
+    const record = await responseService.submitResponse(
+      session.id,
+      interactionId,
+      participant.id,
+      message.data.response,
+      message.data.timeSpent,
+    );
+    console.log(`[CLASSROOM_POLL] response persisted session=${session.id} interaction=${interactionId} participant=${participant.id}`);
+
+    const instructorClient = session.clients.get(session.instructorId);
+    if (instructorClient && instructorClient.readyState === WebSocket.OPEN) {
+      instructorClient.send(JSON.stringify({
+        type: 'response:submit',
+        data: {
+          ...message.data,
+          participantId: participant.id,
+          userId,
+          firstName: participant.user?.firstName ?? '',
+          lastName: participant.user?.lastName ?? '',
+          responseId: record.id,
+          timestamp: new Date().toISOString(),
+        },
+      }));
+    }
+
+    broadcastToSession(session.id, {
+      type: 'participant:response',
       data: {
-        ...message.data,
         participantId: participant.id,
         userId,
-        firstName: participant.userId, // This would need to be fetched from user table
+        interactionId,
+        hasResponded: true,
         timestamp: new Date().toISOString(),
       },
-    }));
+    });
+  } catch (error) {
+    console.error('[CLASSROOM_POLL] response submit failed', error instanceof Error ? error.message : error);
   }
-
-  // Broadcast participant update to all clients for response tracking
-  broadcastToSession(session.id, {
-    type: 'participant:response',
-    data: {
-      participantId: participant.id,
-      userId,
-      interactionId: message.data.interactionId,
-      hasResponded: true,
-      timestamp: new Date().toISOString(),
-    },
-  });
 }
 
 async function handleParticipantState(

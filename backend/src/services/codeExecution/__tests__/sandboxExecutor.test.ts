@@ -51,6 +51,28 @@ describe("sandbox code execution", () => {
     expect(result.success).toBe(false);
     expect(result.status).toBe("compile_error");
   });
+
+  it("runs a valid C program when gcc exists", async () => {
+    const gcc = findExecutable(["gcc"]);
+    if (!gcc) return;
+    const result = await executeSandboxed("c", "#include <stdio.h>\nint main(){printf(\"hello-c\");return 0;}");
+    expect(result.success).toBe(true);
+    expect(result.stdout).toContain("hello-c");
+  });
+
+  it("runs a valid C++ program when g++ exists", async () => {
+    const gxx = findExecutable(["g++"]);
+    if (!gxx) return;
+    const result = await executeSandboxed("cpp", "#include <iostream>\nint main(){std::cout<<\"hello-cpp\";return 0;}");
+    expect(result.success).toBe(true);
+    expect(result.stdout).toContain("hello-cpp");
+  });
+
+  it("rejects unsupported languages instead of shelling out", async () => {
+    const result = await executeSandboxed("go", "package main");
+    expect(result.success).toBe(false);
+    expect(result.status).toBe("unsupported");
+  });
 });
 
 describe("YouTube URL normalization", () => {

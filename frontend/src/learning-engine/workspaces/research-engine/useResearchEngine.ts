@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { api, getBackendOrigin } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { LearnerExperienceStep } from "../../types";
 import { AutosaveCoordinator } from "../engine/autosaveCoordinator";
 import { disposeAllModels, researchModelKey, syncResearchModels } from "../engine/monacoModelRegistry";
@@ -81,6 +81,11 @@ export function useResearchEngine({ step, projectId, onCompiled }: UseResearchEn
   );
 
   const compile = useCallback(async () => {
+    try {
+      await persist();
+    } catch {
+      /* compile still uses in-memory snapshot */
+    }
     const snapshot = getCompileSnapshot(store.getState().document());
     setCompiling(true);
     const res = await api<{
@@ -95,7 +100,7 @@ export function useResearchEngine({ step, projectId, onCompiled }: UseResearchEn
         projectId,
         code: snapshot.mainContent,
         files: snapshot.files,
-        mainFileName: doc.files.find((f) => f.fileId === doc.mainFileId)?.name ?? "main.tex",
+        mainFileName: store.getState().document().files.find((f) => f.fileId === store.getState().document().mainFileId)?.name ?? "main.tex",
       },
     });
     setCompiling(false);
@@ -111,8 +116,20 @@ export function useResearchEngine({ step, projectId, onCompiled }: UseResearchEn
       return;
     }
 
-    const url = res.data.fileUrl;
-    const pdfUrl = url ? (url.startsWith("http") ? url : `${getBackendOrigin()}${url}`) : null;
+    const url = res.data.fileUrl || "";
+    let pdfUrl: string | null = null;
+    if (url) {
+      if (url.startsWith("http")) {
+        try {
+          const parsed = new URL(url);
+          pdfUrl = parsed.pathname.startsWith("/uploads/") ? parsed.pathname : url;
+        } catch {
+          pdfUrl = url;
+        }
+      } else {
+        pdfUrl = url.startsWith("/") ? url : `/${url}`;
+      }
+    }
     store.getState().setCompileResult({
       success: true,
       pdfUrl,
@@ -122,7 +139,8 @@ export function useResearchEngine({ step, projectId, onCompiled }: UseResearchEn
     });
     setPdfEpoch((n) => n + 1);
     onCompiled?.();
-  }, [projectId, store, onCompiled, doc.files, doc.mainFileId]);
+    void persist();
+  }, [projectId, store, onCompiled, persist]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
