@@ -64,11 +64,22 @@ function unsupported(language: string, needed: string): SandboxResult {
   };
 }
 
+export interface SandboxOptions {
+  stdin?: string;
+  timeoutMs?: number;
+}
+
+function clampTimeout(timeoutMs?: number): number {
+  if (timeoutMs == null || !Number.isFinite(timeoutMs)) return TIMEOUT_MS;
+  return Math.min(15000, Math.max(1000, Math.floor(timeoutMs)));
+}
+
 async function runCommand(
   command: string,
   args: string[],
   cwd: string,
-  timeoutMs = TIMEOUT_MS
+  timeoutMs = TIMEOUT_MS,
+  stdin?: string
 ): Promise<SandboxResult> {
   return new Promise((resolve) => {
     let stdout = "";
@@ -85,8 +96,12 @@ async function runCommand(
         TMP: cwd,
       },
       windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [stdin != null && stdin !== "" ? "pipe" : "ignore", "pipe", "pipe"],
     });
+    if (stdin != null && stdin !== "" && child.stdin) {
+      child.stdin.write(stdin.slice(0, MAX_SOURCE_BYTES));
+      child.stdin.end();
+    }
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -156,8 +171,14 @@ function wrapJava(code: string, className: string): string {
     .join("\n")}\n  }\n}\n`;
 }
 
-export async function executeSandboxed(language: string, source: string): Promise<SandboxResult> {
+export async function executeSandboxed(
+  language: string,
+  source: string,
+  options?: SandboxOptions
+): Promise<SandboxResult> {
   const lang = (language || "").toLowerCase().trim();
+  const timeoutMs = clampTimeout(options?.timeoutMs);
+  const stdin = options?.stdin;
   if (!source?.trim()) {
     return {
       success: false,
@@ -179,7 +200,8 @@ export async function executeSandboxed(language: string, source: string): Promis
     };
   }
 
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gh-exec-"));
+  const tmpRoot = process.env.CODE_EXEC_TMPDIR || os.tmpdir();
+  const dir = await fs.mkdtemp(path.join(tmpRoot, "gh-exec-"));
   const id = randomUUID().replace(/-/g, "").slice(0, 12);
   try {
     if (lang === "python" || lang === "py") {
@@ -188,7 +210,7 @@ export async function executeSandboxed(language: string, source: string): Promis
       const file = path.join(dir, "main.py");
       await fs.writeFile(file, source, "utf8");
       console.log("[CODE_EXEC] language=python runtime=" + path.basename(python));
-      return await runCommand(python, ["main.py"], dir);
+      return await runCommand(python, ["main.py"], dir, timeoutMs, stdin);
     }
 
     if (lang === "javascript" || lang === "js" || lang === "node") {
@@ -197,7 +219,7 @@ export async function executeSandboxed(language: string, source: string): Promis
       const file = path.join(dir, "main.js");
       await fs.writeFile(file, source, "utf8");
       console.log("[CODE_EXEC] language=javascript runtime=node");
-      return await runCommand(node, ["main.js"], dir);
+      return await runCommand(node, ["main.js"], dir, timeoutMs, stdin);
     }
 
     if (lang === "typescript" || lang === "ts") {
@@ -208,12 +230,12 @@ export async function executeSandboxed(language: string, source: string): Promis
       const tsx = findExecutable(["tsx"]);
       if (tsx) {
         console.log("[CODE_EXEC] language=typescript runtime=tsx");
-        return await runCommand(tsx, [file], dir);
+        return await runCommand(tsx, [file], dir, timeoutMs, stdin);
       }
       const tsNode = findExecutable(["ts-node"]);
       if (tsNode) {
         console.log("[CODE_EXEC] language=typescript runtime=ts-node");
-        return await runCommand(tsNode, ["--transpile-only", file], dir);
+        return await runCommand(tsNode, ["--transpile-only", file], dir, timeoutMs, stdin);
       }
       const jsFile = path.join(dir, "main.js");
       const stripped = source
@@ -223,7 +245,7 @@ export async function executeSandboxed(language: string, source: string): Promis
         .replace(/^export\s+/gm, "");
       await fs.writeFile(jsFile, stripped, "utf8");
       console.log("[CODE_COMPILE] language=typescript fallback=strip-types");
-      return await runCommand(node, ["main.js"], dir);
+      return await runCommand(node, ["main.js"], dir, timeoutMs, stdin);
     }
 
     if (lang === "java") {
@@ -234,12 +256,12 @@ export async function executeSandboxed(language: string, source: string): Promis
       const file = path.join(dir, `${className}.java`);
       await fs.writeFile(file, wrapJava(source, className), "utf8");
       console.log("[CODE_COMPILE] language=java");
-      const compiled = await runCommand(javac, [file], dir);
+      const compiled = await runCommand(javac, [file], dir, timeoutMs);
       if (!compiled.success) {
         return { ...compiled, status: "compile_error" };
       }
       console.log("[CODE_EXEC] language=java");
-      return await runCommand(java, ["-cp", dir, className], dir);
+      return await runCommand(java, ["-cp", dir, className], dir, timeoutMs, stdin);
     }
 
     if (lang === "c") {
@@ -249,10 +271,10 @@ export async function executeSandboxed(language: string, source: string): Promis
       const exe = path.join(dir, process.platform === "win32" ? "main.exe" : "main");
       await fs.writeFile(src, source, "utf8");
       console.log("[CODE_COMPILE] language=c");
-      const compiled = await runCommand(gcc, [src, "-O0", "-o", exe], dir);
+      const compiled = await runCommand(gcc, [src, "-O0", "-o", exe], dir, timeoutMs);
       if (!compiled.success) return { ...compiled, status: "compile_error" };
       console.log("[CODE_EXEC] language=c");
-      return await runCommand(exe, [], dir);
+      return await runCommand(exe, [], dir, timeoutMs, stdin);
     }
 
     if (lang === "cpp" || lang === "c++" || lang === "cplusplus") {
@@ -262,10 +284,10 @@ export async function executeSandboxed(language: string, source: string): Promis
       const exe = path.join(dir, process.platform === "win32" ? "main.exe" : "main");
       await fs.writeFile(src, source, "utf8");
       console.log("[CODE_COMPILE] language=cpp");
-      const compiled = await runCommand(gxx, [src, "-O0", "-o", exe], dir);
+      const compiled = await runCommand(gxx, [src, "-O0", "-o", exe], dir, timeoutMs);
       if (!compiled.success) return { ...compiled, status: "compile_error" };
       console.log("[CODE_EXEC] language=cpp");
-      return await runCommand(exe, [], dir);
+      return await runCommand(exe, [], dir, timeoutMs, stdin);
     }
 
     return unsupported(language || "(none)", "python3, node, gcc, g++, javac");

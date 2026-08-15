@@ -3,11 +3,6 @@ import { marked } from "marked";
 import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
-import os from "os";
-import { spawn, exec } from "child_process";
-import { v4 as uuidv4 } from "uuid";
-import katex from "katex";
-import axios from "axios";
 import { AuthRequest } from "../middlewares/auth.js";
 import { prisma } from "../utils/prisma.js";
 import { recordProjectVersion } from "../services/latexVersionService.js";
@@ -629,6 +624,35 @@ export const getResourceContent = async (req: Request, res: Response) => {
   }
 };
 
+function toCodingLabClientResult(result: {
+  success: boolean;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number | null;
+  executionTimeMs?: number;
+  memoryUsageMb?: number;
+  testResults?: Array<{ passed?: boolean; output?: string; expectedOutput?: string; name?: string; id?: string }>;
+  errors?: Array<{ message?: string }>;
+  diagnostics?: unknown;
+}) {
+  const tests = result.testResults || [];
+  const passCount = tests.filter((t) => t.passed).length;
+  const totalCount = tests.length;
+  const output =
+    [result.stdout, result.stderr].filter((s) => s && String(s).trim()).join("\n") ||
+    (result.success ? "Execution completed." : result.errors?.[0]?.message || "Execution failed");
+  return {
+    ...result,
+    output,
+    exitCode: result.exitCode ?? (result.success ? 0 : 1),
+    executionTimeMs: result.executionTimeMs ?? 0,
+    testResults: tests,
+    passCount,
+    totalCount,
+    scorePercent: totalCount ? Math.round((passCount / totalCount) * 100) : result.success ? 100 : 0,
+  };
+}
+
 // Execute code using local child_process execution with educational feedback
 export const executeCode = async (req: Request, res: Response) => {
   try {
@@ -668,11 +692,13 @@ export const executeCodingLab = async (req: Request, res: Response) => {
     if (!code) {
       return res.status(400).json({ success: false, error: "Code is required" });
     }
+
+    const resolvedAction =
+      action || (Array.isArray(testCases) && testCases.length > 0 ? "test" : "run");
     
-    // Use new languageExecutionService
     const { executeCode } = await import("../services/codeExecution/languageExecutionService.js");
     const result = await executeCode({
-      action: action || "run",
+      action: resolvedAction,
       language: language || "python",
       code,
       files: req.body.files,
@@ -682,7 +708,7 @@ export const executeCodingLab = async (req: Request, res: Response) => {
       memoryLimit: req.body.memoryLimit,
     });
     
-    return res.json(result);
+    return res.json(toCodingLabClientResult(result));
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error during coding lab execution";
     console.error(`[CODING-LAB-EXEC-FAILED]: ${message}`);
@@ -742,7 +768,7 @@ export const submitCodingLab = async (req: Request, res: Response) => {
       }
     }
 
-    return res.json(result);
+    return res.json(toCodingLabClientResult(result));
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error during coding lab submission";
     console.error(`[CODING-LAB-SUBMIT-FAILED]: ${message}`);

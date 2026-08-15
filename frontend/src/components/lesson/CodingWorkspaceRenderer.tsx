@@ -9,7 +9,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { CodingWorkspaceBlock } from '../../types/codingWorkspace';
-import { apiUrl } from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface CodingWorkspaceRendererProps {
   workspace: CodingWorkspaceBlock;
@@ -24,6 +24,17 @@ interface CompilerError {
   column: number;
   message: string;
   type: 'syntax' | 'runtime' | 'compilation';
+}
+
+async function executeWorkspace(body: Record<string, unknown>) {
+  const response = await api<Record<string, any>>("/resources/coding-lab/execute", {
+    method: "POST",
+    body,
+  });
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  return response.data || {};
 }
 
 export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = ({
@@ -177,18 +188,12 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setCompilerErrors([]);
     
     try {
-      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await executeWorkspace({
           action: 'compile',
           language: workspace.language,
           code,
           files: workspace.files,
-        }),
-      });
-      
-      const result = await response.json();
+        });
       
       if (result.errors && Array.isArray(result.errors)) {
         setCompilerErrors(result.errors.map((err: any) => ({
@@ -214,18 +219,12 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setCompilerErrors([]);
     
     try {
-      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await executeWorkspace({
           action: 'debug',
           language: workspace.language,
           code,
           files: workspace.files,
-        }),
-      });
-      
-      const result = await response.json();
+        });
       setOutput(result.stdout || result.output || '');
       setCompilerErrors(result.diagnostics || []);
     } catch (error: any) {
@@ -240,19 +239,13 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setOutput('');
     
     try {
-      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await executeWorkspace({
           action: 'test',
           language: workspace.language,
           code,
           files: workspace.files,
           testCases: workspace.publicTestCases,
-        }),
-      });
-      
-      const result = await response.json();
+        });
       setTestResults(result.testResults || []);
       setOutput(result.stdout || result.output || '');
       
@@ -273,19 +266,13 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setCompilerErrors([]);
     
     try {
-      const response = await fetch(apiUrl('/api/coding-lab/execute'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await executeWorkspace({
           action: 'run',
           language: workspace.language,
           code,
           files: workspace.files,
           testCases: workspace.publicTestCases,
-        }),
-      });
-      
-      const result = await response.json();
+        });
       
       // Parse compiler/runtime errors
       if (result.errors && Array.isArray(result.errors)) {
@@ -324,10 +311,9 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
     setIsRunning(true);
     
     try {
-      const response = await fetch(apiUrl('/api/coding-lab/submit'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const result = await api<Record<string, any>>("/resources/coding-lab/submit", {
+        method: "POST",
+        body: {
           language: workspace.language,
           code,
           testCases: [...workspace.publicTestCases, ...(workspace.hiddenTestCases || [])],
@@ -336,14 +322,14 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
           publishVersionId: 'preview',
           lessonId,
           stepId: workspace.id,
-        }),
+        },
       });
+      if (result.error) throw new Error(result.error);
+      const data = result.data || {};
       
-      const result = await response.json();
-      
-      if (result.success) {
-        const passedCount = result.testResults?.filter((r: any) => r.passed).length || 0;
-        const totalCount = result.testResults?.length || 0;
+      if (data.success) {
+        const passedCount = data.testResults?.filter((r: any) => r.passed).length || 0;
+        const totalCount = data.testResults?.length || 0;
         
         onComplete?.({
           passed: passedCount === totalCount,
@@ -352,8 +338,8 @@ export const CodingWorkspaceRenderer: React.FC<CodingWorkspaceRendererProps> = (
         });
       }
       
-      setOutput(result.output || result.stdout || '');
-      setTestResults(result.testResults || []);
+      setOutput(data.output || data.stdout || '');
+      setTestResults(data.testResults || []);
     } catch (error: any) {
       setOutput(`Error: ${error instanceof Error ? error.message : 'Failed to submit solution'}`);
     } finally {

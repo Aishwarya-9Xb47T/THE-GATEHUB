@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchUniverseAsset, resolveLearningUniverseAsset } from "./resolveLearningUniverseAsset";
-import { redactMediaUrl } from "./courseMediaUrls";
+import { redactMediaUrl, rewritePersistedMediaHost } from "./courseMediaUrls";
 import { resolveVideoSource } from "./videoSourceUtils";
 
 const assets = [
@@ -52,6 +52,16 @@ describe("redactMediaUrl", () => {
     expect(redactMediaUrl("https://api.example.com/uploads/latex/pdfs/a.pdf?token=secret")).toBe(
       "https://api.example.com/uploads/latex/pdfs/a.pdf"
     );
+  });
+});
+
+describe("rewritePersistedMediaHost", () => {
+  it("rewrites stale production upload hosts to a relative /uploads path when no API origin is configured", () => {
+    const rewritten = rewritePersistedMediaHost(
+      "https://gatehub-backend-mprr.onrender.com/uploads/latex/pdfs/paper.pdf"
+    );
+    expect(rewritten).toContain("/uploads/latex/pdfs/paper.pdf");
+    expect(rewritten).not.toContain("gatehub-backend-mprr.onrender.com");
   });
 });
 

@@ -518,7 +518,10 @@ async function executeRun(
   startTime: number
 ): Promise<WorkspaceExecutionResult> {
   const { executeSandboxed } = await import("./sandboxExecutor.js");
-  const sandboxed = await executeSandboxed(config.language || request.language || "python", request.code);
+  const sandboxed = await executeSandboxed(config.language || request.language || "python", request.code, {
+    stdin: request.stdin,
+    timeoutMs: request.timeLimit,
+  });
   const ok = sandboxed.success;
   return {
     success: ok,

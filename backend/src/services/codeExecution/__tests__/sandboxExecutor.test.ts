@@ -73,6 +73,16 @@ describe("sandbox code execution", () => {
     expect(result.success).toBe(false);
     expect(result.status).toBe("unsupported");
   });
+
+  it("feeds stdin into JavaScript without a shell", async () => {
+    const result = await executeSandboxed(
+      "javascript",
+      "let s=''; process.stdin.on('data',c=>s+=c); process.stdin.on('end',()=>process.stdout.write(s.trim()));",
+      { stdin: "hello-stdin\n" }
+    );
+    expect(result.success).toBe(true);
+    expect(result.stdout).toContain("hello-stdin");
+  });
 });
 
 describe("YouTube URL normalization", () => {

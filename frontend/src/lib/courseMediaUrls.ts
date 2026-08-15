@@ -17,7 +17,7 @@ export function redactMediaUrl(url: string): string {
 }
 
 export async function loadAuthenticatedPdfBlob(url: string): Promise<string> {
-  const fetchUrl = withUploadAuth(url);
+  const fetchUrl = withUploadAuth(rewritePersistedMediaHost(url));
   console.log("[RESEARCH_PDF_URL]", redactMediaUrl(fetchUrl));
   // Query-token GET, no Authorization header — same CORS path as Academic Authoring PdfPreview.
   const res = await fetch(fetchUrl);
@@ -120,8 +120,12 @@ export function rewritePersistedMediaHost(url: string): string {
       host === "127.0.0.1" ||
       host === "0.0.0.0" ||
       host.endsWith(".local");
-    if (!isLocal) return url;
-    if (parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/")) {
+    const isUploadOrApi =
+      parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/");
+    // Drop persisted hosts (localhost or a stale Render URL) so playback/preview
+    // uses the current API origin instead of iframing a dead backend.
+    if (!isLocal && !isUploadOrApi) return url;
+    if (isUploadOrApi) {
       const origin = getBackendOrigin() || (typeof window !== "undefined" ? window.location.origin : "");
       if (origin) {
         return `${origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
