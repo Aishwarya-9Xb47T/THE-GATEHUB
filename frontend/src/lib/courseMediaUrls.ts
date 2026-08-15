@@ -2,6 +2,43 @@
 
 import { apiUrl, getBackendOrigin } from "@/lib/api";
 
+/** Strip tokens from URLs before logging. */
+export function redactMediaUrl(url: string): string {
+  try {
+    const parsed = new URL(url, "https://placeholder.local");
+    parsed.searchParams.delete("token");
+    const q = parsed.searchParams.toString();
+    const path = `${parsed.pathname}${q ? `?${q}` : ""}`;
+    if (/^https?:\/\//i.test(url)) return `${parsed.origin}${path}`;
+    return path;
+  } catch {
+    return url.split("?")[0];
+  }
+}
+
+export async function loadAuthenticatedPdfBlob(url: string): Promise<string> {
+  const fetchUrl = withUploadAuth(url);
+  console.log("[RESEARCH_PDF_URL]", redactMediaUrl(fetchUrl));
+  // Query-token GET, no Authorization header — same CORS path as Academic Authoring PdfPreview.
+  const res = await fetch(fetchUrl);
+  if (!res.ok) {
+    throw new Error(`PDF load failed: HTTP ${res.status}`);
+  }
+  const type = res.headers.get("content-type") || "";
+  if (!type.includes("pdf") && !type.includes("octet-stream")) {
+    throw new Error(`PDF load failed: expected application/pdf, got ${type || "unknown"}`);
+  }
+  const blob = await res.blob();
+  if (blob.size < 128) {
+    throw new Error(`PDF load failed: empty file (${blob.size} bytes)`);
+  }
+  const header = await blob.slice(0, 5).text();
+  if (!header.startsWith("%PDF-")) {
+    throw new Error("PDF load failed: response is not a PDF");
+  }
+  return URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+}
+
 export function getAuthToken(): string | null {
   try {
     if (typeof window !== "undefined") {

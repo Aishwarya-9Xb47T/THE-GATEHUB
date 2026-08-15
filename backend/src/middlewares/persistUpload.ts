@@ -203,6 +203,7 @@ export function streamLocalUpload(
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", mime);
   res.setHeader("X-Content-Type-Options", "nosniff");
+  if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
   if (range) {
     const chunkSize = range.end - range.start + 1;
     console.log(`[${tag}] path=${path.basename(filePath)} mime=${mime} range=${options?.range} status=206`);
@@ -256,6 +257,7 @@ export async function serveStoredUpload(
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Content-Type", mime);
     res.setHeader("X-Content-Type-Options", "nosniff");
+    if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
     if (meta.contentLength != null) res.setHeader("Content-Length", String(meta.contentLength));
     res.end();
     return true;
@@ -271,6 +273,7 @@ export async function serveStoredUpload(
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", contentType);
+  if (contentType === "application/pdf") res.removeHeader("X-Frame-Options");
   if (streamed.contentLength != null) res.setHeader("Content-Length", String(streamed.contentLength));
   if (streamed.contentRange) res.setHeader("Content-Range", streamed.contentRange);
   streamed.body.on("error", (err) => {

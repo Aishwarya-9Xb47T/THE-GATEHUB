@@ -123,4 +123,13 @@ router.post('/sessions/:id/reveal-answer', classroomStudioController.revealInter
 router.get('/sessions/:id/export/csv', classroomStudioController.exportSessionCsv);
 router.get('/sessions/:id/export/pdf', classroomStudioController.exportSessionPdf);
 
+router.post('/sessions/:id/polls', classroomStudioController.createSessionPoll);
+router.get('/sessions/:id/polls', classroomStudioController.listSessionPolls);
+router.get('/sessions/:id/polls/:pollId', classroomStudioController.getSessionPoll);
+router.patch('/sessions/:id/polls/:pollId', classroomStudioController.updateSessionPoll);
+router.post('/sessions/:id/polls/:pollId/launch', classroomStudioController.launchSessionPoll);
+router.post('/sessions/:id/polls/:pollId/close', classroomStudioController.closeSessionPoll);
+router.post('/sessions/:id/polls/:pollId/duplicate', classroomStudioController.duplicateSessionPoll);
+router.delete('/sessions/:id/polls/:pollId', classroomStudioController.deleteSessionPoll);
+
 export default router;

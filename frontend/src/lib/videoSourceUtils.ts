@@ -135,8 +135,23 @@ export function resolveVideoSource(
   if (raw.youtubeId && type !== "youtube") type = "youtube";
   if (raw.vimeoId && type !== "vimeo") type = "vimeo";
 
-  if (type === "upload" && url && !/^https?:\/\//i.test(url)) {
-    url = resolveUpload ? resolveUpload(url) : url;
+  const uploadsPath = (() => {
+    if (url.startsWith("/uploads/") || url.startsWith("uploads/")) {
+      return url.startsWith("/") ? url : `/${url}`;
+    }
+    try {
+      if (/^https?:\/\//i.test(url)) {
+        const parsed = new URL(url);
+        if (parsed.pathname.startsWith("/uploads/")) return parsed.pathname;
+      }
+    } catch {
+      /* keep */
+    }
+    return null;
+  })();
+  if (resolveUpload && (type === "upload" || type === "external") && (uploadsPath || !/^https?:\/\//i.test(url))) {
+    const resolved = resolveUpload(uploadsPath || url);
+    if (resolved) url = resolved;
   }
 
   if (type === "youtube") {

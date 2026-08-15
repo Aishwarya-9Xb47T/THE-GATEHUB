@@ -577,6 +577,13 @@ async function compileLegacyProject(
     fileOverlayCount: workspaceFiles?.length ?? 0,
   });
 
+  console.log(
+    `[LATEX_COMPILE] projectId=${projectId} pdf=${storedPdf.publicUrl} compiler=${result.compilerUsed || "pdflatex"} bibtex=${Boolean(result.bibtexRun)}`
+  );
+  if (String(projectId).startsWith("lu-research-")) {
+    console.log(`[RESEARCH_PAPER_COMPILE] projectId=${projectId} pdf=${storedPdf.publicUrl} status=success`);
+  }
+
   return res.json({
     success: true,
     fileUrl: storedPdf.publicUrl,

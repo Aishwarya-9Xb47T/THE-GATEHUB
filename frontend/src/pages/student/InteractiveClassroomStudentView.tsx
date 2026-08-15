@@ -188,6 +188,8 @@ export function InteractiveClassroomStudentView() {
             onNext={() => classroom.selfNavigate('next')}
             onInteractionSubmit={classroom.submitInteraction}
             connectionStatus={classroom.connectionStatus}
+            pollResults={classroom.pollResults}
+            remainingSeconds={classroom.pollRemaining}
           />
         </div>
 

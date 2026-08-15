@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { matchUniverseAsset, resolveLearningUniverseAsset } from "./resolveLearningUniverseAsset";
+import { redactMediaUrl } from "./courseMediaUrls";
+import { resolveVideoSource } from "./videoSourceUtils";
 
 const assets = [
   { filename: "lecture.mp4", storedFilename: "abc-123.mp4" },
@@ -42,5 +44,26 @@ describe("resolveLearningUniverseAsset", () => {
     const resolved = resolveLearningUniverseAsset("missing.bin", "uni-1", assets);
     expect(resolved.status).toBe("missing");
     expect(resolved.resolvedUrl).toContain("/api/learning-universes/uni-1/assets/missing.bin");
+  });
+});
+
+describe("redactMediaUrl", () => {
+  it("strips token query params from logs", () => {
+    expect(redactMediaUrl("https://api.example.com/uploads/latex/pdfs/a.pdf?token=secret")).toBe(
+      "https://api.example.com/uploads/latex/pdfs/a.pdf"
+    );
+  });
+});
+
+describe("resolveVideoSource published uploads", () => {
+  it("resolves localhost and project upload URLs through the asset callback", () => {
+    const resolveUpload = (ref: string) =>
+      resolveLearningUniverseAsset(ref, "uni-1", assets).resolvedUrl;
+    const fromLocal = resolveVideoSource(
+      { url: "http://localhost:5000/uploads/projects/p1/lecture.mp4", type: "upload" },
+      resolveUpload
+    );
+    expect(fromLocal?.url).toContain("/uploads/learning-universes/uni-1/abc-123.mp4");
+    expect(fromLocal?.url).not.toContain("/uploads/projects/");
   });
 });

@@ -9,6 +9,17 @@ import type {
   InteractionResponse,
   InteractionType,
 } from './types.js';
+import {
+  getPollSettings,
+  parsePollOptions,
+  aggregateOptionCounts,
+  buildOptionStats,
+  remainingSeconds,
+  assertPollAcceptingResponses,
+  buildCanonicalPollResponse,
+  scorePollResponse,
+  extractResponseKeys,
+} from './pollUtils.js';
 
 export async function submitResponse(
   sessionId: string,
@@ -59,6 +70,22 @@ export async function submitResponse(
     throw new AppError(403, 'Participant does not belong to this session');
   }
 
+  const pollSettings = getPollSettings(interaction);
+  const isLivePoll = pollSettings.livePoll;
+  if (isLivePoll) {
+    if (session.status === 'completed' || session.status === 'cancelled') {
+      throw new AppError(400, 'This session has ended');
+    }
+    assertPollAcceptingResponses(interaction);
+    if (session.activeInteractionId && session.activeInteractionId !== interactionId) {
+      throw new AppError(400, 'This poll is not the active interaction');
+    }
+  }
+
+  const canonicalResponse = isLivePoll
+    ? buildCanonicalPollResponse(interaction, response, duration != null ? duration * 1000 : undefined)
+    : response;
+
   // Check if participant already responded
   const existingResponse = await prisma.interactionResponse.findFirst({
     where: {
@@ -68,20 +95,23 @@ export async function submitResponse(
     },
   });
 
+  const allowChange = pollSettings.allowChangeAnswer || Boolean((interaction.settings as any)?.allowRevote);
+
   if (existingResponse) {
-    // For polls and quizzes, don't allow re-submission unless explicitly reopened
-    // The frontend should handle this, but we enforce it here too
-    if (interaction.type === 'poll' || interaction.type === 'mcq' || interaction.type === 'true_false') {
-      throw new AppError(400, 'You have already submitted your response. Wait for the instructor to reopen voting.');
+    if (isLivePoll || interaction.type === 'poll' || interaction.type === 'mcq' || interaction.type === 'true_false' || interaction.type === 'multiple_select') {
+      if (!allowChange) {
+        throw new AppError(400, 'You have already submitted your response.');
+      }
     }
 
-    // For other types, allow updating
+    const pollScore = isLivePoll ? scorePollResponse(interaction, canonicalResponse) : undefined;
     const updated = await prisma.interactionResponse.update({
       where: { id: existingResponse.id },
       data: {
-        response,
+        response: canonicalResponse as any,
         duration,
         submittedAt: new Date(),
+        isCorrect: pollScore === null ? null : pollScore,
       },
     });
 
@@ -93,12 +123,16 @@ export async function submitResponse(
   let isCorrect: boolean | undefined;
   let pointsAwarded: number | undefined;
 
-  if (interaction.type === 'mcq' || interaction.type === 'true_false') {
-    const result = calculateCorrectness(interaction, response);
+  if (isLivePoll) {
+    const pollScore = scorePollResponse(interaction, canonicalResponse);
+    isCorrect = pollScore === null ? undefined : pollScore;
+    pointsAwarded = pollScore === true ? interaction.points : 0;
+  } else if (interaction.type === 'mcq' || interaction.type === 'true_false') {
+    const result = calculateCorrectness(interaction, canonicalResponse);
     isCorrect = result.isCorrect;
     pointsAwarded = result.isCorrect ? interaction.points : 0;
   } else if (interaction.type === 'multiple_select') {
-    const result = calculateMultipleSelectCorrectness(interaction, response);
+    const result = calculateMultipleSelectCorrectness(interaction, canonicalResponse);
     isCorrect = result.isCorrect;
     pointsAwarded = result.isCorrect ? interaction.points : 0;
   }
@@ -109,7 +143,7 @@ export async function submitResponse(
       sessionId,
       interactionId,
       participantId,
-      response,
+      response: canonicalResponse as any,
       duration,
       isCorrect,
       pointsAwarded,
@@ -231,6 +265,14 @@ export async function getResponseSummary(
   responseRate: number;
   optionCounts: Record<string, number>;
   respondents: Record<string, Array<{ userId: string; firstName: string; lastName: string; avatar?: string }>>;
+  pending?: number;
+  participationPercent?: number;
+  accuracyPercent?: number | null;
+  optionStats?: Array<{ id: string; label: string; text: string; count: number; percent: number; isCorrect?: boolean }>;
+  anonymous?: boolean;
+  remainingSeconds?: number | null;
+  status?: string;
+  question?: string | null;
 }> {
   const responses = await prisma.interactionResponse.findMany({
     where: {
@@ -290,19 +332,26 @@ export async function getResponseSummary(
       avatar: user.avatar ?? undefined,
     };
 
-    if (Array.isArray(response.response)) {
-      for (const selection of response.response) {
-        const key = String(selection);
-        optionCounts[key] = (optionCounts[key] || 0) + 1;
-        if (!respondents[key]) respondents[key] = [];
-        respondents[key].push(respondentInfo);
-      }
-    } else if (typeof response.response === 'string') {
-      optionCounts[response.response] = (optionCounts[response.response] || 0) + 1;
-      if (!respondents[response.response]) respondents[response.response] = [];
-      respondents[response.response].push(respondentInfo);
+    const keys = extractResponseKeys(response.response);
+    for (const key of keys) {
+      optionCounts[key] = (optionCounts[key] || 0) + 1;
+      if (!respondents[key]) respondents[key] = [];
+      respondents[key].push(respondentInfo);
     }
   }
+
+  const options = parsePollOptions(interaction.options);
+  const pollSettings = getPollSettings(interaction);
+  const pollOptionCounts = options.length > 0 ? aggregateOptionCounts(responses, options) : optionCounts;
+  const includeCorrect = pollSettings.status === 'closed';
+  const optionStats = options.length > 0
+    ? buildOptionStats(options, pollOptionCounts, totalResponses, includeCorrect)
+    : undefined;
+  const pending = Math.max(0, totalParticipants - totalResponses);
+  const accuracyRate =
+    correctResponses + incorrectResponses > 0
+      ? (correctResponses / (correctResponses + incorrectResponses)) * 100
+      : null;
 
   return {
     totalResponses,
@@ -310,8 +359,16 @@ export async function getResponseSummary(
     incorrectResponses,
     averageDuration,
     responseRate,
-    optionCounts,
-    respondents,
+    optionCounts: options.length > 0 ? pollOptionCounts : optionCounts,
+    respondents: pollSettings.anonymous ? {} : respondents,
+    pending,
+    participationPercent: responseRate,
+    accuracyPercent: pollSettings.status === 'closed' ? accuracyRate : null,
+    optionStats,
+    anonymous: pollSettings.anonymous,
+    remainingSeconds: remainingSeconds(pollSettings.timerEndsAt),
+    status: pollSettings.status,
+    question: interaction.question,
   };
 }
 

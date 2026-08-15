@@ -1,6 +1,6 @@
 import { useState, memo } from "react";
 import { Loader2 } from "lucide-react";
-import { resolveCourseMediaUrl, resolveLectureVideoUrl, withUploadAuth } from "@/lib/courseMediaUrls";
+import { resolveCourseMediaUrl, resolveLectureVideoUrl, withUploadAuth, redactMediaUrl } from "@/lib/courseMediaUrls";
 import { apiUrl } from "@/lib/api";
 import { inferUploadVideoMime } from "@/lib/videoUtils";
 import { UploadedVideoPlayer } from "@/components/video/UploadedVideoPlayer";
@@ -182,8 +182,20 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const fallback =
     streamFallback && resolvedUrl !== streamFallback ? streamFallback : undefined;
 
+  if (typeof window !== "undefined" && resolvedUrl) {
+    console.log(
+      "[VIDEO_DEBUG]",
+      JSON.stringify({
+        title: title || "",
+        type: videoType,
+        mime: uploadMime,
+        src: redactMediaUrl(resolvedUrl),
+      })
+    );
+  }
+
   return (
-    <MediaInteractionGuard mode="native" className={className} label={title || "Uploaded video"}>
+    <MediaInteractionGuard mode="native" className={`min-h-[220px] aspect-video ${className}`} label={title || "Uploaded video"}>
       <UploadedVideoPlayer
         src={resolvedUrl}
         fallbackSrc={fallback}

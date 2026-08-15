@@ -5,6 +5,7 @@
 
 import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
+import { getPollSettings, parsePollOptions, extractResponseKeys } from './pollUtils.js';
 
 export interface RealTimeAnalytics {
   sessionId: string;
@@ -660,6 +661,42 @@ export async function exportSessionCSV(sessionId: string): Promise<string> {
   }
 
   rows.push('');
+  rows.push('POLL RESPONSES');
+  rows.push('Poll ID,Question,Student ID / Anonymous ID,Option,Answer,Correct / Incorrect,Submitted At,Response Time');
+
+  for (const p of session.participants) {
+    for (const r of p.responses) {
+      const settings = getPollSettings(r.interaction);
+      const options = parsePollOptions((r.interaction as any).options);
+      const question = String(r.interaction.question || settings.description || r.interaction.title || r.interaction.slide?.title || '');
+      const keys = extractResponseKeys(r.response);
+      const selected = options.filter((option) =>
+        keys.some((key) => [option.id, option.label, option.text].map((v) => v.toLowerCase()).includes(key.toLowerCase())),
+      );
+      const optionLabel = selected.map((option) => option.label).join('; ') || keys.join('; ');
+      const answerText = selected.map((option) => option.text).join('; ') || (typeof r.response === 'string' ? r.response : JSON.stringify(r.response));
+      const identity = settings.anonymous
+        ? `anon-${p.id.slice(-6)}`
+        : (p.user?.email || p.userId || p.id);
+      const correctness =
+        r.isCorrect === true ? 'Correct' : r.isCorrect === false ? 'Incorrect' : 'N/A';
+      const responseTime = r.duration != null ? `${r.duration}s` : '';
+      rows.push(
+        [
+          esc(r.interactionId),
+          esc(question),
+          esc(identity),
+          esc(optionLabel),
+          esc(answerText),
+          esc(correctness),
+          esc(r.submittedAt.toISOString()),
+          esc(responseTime),
+        ].join(','),
+      );
+    }
+  }
+
+  rows.push('');
   rows.push('DETAILED RESPONSE LOG');
   rows.push('Slide #,Slide Title,Interaction Type,Question,Participant Name,Email,Response,Submitted At,Correct');
 
@@ -668,21 +705,24 @@ export async function exportSessionCSV(sessionId: string): Promise<string> {
     for (const r of p.responses) {
       const slide = r.interaction.slide;
       const settings = (r.interaction.settings as Record<string, unknown>) ?? {};
-      const question = String(settings.question ?? r.interaction.title ?? slide?.title ?? '');
+      const pollSettings = getPollSettings(r.interaction);
+      const question = String(r.interaction.question ?? settings.question ?? r.interaction.title ?? slide?.title ?? '');
       const respVal =
         typeof r.response === 'string'
           ? r.response
           : Array.isArray(r.response)
             ? r.response.join('; ')
             : JSON.stringify(r.response);
+      const displayName = pollSettings.anonymous ? 'Anonymous' : name;
+      const displayEmail = pollSettings.anonymous ? 'hidden' : (p.user?.email ?? 'N/A');
       rows.push(
         [
           slide?.order ?? '',
           esc(slide?.title ?? ''),
           esc(r.interaction.type),
           esc(question),
-          esc(name),
-          esc(p.user?.email ?? 'N/A'),
+          esc(displayName),
+          esc(displayEmail),
           esc(respVal),
           esc(r.submittedAt.toISOString()),
           r.isCorrect === true ? 'Yes' : r.isCorrect === false ? 'No' : 'N/A',
@@ -778,35 +818,51 @@ function generateDetailedReportHTML(
     .flatMap((slide) =>
       slide.interactions.map((interaction) => {
         const settings = (interaction.settings as Record<string, unknown>) ?? {};
-        const question = String(settings.question ?? interaction.title ?? slide.title);
+        const pollSettings = getPollSettings(interaction);
+        const question = String((interaction as any).question ?? settings.question ?? interaction.title ?? slide.title);
+        const options = parsePollOptions((interaction as any).options);
         const interactionResponses = session.participants.flatMap((p) =>
           p.responses
             .filter((r) => r.interaction.id === interaction.id)
             .map((r) => ({ p, r })),
         );
 
-        if (interactionResponses.length === 0) return '';
-
         const optionCounts: Record<string, number> = {};
         for (const { r } of interactionResponses) {
           if (Array.isArray(r.response)) {
             for (const sel of r.response) optionCounts[String(sel)] = (optionCounts[String(sel)] ?? 0) + 1;
           } else {
-            optionCounts[String(r.response)] = (optionCounts[String(r.response)] ?? 0) + 1;
+            const keys = extractResponseKeys(r.response);
+            if (keys.length === 0) {
+              optionCounts[String(r.response)] = (optionCounts[String(r.response)] ?? 0) + 1;
+            } else {
+              for (const key of keys) optionCounts[key] = (optionCounts[key] ?? 0) + 1;
+            }
           }
         }
 
-        const optionsHtml = Object.entries(optionCounts)
-          .map(([opt, count]) => {
-            const pct = Math.round((count / interactionResponses.length) * 100);
-            return `<tr><td>${escapeHtml(opt)}</td><td>${count}</td><td>${pct}%</td><td><div class="bar"><div class="fill" style="width:${pct}%"></div></div></td></tr>`;
+        const totalForPct = Math.max(interactionResponses.length, 1);
+        const optionsHtml = (options.length > 0 ? options : Object.keys(optionCounts).map((text) => ({ id: text, label: text, text, isCorrect: false, order: 0 })))
+          .map((opt) => {
+            const count = optionCounts[opt.label] || optionCounts[opt.text] || optionCounts[opt.id] || 0;
+            const pct = Math.round((count / totalForPct) * 100);
+            const correctMark = opt.isCorrect ? ' ★' : '';
+            return `<tr><td>${escapeHtml(opt.label)} — ${escapeHtml(opt.text)}${correctMark}</td><td>${count}</td><td>${pct}%</td><td><div class="bar"><div class="fill" style="width:${pct}%"></div></div></td></tr>`;
           })
           .join('');
 
+        const participation = session.participants.length > 0
+          ? Math.round((interactionResponses.length / session.participants.length) * 100)
+          : 0;
+
         const detailRows = interactionResponses
           .map(({ p, r }) => {
-            const name = `${p.user?.firstName ?? 'Guest'} ${p.user?.lastName ?? ''}`.trim();
-            const val = Array.isArray(r.response) ? r.response.join(', ') : String(r.response);
+            const name = pollSettings.anonymous
+              ? `anon-${p.user?.email ? 'hidden' : 'student'}`
+              : `${p.user?.firstName ?? 'Guest'} ${p.user?.lastName ?? ''}`.trim();
+            const val = Array.isArray(r.response) ? r.response.join(', ') : typeof r.response === 'object' && r.response
+              ? extractResponseKeys(r.response).join(', ')
+              : String(r.response);
             return `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(val)}</td><td>${r.submittedAt.toLocaleString()}</td><td>${r.isCorrect === true ? '✓' : r.isCorrect === false ? '✗' : '—'}</td></tr>`;
           })
           .join('');
@@ -814,11 +870,12 @@ function generateDetailedReportHTML(
         return `
         <div class="section">
           <h3>Slide ${slide.order} · ${escapeHtml(slide.title)}</h3>
-          <p class="meta">${escapeHtml(interaction.type.replace(/_/g, ' '))} · ${interactionResponses.length} response(s)</p>
+          <p class="meta">${escapeHtml(interaction.type.replace(/_/g, ' '))} · ${interactionResponses.length} response(s) · ${participation}% participation · ${new Date().toLocaleString()}</p>
           <p class="question">${escapeHtml(question)}</p>
           ${optionsHtml ? `<table><tr><th>Option</th><th>Count</th><th>%</th><th>Distribution</th></tr>${optionsHtml}</table>` : ''}
+          ${pollSettings.anonymous ? '<p class="meta">Anonymous poll — student identity hidden.</p>' : ''}
           <h4>Individual Responses</h4>
-          <table><tr><th>Student</th><th>Answer</th><th>Submitted</th><th>Correct</th></tr>${detailRows}</table>
+          <table><tr><th>Student</th><th>Answer</th><th>Submitted</th><th>Correct</th></tr>${detailRows || '<tr><td colspan="4">No responses</td></tr>'}</table>
         </div>`;
       }),
     )

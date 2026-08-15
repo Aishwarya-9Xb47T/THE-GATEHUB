@@ -145,7 +145,7 @@ export function LessonVideoPlaylist({
         )}
       </div>
 
-      <div className="relative w-full bg-black min-h-[220px] md:min-h-[320px]">
+      <div className="relative w-full bg-black aspect-video min-h-[220px]">
         {active && (
           <VideoPlayer
             key={`${active.id}-${active.url}`}
@@ -155,7 +155,7 @@ export function LessonVideoPlaylist({
             youtubeId={active.youtubeId}
             vimeoId={active.vimeoId}
             title={active.label}
-            className="w-full min-h-[220px] md:min-h-[320px]"
+            className="w-full h-full min-h-[220px] aspect-video"
             resumeAt={readStoredProgress(activeProgressKey)}
             onTimeUpdate={(seconds) => storeProgress(activeProgressKey, seconds)}
             onProgress={(pct) => {

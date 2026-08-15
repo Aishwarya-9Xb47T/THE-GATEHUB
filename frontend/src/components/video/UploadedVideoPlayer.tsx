@@ -64,6 +64,7 @@ export function UploadedVideoPlayer({
   const [activeSrc, setActiveSrc] = useState(src);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -103,6 +104,7 @@ export function UploadedVideoPlayer({
     setActiveSrc(src);
     setTriedFallback(false);
     setHasError(false);
+    setErrorDetail(null);
     setIsLoading(true);
     setCurrentTime(0);
     setDuration(0);
@@ -258,12 +260,14 @@ export function UploadedVideoPlayer({
       setTriedFallback(true);
       setActiveSrc(fallbackSrc);
       setHasError(false);
+      setErrorDetail(null);
       setIsLoading(true);
       return;
     }
     const video = videoRef.current;
     if (!video) return;
     setHasError(false);
+    setErrorDetail(null);
     setIsLoading(true);
     video.load();
   };
@@ -325,7 +329,7 @@ export function UploadedVideoPlayer({
   return (
     <div
       ref={containerRef}
-      className={cn("relative w-full h-full bg-black overflow-hidden group select-none", className)}
+      className={cn("relative w-full h-full min-h-[220px] aspect-video bg-black overflow-hidden group select-none", className)}
       onMouseMove={revealControls}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       onContextMenu={(e) => e.preventDefault()}
@@ -340,6 +344,7 @@ export function UploadedVideoPlayer({
       {hasError ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black text-white z-20">
           <p className="text-sm text-red-300">Failed to load video</p>
+          {errorDetail && <p className="text-xs text-white/60">{errorDetail}</p>}
           <button
             type="button"
             onClick={retry}
@@ -417,7 +422,20 @@ export function UploadedVideoPlayer({
                 setBufferedEnd(v.buffered.end(v.buffered.length - 1));
               }
             }}
-            onError={() => {
+            onError={(e) => {
+              const mediaError = e.currentTarget.error;
+              const code = mediaError?.code;
+              const label =
+                code === 1
+                  ? "MEDIA_ERR_ABORTED"
+                  : code === 2
+                    ? "MEDIA_ERR_NETWORK"
+                    : code === 3
+                      ? "MEDIA_ERR_DECODE"
+                      : code === 4
+                        ? "MEDIA_ERR_SRC_NOT_SUPPORTED"
+                        : "MEDIA_ERR_UNKNOWN";
+              console.error("[VIDEO_DEBUG] element_error", label, e.currentTarget.currentSrc?.split("?")[0]);
               if (!triedFallback && fallbackSrc && activeSrc !== fallbackSrc) {
                 setTriedFallback(true);
                 setActiveSrc(fallbackSrc);
@@ -426,6 +444,7 @@ export function UploadedVideoPlayer({
               }
               setIsLoading(false);
               setHasError(true);
+              setErrorDetail(label);
             }}
           >
             <source src={activeSrc} type={mimeType} />

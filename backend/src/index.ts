@@ -191,6 +191,7 @@ async function serveCompiledLatexPdf(req: Request, res: Response) {
       Pragma: "no-cache",
       "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
     });
+    res.removeHeader("X-Frame-Options");
 
     if (req.method === "HEAD") {
       return res.status(200).end();

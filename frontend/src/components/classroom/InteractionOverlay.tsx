@@ -6,13 +6,20 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { parseSlide } from '@/lib/slideParser/index';
+import { formatPollTimer, remainingSeconds, resolvePollContent } from '@/lib/classroom/pollOptions';
 
 export interface Interaction {
   id: string;
   type: string;
+  title?: string;
+  question?: string;
+  options?: any;
   settings?: any;
   duration?: number;
   points?: number;
+  timerEnabled?: boolean;
+  timerEndsAt?: string;
+  status?: string;
 }
 
 export interface InteractionOverlayProps {
@@ -23,6 +30,8 @@ export interface InteractionOverlayProps {
   revealed?: boolean;
   isCorrect?: boolean;
   canReopen?: boolean;
+  results?: any;
+  remainingSeconds?: number | null;
 }
 
 export function InteractionOverlay({
@@ -32,6 +41,8 @@ export function InteractionOverlay({
   onSubmit,
   revealed = false,
   isCorrect,
+  results,
+  remainingSeconds: remainingFromServer,
 }: InteractionOverlayProps) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
@@ -40,23 +51,33 @@ export function InteractionOverlay({
   const [drawingData, setDrawingData] = useState<string | null>(null);
   const [checkedIn, setCheckedIn] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const [localRemaining, setLocalRemaining] = useState<number | null>(remainingFromServer ?? null);
 
-  // SLIDE IS SOURCE OF TRUTH - Extract question and options from slide content
   const parsedSlide = parseSlide(slide);
-  const settings = (interaction.settings ?? {}) as Record<string, unknown>;
-  const settingsOptions = Array.isArray(settings.options)
-    ? (settings.options as Array<{ text: string; isCorrect?: boolean }>)
-    : [];
-  const question =
-    (typeof settings.question === 'string' && settings.question) ||
-    parsedSlide.question ||
-    slide.title ||
-    'Interactive Question';
-  const options = settingsOptions.length > 0 ? settingsOptions : parsedSlide.options;
-  const hasSubmitted = !!submission;
+  const poll = resolvePollContent(interaction, { title: parsedSlide.question || slide.title, parsedOptions: parsedSlide.options });
+  const question = poll.question;
+  const options = poll.options;
+  const hasSubmitted = !!submission && !changing;
+  const allowChange = poll.allowChangeAnswer;
+  const showResults = poll.showResults && (hasSubmitted || poll.status === 'closed' || revealed);
+  const closed = poll.status === 'closed' || remainingFromServer === 0;
+  const timeLeft = remainingFromServer ?? localRemaining;
+
+  useEffect(() => {
+    setLocalRemaining(remainingFromServer ?? remainingSeconds(poll.timerEndsAt));
+  }, [remainingFromServer, poll.timerEndsAt]);
+
+  useEffect(() => {
+    if (timeLeft == null || timeLeft <= 0) return;
+    const id = window.setInterval(() => {
+      setLocalRemaining((current) => (current == null || current <= 0 ? current : current - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [Boolean(timeLeft && timeLeft > 0), interaction.id]);
 
   const handleSubmit = async () => {
-    if (isSubmitting || hasSubmitted) return;
+    if (isSubmitting || (hasSubmitted && !changing) || closed) return;
 
     let response: any;
 
@@ -100,6 +121,7 @@ export function InteractionOverlay({
     setIsSubmitting(true);
     try {
       await onSubmit(response);
+      setChanging(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -116,7 +138,7 @@ export function InteractionOverlay({
             options={options}
             selectedOption={selectedOption}
             setSelectedOption={setSelectedOption}
-            hasSubmitted={hasSubmitted}
+            hasSubmitted={hasSubmitted && !changing}
             revealed={revealed}
             isQuiz={interaction.type === 'quiz'}
           />
@@ -128,7 +150,7 @@ export function InteractionOverlay({
             options={options}
             selectedOptions={selectedOptions}
             setSelectedOptions={setSelectedOptions}
-            hasSubmitted={hasSubmitted}
+            hasSubmitted={hasSubmitted && !changing}
             revealed={revealed}
           />
         );
@@ -211,7 +233,7 @@ export function InteractionOverlay({
   };
 
   const isFormValid = (() => {
-    if (hasSubmitted) return false;
+    if ((hasSubmitted && !changing) || closed) return false;
     switch (interaction.type) {
       case 'poll':
       case 'mcq':
@@ -245,7 +267,7 @@ export function InteractionOverlay({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Badge className="bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-md uppercase tracking-wider text-[11px] font-semibold px-2.5 py-1">
-                {interaction.type.replace(/_/g, ' ')}
+                Live poll
               </Badge>
               {interaction.points ? (
                 <Badge className="bg-amber-400/30 text-amber-100 border-amber-300/40 text-xs px-2.5 py-0.5">
@@ -253,31 +275,57 @@ export function InteractionOverlay({
                 </Badge>
               ) : null}
             </div>
-            {interaction.duration && (
+            {(poll.timerEnabled || timeLeft != null) && (
               <div className="flex items-center gap-1.5 text-xs text-white/90 font-medium bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">
-                <Clock className="w-3.5 h-3.5 text-amber-300" />
-                <span>{interaction.duration}s timer</span>
+                <Clock className={`w-3.5 h-3.5 ${timeLeft != null && timeLeft <= 10 ? 'text-red-300' : 'text-amber-300'}`} />
+                <span>{timeLeft != null ? formatPollTimer(timeLeft) : `${interaction.duration}s`}</span>
               </div>
             )}
           </div>
           <CardTitle className="text-xl font-bold text-white mt-3 leading-snug">
             {question}
           </CardTitle>
+          {poll.description ? <p className="text-sm text-white/80 mt-1">{poll.description}</p> : null}
         </CardHeader>
 
         <ScrollArea className="flex-1 max-h-[62vh]">
           <CardContent className="p-6">
-            {hasSubmitted && !revealed ? (
+            {hasSubmitted && !revealed && !changing ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
-                <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-4 shadow-inner animate-pulse">
+                <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-4 shadow-inner">
                   <Check className="w-10 h-10 text-emerald-600" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-800 mb-2">
-                  Response Recorded!
+                  Response submitted.
                 </h3>
                 <p className="text-slate-600 max-w-md text-sm">
-                  Your answer has been transmitted live to the instructor. Sit tight while responses are collected.
+                  Your answer has been recorded.
                 </p>
+                {allowChange && !closed && (
+                  <Button className="mt-4" variant="outline" onClick={() => setChanging(true)}>
+                    Change answer
+                  </Button>
+                )}
+                {showResults && results?.optionStats && (
+                  <div className="w-full mt-6 text-left space-y-2">
+                    {results.optionStats.map((stat: any) => (
+                      <div key={stat.id || stat.label}>
+                        <div className="flex justify-between text-xs text-slate-600 mb-1">
+                          <span>{stat.label}. {stat.text}</span>
+                          <span>{stat.count} ({stat.percent}%)</span>
+                        </div>
+                        <div className="h-2 rounded bg-slate-200 overflow-hidden">
+                          <div className="h-full bg-violet-500" style={{ width: `${stat.percent}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : closed && hasSubmitted === false ? (
+              <div className="text-center py-8 text-slate-600">
+                <Clock className="h-10 w-10 mx-auto mb-2 text-amber-500" />
+                <p className="font-semibold">This poll is closed.</p>
               </div>
             ) : hasSubmitted && revealed ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -311,7 +359,7 @@ export function InteractionOverlay({
           </CardContent>
         </ScrollArea>
 
-        {!hasSubmitted && !revealed && interaction.type !== 'attendance_check' && (
+        {(!hasSubmitted || changing) && !revealed && !closed && interaction.type !== 'attendance_check' && (
           <div className="border-t bg-slate-50/80 p-4 backdrop-blur-sm">
             <div className="flex items-center justify-end gap-3">
               <Button
@@ -348,35 +396,31 @@ function PollInteraction({
   revealed,
   isQuiz,
 }: {
-  options: Array<{ text: string; isCorrect?: boolean }>;
+  options: Array<{ id?: string; label?: string; text: string; isCorrect?: boolean }>;
   selectedOption: string | null;
   setSelectedOption: (value: string) => void;
   hasSubmitted: boolean;
   revealed?: boolean;
   isQuiz?: boolean;
 }) {
-  // If options were not found in slide content, generate A, B, C, D fallbacks
-  const displayOptions =
-    options.length > 0
-      ? options
-      : [
-          { text: 'Option A' },
-          { text: 'Option B' },
-          { text: 'Option C' },
-          { text: 'Option D' },
-        ];
+  const displayOptions = options.length > 0 ? options : [];
+
+  if (displayOptions.length === 0) {
+    return <p className="text-sm text-slate-500">Waiting for poll options…</p>;
+  }
 
   return (
     <div className="space-y-3">
       {displayOptions.map((option, index) => {
-        const optionLabel = String.fromCharCode(65 + index);
-        const isSelected = selectedOption === option.text || selectedOption === optionLabel;
+        const optionLabel = option.label || String.fromCharCode(65 + index);
+        const value = option.id || option.label || option.text;
+        const isSelected = selectedOption === option.text || selectedOption === optionLabel || selectedOption === option.id;
 
         return (
           <div
-            key={index}
+            key={option.id || index}
             onClick={() => {
-              if (!hasSubmitted) setSelectedOption(option.text);
+              if (!hasSubmitted) setSelectedOption(value);
             }}
             className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all cursor-pointer select-none ${
               isSelected
@@ -419,21 +463,13 @@ function MultipleSelectInteraction({
   hasSubmitted,
   revealed,
 }: {
-  options: Array<{ text: string; isCorrect?: boolean }>;
+  options: Array<{ id?: string; label?: string; text: string; isCorrect?: boolean }>;
   selectedOptions: string[];
   setSelectedOptions: (value: string[]) => void;
   hasSubmitted: boolean;
   revealed?: boolean;
 }) {
-  const displayOptions =
-    options.length > 0
-      ? options
-      : [
-          { text: 'Option A' },
-          { text: 'Option B' },
-          { text: 'Option C' },
-          { text: 'Option D' },
-        ];
+  const displayOptions = options.length > 0 ? options : [];
 
   const toggleOption = (optionText: string) => {
     if (selectedOptions.includes(optionText)) {
@@ -449,13 +485,14 @@ function MultipleSelectInteraction({
         Select all options that apply:
       </p>
       {displayOptions.map((option, index) => {
-        const optionLabel = String.fromCharCode(65 + index);
-        const isSelected = selectedOptions.includes(option.text);
+        const optionLabel = option.label || String.fromCharCode(65 + index);
+        const value = option.id || option.label || option.text;
+        const isSelected = selectedOptions.includes(value) || selectedOptions.includes(option.text);
 
         return (
           <div
-            key={index}
-            onClick={() => !hasSubmitted && toggleOption(option.text)}
+            key={option.id || index}
+            onClick={() => !hasSubmitted && toggleOption(value)}
             className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all cursor-pointer select-none ${
               isSelected
                 ? 'border-violet-600 bg-violet-50/80 shadow-md ring-2 ring-violet-200'

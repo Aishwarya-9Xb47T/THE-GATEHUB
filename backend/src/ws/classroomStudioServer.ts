@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/jwt.js';
 import { prisma } from '../utils/prisma.js';
+import * as pollService from '../services/classroomStudio/pollService.js';
 import type {
   SlideChangeEvent,
   AnnotationEvent,
@@ -123,6 +124,21 @@ wss.on('connection', (ws: ClassroomClient, request: any) => {
       };
       ws.send(JSON.stringify(welcomeMessage));
       console.log('[WS] Welcome message sent', { sessionId, userId });
+
+      void pollService.resumePollTimer(sessionId, classroomSession.activeInteractionId);
+      void pollService.getActivePollSync(sessionId, userId, role).then((sync) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+          type: 'poll:sync',
+          data: {
+            ...sync,
+            interactionId: sync.activePoll?.id ?? null,
+            interaction: sync.activePoll,
+          },
+        }));
+      }).catch((error) => {
+        console.error('[WS] Failed to sync active poll', { sessionId, userId, error });
+      });
 
       // Notify others that user joined
       broadcastToSession(sessionId, {
@@ -712,7 +728,8 @@ async function handleChatMessage(
 function broadcastToSession(
   sessionId: string,
   message: any,
-  excludeUserId?: string
+  excludeUserId?: string,
+  role?: 'instructor' | 'student'
 ) {
   const session = activeSessions.get(sessionId);
   if (!session) return;
@@ -721,6 +738,7 @@ function broadcastToSession(
 
   session.clients.forEach((client, userId) => {
     if (excludeUserId && userId === excludeUserId) return;
+    if (role && client.role !== role) return;
     if (client.readyState === WebSocket.OPEN) {
       client.send(messageStr);
     }
@@ -744,9 +762,16 @@ wss.on('close', () => {
   clearInterval(interval);
 });
 
-export function broadcastToSessionId(sessionId: string, message: any) {
-  broadcastToSession(sessionId, message);
+export function broadcastToSessionId(sessionId: string, message: any, role?: 'instructor' | 'student') {
+  broadcastToSession(sessionId, message, undefined, role);
 }
+
+pollService.setPollBroadcaster((sessionId, message, role) => {
+  broadcastToSession(sessionId, message, undefined, role);
+});
+pollService.setPollRuntimeUpdater((sessionId, patch) => {
+  updateSessionRuntimeState(sessionId, patch);
+});
 
 /** Keeps reconnecting clients in sync when an authoritative HTTP mutation is
  * used (the same mutation path used by the instructor UI). */

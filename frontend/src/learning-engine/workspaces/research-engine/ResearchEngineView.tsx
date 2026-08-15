@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { ManagedMonacoEditor } from "../engine/ManagedMonacoEditor";
 import { researchModelKey } from "../engine/monacoModelRegistry";
-import { withUploadAuth } from "@/lib/courseMediaUrls";
+import { loadAuthenticatedPdfBlob, redactMediaUrl } from "@/lib/courseMediaUrls";
 import type { useResearchEngine } from "./useResearchEngine";
 import { FileTree } from "./components/FileTree";
 import { EditorTabs } from "./components/EditorTabs";
@@ -34,12 +34,47 @@ export function ResearchEngineView({
   const pdfUrl = doc.lastCompile?.pdfUrl ?? null;
   const logs = doc.lastCompile?.logs;
   const errors = doc.lastCompile?.errors;
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
-  const iframeSrc = useMemo(() => {
-    if (!pdfUrl) return null;
-    const authed = withUploadAuth(pdfUrl);
-    const sep = authed.includes("?") ? "&" : "?";
-    return `${authed}${sep}t=${pdfEpoch}`;
+  useEffect(() => {
+    if (!pdfUrl) {
+      setPreviewBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    console.log("[RESEARCH_PDF_URL] compile=", redactMediaUrl(pdfUrl));
+
+    void loadAuthenticatedPdfBlob(`${pdfUrl}${pdfUrl.includes("?") ? "&" : "?"}t=${pdfEpoch}`)
+      .then((blobUrl) => {
+        if (cancelled) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        objectUrl = blobUrl;
+        setPreviewBlobUrl(blobUrl);
+        setPreviewLoading(false);
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setPreviewError(err.message || "PDF load error");
+        setPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [pdfUrl, pdfEpoch]);
 
   return (
@@ -110,8 +145,16 @@ export function ResearchEngineView({
           PDF Preview
         </div>
         <div className="flex-1 min-h-0 bg-[#0d1117]">
-          {iframeSrc ? (
-            <iframe key={pdfEpoch} title="PDF preview" src={iframeSrc} className="w-full h-full border-0" />
+          {previewLoading ? (
+            <div className="h-full flex items-center justify-center text-xs text-[#8b949e] p-6 text-center">
+              Loading PDF preview...
+            </div>
+          ) : previewError ? (
+            <div className="h-full flex items-center justify-center text-xs text-red-400 p-6 text-center">
+              PDF load error: {previewError}
+            </div>
+          ) : previewBlobUrl ? (
+            <iframe title="PDF preview" src={previewBlobUrl} className="w-full h-full border-0 bg-white" />
           ) : (
             <div className="h-full flex items-center justify-center text-xs text-[#8b949e] p-6 text-center">
               Click Compile to generate your research paper PDF

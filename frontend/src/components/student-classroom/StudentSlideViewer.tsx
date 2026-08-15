@@ -29,6 +29,8 @@ interface Props {
   onNext: () => void;
   onInteractionSubmit: (response: any) => Promise<void>;
   connectionStatus: 'connected' | 'disconnected' | 'recovering';
+  pollResults?: any;
+  remainingSeconds?: number | null;
 }
 
 function formatResponseLabel(response: unknown): string {
@@ -51,10 +53,13 @@ export function StudentSlideViewer({
   onPrev,
   onNext,
   onInteractionSubmit,
+  pollResults,
+  remainingSeconds,
 }: Props) {
   const isLocked = navigation === 'locked';
   const awaitingAnswer = Boolean(activeInteraction && currentSlide && !submission);
   const hasSubmitted = Boolean(submission && activeInteraction);
+  const keepOverlay = Boolean(activeInteraction && currentSlide);
 
   const isCorrect = (() => {
     if (!submission || !activeInteraction?.settings?.correctAnswer) return undefined;
@@ -164,7 +169,7 @@ export function StudentSlideViewer({
       </div>
 
       {/* Full-screen overlay only while answering (not after submit) */}
-      {awaitingAnswer && (
+      {keepOverlay && (
         <InteractionOverlay
           interaction={activeInteraction!}
           slide={currentSlide!}
@@ -172,6 +177,8 @@ export function StudentSlideViewer({
           onSubmit={onInteractionSubmit}
           revealed={revealed}
           isCorrect={isCorrect}
+          results={pollResults}
+          remainingSeconds={remainingSeconds}
         />
       )}
 

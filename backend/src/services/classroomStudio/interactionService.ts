@@ -151,6 +151,10 @@ export async function updateInteraction(
   const interaction = await prisma.interaction.update({
     where: { id },
     data: {
+      type: data.type,
+      title: data.title,
+      question: data.question,
+      options: data.options as any,
       settings: data.settings,
       duration: data.duration,
       points: data.points,
@@ -217,6 +221,9 @@ export async function duplicateInteraction(id: string): Promise<Interaction> {
     data: {
       slideId: original.slideId,
       type: original.type,
+      title: original.title,
+      question: original.question,
+      options: original.options ?? undefined,
       settings: original.settings ?? undefined,
       duration: original.duration,
       points: original.points,

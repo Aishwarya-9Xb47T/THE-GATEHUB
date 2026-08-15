@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Users, Clock, QrCode, Play, Pause, Square, ChevronLeft, ChevronRight, Maximize2, Minimize2, Lock, BarChart3, Radio, ChevronDown, ChevronUp, Eye, EyeOff, RotateCcw, Pen, Eraser, Trash2, Plus, Zap, BarChart2, MessageSquare, Star, Hash, Smile, PenLine, UserCheck, LogOut, BrainCircuit, Image, ToggleLeft, AlignLeft, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Check } from "lucide-react";
+import { ArrowLeft, Users, Clock, QrCode, Play, Pause, Square, ChevronLeft, ChevronRight, Maximize2, Minimize2, Lock, BarChart3, Radio, ChevronDown, ChevronUp, Eye, EyeOff, RotateCcw, Pen, Eraser, Trash2, Plus, Zap, BarChart2, MessageSquare, Star, Hash, Smile, PenLine, UserCheck, LogOut, BrainCircuit, Image, ToggleLeft, AlignLeft, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Check, Copy, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { buildClassroomJoinUrl, isCrossDeviceShareUnsafe } from "@/lib/classroom/joinUrls";
 import { SessionQrPanel } from "@/components/classroom/SessionQrPanel";
@@ -15,6 +15,8 @@ import { apiUrl, getToken, getWsConnectTarget } from "@/lib/api";
 import { getUserIdFromToken } from "@/lib/auth";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
 import { parseSlide } from "@/lib/slideParser/index";
+import { CreatePollDialog, type CreatePollPayload } from "@/components/classroom/CreatePollDialog";
+import { formatPollTimer, parsePollOptions, remainingSeconds, resolvePollContent } from "@/lib/classroom/pollOptions";
 
 interface Slide {
   id: string;
@@ -33,6 +35,9 @@ function getVisibleSlides(slides: Slide[]): Slide[] {
 interface Interaction {
   id: string;
   type: string;
+  title?: string;
+  question?: string;
+  options?: any;
   settings?: any;
   duration?: number;
   points: number;
@@ -64,7 +69,23 @@ interface SessionData {
   settings?: { navigation?: "locked" | "previous" | "next" | "free"; pointer?: { x: number; y: number } };
 }
 
-interface ResponseSummary { totalResponses: number; correctResponses: number; incorrectResponses: number; averageDuration: number; responseRate: number; optionCounts: Record<string, number>; respondents?: Record<string, Array<{ userId: string; firstName: string; lastName: string; avatar?: string }>> }
+interface ResponseSummary {
+  totalResponses: number;
+  correctResponses: number;
+  incorrectResponses: number;
+  averageDuration: number;
+  responseRate: number;
+  optionCounts: Record<string, number>;
+  respondents?: Record<string, Array<{ userId: string; firstName: string; lastName: string; avatar?: string }>>;
+  pending?: number;
+  participationPercent?: number;
+  accuracyPercent?: number | null;
+  optionStats?: Array<{ id: string; label: string; text: string; count: number; percent: number; isCorrect?: boolean }>;
+  anonymous?: boolean;
+  remainingSeconds?: number | null;
+  status?: string;
+  question?: string | null;
+}
 
 interface LiveResponseEntry {
   id: string;
@@ -104,6 +125,14 @@ export function InteractiveClassroomSession() {
   const [showAnnouncementDialog, setShowAnnouncementDialog] = useState(false);
   const [announcementText, setAnnouncementText] = useState("");
   const [isPaused, setIsPaused] = useState(false);
+  const [createPollOpen, setCreatePollOpen] = useState(false);
+  const [pollSaving, setPollSaving] = useState(false);
+  const [editingPoll, setEditingPoll] = useState<CreatePollPayload | null>(null);
+  const [editingPollId, setEditingPollId] = useState<string | null>(null);
+  const [pollHistory, setPollHistory] = useState<Array<any>>([]);
+  const [closedPollId, setClosedPollId] = useState<string | null>(null);
+  const [pollRemaining, setPollRemaining] = useState<number | null>(null);
+  const [viewingHistoryPollId, setViewingHistoryPollId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<number | null>(null);
@@ -112,6 +141,14 @@ export function InteractiveClassroomSession() {
 
   // Keep sessionRef current for use in WS callbacks without stale closure
   useEffect(() => { sessionRef.current = session; }, [session]);
+
+  useEffect(() => {
+    if (!session?.activeInteractionId || pollRemaining == null) return;
+    const id = window.setInterval(() => {
+      setPollRemaining((current) => (current == null || current <= 0 ? current : current - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [session?.activeInteractionId]);
 
   const fetchResponseSummary = useCallback(async (interactionId: string) => {
     if (!sessionId) return;
@@ -125,6 +162,20 @@ export function InteractiveClassroomSession() {
       }
     } catch {
       /* ignore — WS will catch up */
+    }
+  }, [sessionId]);
+
+  const fetchPollHistory = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/polls`), {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (response.ok) {
+        setPollHistory(await response.json());
+      }
+    } catch {
+      /* ignore */
     }
   }, [sessionId]);
 
@@ -183,6 +234,7 @@ export function InteractiveClassroomSession() {
       if (data.activeInteractionId) {
         void fetchResponseSummary(data.activeInteractionId);
       }
+      void fetchPollHistory();
     } catch (error: any) {
       console.error("Failed to fetch session:", error);
     } finally {
@@ -251,6 +303,10 @@ export function InteractiveClassroomSession() {
         break;
       case 'interaction:activate':
       case 'interaction:launch':
+      case 'poll:launch':
+        setClosedPollId(null);
+        setViewingHistoryPollId(null);
+        setPollRemaining(message.data?.remainingSeconds ?? remainingSeconds(message.data?.interaction?.timerEndsAt || message.data?.interaction?.settings?.timerEndsAt));
         setSession((current) => {
           if (!current) return current;
           const newInteraction = message.data.interaction;
@@ -272,9 +328,14 @@ export function InteractiveClassroomSession() {
         setExpandedOptions({});
         setLiveResponses([]);
         if (message.data.interactionId) void fetchResponseSummary(message.data.interactionId);
+        void fetchPollHistory();
         break;
       case "interaction:deactivate":
       case "interaction:close":
+      case "poll:close":
+        setClosedPollId(message.data?.interactionId ?? sessionRef.current?.activeInteractionId ?? null);
+        setPollRemaining(0);
+        if (message.data?.summary) setSummary(message.data.summary);
         setSession((current) => current ? { ...current, activeInteractionId: null } : current);
         setRevealed(false);
         setExpandedOptions({});
@@ -290,7 +351,17 @@ export function InteractiveClassroomSession() {
         setSession((current) => current ? { ...current, presentation: { ...current.presentation, slides: current.presentation.slides.map((slide) => slide.id === message.data.slide.id ? { ...slide, ...message.data.slide } : slide) } } : current);
         break;
       case 'analytics:update':
+      case 'poll:results':
         if (message.data.summary) setSummary(message.data.summary);
+        if (typeof message.data?.remainingSeconds === 'number') setPollRemaining(message.data.remainingSeconds);
+        break;
+      case 'poll:timer':
+        if (typeof message.data?.remainingSeconds === 'number') setPollRemaining(message.data.remainingSeconds);
+        break;
+      case 'poll:sync':
+        if (message.data?.activePoll) {
+          setPollRemaining(message.data.remainingSeconds ?? remainingSeconds(message.data.activePoll.timerEndsAt || message.data.activePoll.settings?.timerEndsAt));
+        }
         break;
       case 'participant:response': {
         const d = message.data;
@@ -619,6 +690,130 @@ export function InteractiveClassroomSession() {
     await quickLaunchInteraction(type);
   };
 
+  const saveOrLaunchPoll = async (payload: CreatePollPayload) => {
+    if (!sessionId) return;
+    setPollSaving(true);
+    try {
+      const endpoint = editingPollId
+        ? `/api/classroom-studio/sessions/${sessionId}/polls/${editingPollId}`
+        : `/api/classroom-studio/sessions/${sessionId}/polls`;
+      const response = await fetch(apiUrl(endpoint), {
+        method: editingPollId ? "PATCH" : "POST",
+        headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, launch: payload.launch && !editingPollId }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to save poll");
+      }
+      const result = await response.json();
+      const pollId = result.interaction?.id || editingPollId;
+      if (payload.launch && pollId && editingPollId) {
+        const launchRes = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/polls/${pollId}/launch`), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!launchRes.ok) {
+          const err = await launchRes.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to launch poll");
+        }
+      }
+      setCreatePollOpen(false);
+      setEditingPoll(null);
+      setEditingPollId(null);
+      setClosedPollId(null);
+      void fetchPollHistory();
+      toast({
+        title: payload.launch ? "Poll launched" : "Draft saved",
+        description: payload.launch ? "Students can answer now" : "Poll saved without launching",
+      });
+    } catch (error: any) {
+      toast({ title: "Poll error", description: error.message || "Could not save poll", variant: "destructive" });
+    } finally {
+      setPollSaving(false);
+    }
+  };
+
+  const closeActivePoll = async () => {
+    const pollId = session?.activeInteractionId;
+    if (!sessionId || !pollId) {
+      await endInteraction();
+      return;
+    }
+    try {
+      const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/polls/${pollId}/close`), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!response.ok) {
+        await endInteraction();
+        return;
+      }
+      const result = await response.json();
+      setClosedPollId(pollId);
+      if (result.summary) setSummary(result.summary);
+      setPollRemaining(0);
+      void fetchPollHistory();
+    } catch {
+      await endInteraction();
+    }
+  };
+
+  const duplicateHistoryPoll = async (pollId: string) => {
+    const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/polls/${pollId}/duplicate`), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!response.ok) {
+      toast({ title: "Could not duplicate poll", variant: "destructive" });
+      return;
+    }
+    const poll = await response.json();
+    setEditingPollId(poll.id);
+    setEditingPoll({
+      question: poll.question || "",
+      pollKind: poll.settings?.pollKind || "single_choice",
+      type: poll.settings?.pollKind || "single_choice",
+      options: parsePollOptions(poll.options),
+      anonymous: Boolean(poll.settings?.anonymous),
+      showResults: poll.settings?.showResults !== false,
+      allowChangeAnswer: Boolean(poll.settings?.allowChangeAnswer),
+      required: Boolean(poll.settings?.required),
+      shuffleOptions: Boolean(poll.settings?.shuffleOptions),
+      timerEnabled: Boolean(poll.settings?.timerEnabled),
+      durationSeconds: poll.settings?.durationSeconds ?? poll.duration,
+      launch: false,
+    });
+    setCreatePollOpen(true);
+    void fetchPollHistory();
+  };
+
+  const relaunchHistoryPoll = async (pollId: string) => {
+    const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/polls/${pollId}/launch`), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      toast({ title: "Could not re-launch", description: err.error || "Duplicate the poll first if it already closed.", variant: "destructive" });
+      return;
+    }
+    void fetchPollHistory();
+  };
+
+  const deleteHistoryPoll = async (pollId: string) => {
+    const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/polls/${pollId}`), {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      toast({ title: "Could not delete poll", description: err.error, variant: "destructive" });
+      return;
+    }
+    void fetchPollHistory();
+  };
+
   const exportCsv = async () => {
     try {
       const response = await fetch(apiUrl(`/api/classroom-studio/sessions/${sessionId}/export/csv`), {
@@ -687,23 +882,20 @@ export function InteractiveClassroomSession() {
   const currentSlide = session.presentation.slides.find(s => s.id === session.currentSlideId);
   const visibleSlides = getVisibleSlides(session.presentation.slides);
   const visibleSlideIndex = currentSlide ? visibleSlides.findIndex((s) => s.id === currentSlide.id) : -1;
-  const activeInteraction = currentSlide?.interactions.find(i => i.id === session.activeInteractionId);
+  const displayedInteractionId = session.activeInteractionId || closedPollId || viewingHistoryPollId;
+  const displayedInteraction =
+    currentSlide?.interactions.find((i) => i.id === displayedInteractionId) ||
+    session.presentation.slides.flatMap((slide) => slide.interactions).find((i) => i.id === displayedInteractionId);
+  const activeInteraction = currentSlide?.interactions.find(i => i.id === session.activeInteractionId) || displayedInteraction;
+  const pollClosed = Boolean(closedPollId && !session.activeInteractionId);
   
   // Parse slide content for interaction display
   const parsedSlide = currentSlide ? parseSlide(currentSlide) : null;
-  const activeSettings = (activeInteraction?.settings ?? {}) as Record<string, unknown>;
-  const settingsOptions = Array.isArray(activeSettings.options)
-    ? (activeSettings.options as Array<{ text: string }>)
-    : [];
-  const interactionContent = activeInteraction
-    ? {
-        question:
-          (typeof activeSettings.question === 'string' && activeSettings.question) ||
-          parsedSlide?.question ||
-          currentSlide?.title ||
-          '',
-        options: settingsOptions.length > 0 ? settingsOptions : parsedSlide?.options ?? [],
-      }
+  const pollContent = activeInteraction
+    ? resolvePollContent(activeInteraction, { title: parsedSlide?.question || currentSlide?.title, parsedOptions: parsedSlide?.options })
+    : null;
+  const interactionContent = pollContent
+    ? { question: pollContent.question, options: pollContent.options }
     : null;
 
   const gridTemplateColumns = [
@@ -978,9 +1170,12 @@ export function InteractiveClassroomSession() {
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <BarChart3 className="h-4 w-4 text-violet-300 shrink-0" />
-                      <span className="text-sm font-semibold text-white truncate">Response analytics</span>
+                      <span className="text-sm font-semibold text-white truncate">{pollClosed ? 'Poll closed' : 'Active poll'}</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      {pollRemaining != null && session.activeInteractionId && (
+                        <Badge className="bg-amber-500/20 text-amber-200 border-0">{formatPollTimer(pollRemaining)}</Badge>
+                      )}
                       {!revealed ? (
                         <Button size="sm" variant="outline" onClick={revealAnswers} className="h-7 text-xs border-white/20 bg-white/5 text-white hover:bg-white/10">
                           <Eye className="w-3 h-3 mr-1" />
@@ -994,13 +1189,22 @@ export function InteractiveClassroomSession() {
                       )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs mb-4">
-                    <div><b className="block text-lg text-white">{summary?.totalResponses ?? 0}</b><span className="text-slate-400">submitted</span></div>
-                    <div><b className="block text-lg text-white">{Math.round(summary?.responseRate ?? 0)}%</b><span className="text-slate-400">participation</span></div>
+                  {interactionContent?.question && (
+                    <p className="text-sm font-medium text-white mb-3 leading-snug">{interactionContent.question}</p>
+                  )}
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs mb-3">
+                    <div><b className="block text-lg text-white">{summary?.totalResponses ?? 0}</b><span className="text-slate-400">answered</span></div>
+                    <div><b className="block text-lg text-white">{Math.round(summary?.participationPercent ?? summary?.responseRate ?? 0)}%</b><span className="text-slate-400">participation</span></div>
                     <div><b className="block text-lg text-white">{Math.round(summary?.averageDuration ?? 0)}s</b><span className="text-slate-400">average</span></div>
                   </div>
+                  {typeof summary?.accuracyPercent === 'number' && (
+                    <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md bg-emerald-500/10 px-2 py-1.5 text-emerald-200">Correct {Math.round(summary.accuracyPercent)}%</div>
+                      <div className="rounded-md bg-rose-500/10 px-2 py-1.5 text-rose-200">Incorrect {Math.round(100 - summary.accuracyPercent)}%</div>
+                    </div>
+                  )}
 
-                  {liveResponses.length > 0 && (
+                  {liveResponses.length > 0 && !summary?.anonymous && (
                     <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300 mb-2">Live responses</p>
                       <div className="space-y-1.5 max-h-32 overflow-y-auto">
@@ -1017,23 +1221,23 @@ export function InteractiveClassroomSession() {
                     </div>
                   )}
 
-                  {((interactionContent?.options && interactionContent.options.length > 0)
+                  {(interactionContent?.options && interactionContent.options.length > 0
                     ? interactionContent.options
-                    : [{ text: 'Option A' }, { text: 'Option B' }, { text: 'Option C' }, { text: 'Option D' }]
+                    : []
                   ).map((option: any, index: number) => {
-                    const optionKey = option.text || String.fromCharCode(65 + index);
-                    const count = (summary?.optionCounts?.[optionKey] || summary?.optionCounts?.[option.text] || summary?.optionCounts?.[String(index)]) ?? 0;
+                    const optionKey = option.label || option.text || String.fromCharCode(65 + index);
+                    const count = (summary?.optionCounts?.[option.label] || summary?.optionCounts?.[optionKey] || summary?.optionCounts?.[option.text] || summary?.optionCounts?.[option.id] || 0);
                     const percent = summary?.totalResponses ? Math.round((count / summary.totalResponses) * 100) : 0;
                     const isExpanded = expandedOptions[optionKey] || expandedOptions[option.text];
-                    const respondents = (summary?.respondents?.[optionKey] || summary?.respondents?.[option.text] || summary?.respondents?.[String(index)]) || [];
+                    const respondents = (summary?.respondents?.[option.label] || summary?.respondents?.[optionKey] || summary?.respondents?.[option.text] || []) ;
 
                     return (
-                      <div key={index} className="mt-3">
+                      <div key={option.id || index} className="mt-3">
                         <div className="mb-1 flex justify-between items-center text-xs gap-2">
-                          <span className="font-medium text-white truncate">{String.fromCharCode(65 + index)} · {option.text}</span>
+                          <span className="font-medium text-white truncate">{option.label || String.fromCharCode(65 + index)} · {option.text}</span>
                           <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-slate-400">{count}</span>
-                            {count > 0 && (
+                            <span className="text-slate-400">{count}{summary?.totalResponses ? ` (${percent}%)` : ''}</span>
+                            {count > 0 && !summary?.anonymous && (
                               <Button size="sm" variant="ghost" onClick={() => toggleOptionExpansion(optionKey)} className="h-5 w-5 p-0 text-slate-400 hover:text-white">
                                 {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                               </Button>
@@ -1066,12 +1270,25 @@ export function InteractiveClassroomSession() {
                   <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Launch Interaction</p>
                   {addingInteraction && <span className="text-xs text-violet-400 animate-pulse">Launching…</span>}
                 </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditingPoll(null);
+                    setEditingPollId(null);
+                    setCreatePollOpen(true);
+                  }}
+                  disabled={!session.currentSlideId || addingInteraction}
+                  className="w-full mb-2 text-xs font-medium bg-violet-600 hover:bg-violet-500 text-white"
+                >
+                  <Plus className="mr-2 h-3.5 w-3.5" />
+                  Create Poll
+                </Button>
                 {!session.currentSlideId ? (
                   <p className="text-xs text-slate-500">Select a slide first</p>
                 ) : session.activeInteractionId ? (
-                  <Button variant="destructive" size="sm" onClick={endInteraction} className="w-full text-xs font-medium">
+                  <Button variant="destructive" size="sm" onClick={closeActivePoll} className="w-full text-xs font-medium">
                     <Pause className="mr-2 h-3.5 w-3.5" />
-                    Close Active Interaction
+                    Close Poll
                   </Button>
                 ) : (
                   <div className="space-y-2">
@@ -1105,6 +1322,31 @@ export function InteractiveClassroomSession() {
                     >
                       More Modes…
                     </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                  <History className="h-3 w-3" /> Poll history
+                </p>
+                {pollHistory.length === 0 ? (
+                  <p className="text-xs text-slate-500">No polls yet this session.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {pollHistory.slice(0, 8).map((poll) => (
+                      <div key={poll.id} className="rounded-lg border border-white/10 bg-white/5 p-2">
+                        <p className="text-xs text-white font-medium truncate">{poll.question}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{poll.responseCount} responses · {poll.status}</p>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-200" onClick={() => { setViewingHistoryPollId(poll.id); setClosedPollId(poll.id); void fetchResponseSummary(poll.id); }}>View</Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-200" onClick={() => void relaunchHistoryPoll(poll.id)}>Re-launch</Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-200" onClick={() => void duplicateHistoryPoll(poll.id)}><Copy className="h-3 w-3 mr-1" />Duplicate</Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-200" onClick={() => { setEditingPollId(poll.id); setEditingPoll({ question: poll.question, pollKind: poll.pollKind, type: poll.pollKind, options: poll.options, anonymous: poll.settings?.anonymous, showResults: poll.settings?.showResults, allowChangeAnswer: poll.settings?.allowChangeAnswer, required: poll.settings?.required, shuffleOptions: poll.settings?.shuffleOptions, timerEnabled: poll.settings?.timerEnabled, durationSeconds: poll.settings?.durationSeconds, launch: false }); setCreatePollOpen(true); }}>Edit</Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-rose-300" onClick={() => void deleteHistoryPoll(poll.id)}>Delete</Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1378,6 +1620,20 @@ export function InteractiveClassroomSession() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <CreatePollDialog
+        open={createPollOpen}
+        onOpenChange={(open) => {
+          setCreatePollOpen(open);
+          if (!open) {
+            setEditingPoll(null);
+            setEditingPollId(null);
+          }
+        }}
+        initial={editingPoll ?? undefined}
+        saving={pollSaving}
+        onSubmit={saveOrLaunchPoll}
+      />
     </div>
   );
 }

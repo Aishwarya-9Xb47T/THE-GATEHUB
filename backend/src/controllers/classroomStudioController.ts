@@ -14,6 +14,7 @@ import * as participantService from '../services/classroomStudio/participantServ
 import * as responseService from '../services/classroomStudio/responseService.js';
 import * as qrCodeService from '../services/classroomStudio/qrCodeService.js';
 import * as analyticsService from '../services/classroomStudio/analyticsService.js';
+import * as pollService from '../services/classroomStudio/pollService.js';
 import * as aiRecommendationService from '../services/classroomStudio/aiRecommendationService.js';
 import * as presentationImportService from '../services/classroomStudio/presentationImportService.js';
 import * as googleSlidesPublicService from '../services/classroomStudio/googleSlidesPublicService.js';
@@ -21,6 +22,7 @@ import * as sessionTokenService from '../services/classroomStudio/sessionTokenSe
 import { analyzeSlideContent as parseSlideInteraction } from '../services/classroomStudio/slideParserEngine.js';
 import { enrichInteractionSettings } from '../services/classroomStudio/slideContentParser.js';
 import { broadcastToSessionId, updateSessionRuntimeState } from '../ws/classroomStudioServer.js';
+import { toPublicPollSummary, getPollSettings } from '../services/classroomStudio/pollUtils.js';
 
 function getUserId(req: Request): string {
   return (req as any).user?.id || '';
@@ -445,7 +447,7 @@ export async function activateInteraction(req: Request, res: Response, next: Nex
 
     const interaction = await prisma.interaction.findUnique({
       where: { id: interactionId },
-      select: { id: true, type: true, settings: true, duration: true, points: true, slideId: true },
+      select: { id: true, type: true, title: true, question: true, options: true, settings: true, duration: true, points: true, slideId: true },
     });
 
     let broadcastInteraction = interaction ?? undefined;
@@ -623,6 +625,11 @@ export async function getSessionRecoveryState(req: Request, res: Response, next:
     }
 
     const settings = (session.settings as Record<string, unknown>) ?? {};
+    const pollSync = await pollService.getActivePollSync(
+      sessionId,
+      userId,
+      session.instructorId === userId ? 'instructor' : 'student',
+    );
 
     res.json({
       currentSlideId: session.currentSlideId ?? null,
@@ -631,6 +638,9 @@ export async function getSessionRecoveryState(req: Request, res: Response, next:
       navigation: (settings.navigation as string) ?? 'locked',
       submittedInteractions,
       status: session.status,
+      activePoll: pollSync.activePoll,
+      remainingSeconds: pollSync.remainingSeconds,
+      serverTime: pollSync.serverTime,
     });
   } catch (error) {
     next(error);
@@ -660,12 +670,19 @@ export async function submitResponse(req: Request, res: Response, next: NextFunc
       timeSpent,
     );
 
+    const interaction = await prisma.interaction.findUnique({
+      where: { id: interactionId },
+      select: { settings: true },
+    });
+    const anonymous = Boolean((interaction?.settings as Record<string, unknown> | null)?.anonymous);
+
     const participantUser = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, firstName: true, lastName: true, avatar: true },
     });
 
     // IMMEDIATELY broadcast analytics update - REAL-TIME NO POLLING
+    const showResults = (interaction?.settings as Record<string, unknown> | null)?.showResults !== false;
     const summary = await responseService.getResponseSummary(sessionId, interactionId);
     broadcastToSessionId(sessionId, {
       type: 'analytics:update',
@@ -674,17 +691,34 @@ export async function submitResponse(req: Request, res: Response, next: NextFunc
         summary,
         timestamp: new Date().toISOString(),
       },
-    });
+    }, 'instructor');
+    broadcastToSessionId(sessionId, {
+      type: 'poll:results',
+      data: {
+        interactionId,
+        summary: toPublicPollSummary(summary as any, showResults),
+        timestamp: new Date().toISOString(),
+      },
+    }, 'student');
 
     broadcastToSessionId(sessionId, {
       type: 'participant:response',
       data: {
-        userId,
+        userId: anonymous ? undefined : userId,
+        anonymousId: anonymous ? `anon-${participant.id.slice(-6)}` : undefined,
         interactionId,
-        response,
-        firstName: participantUser?.firstName ?? 'Student',
-        lastName: participantUser?.lastName ?? '',
+        response: anonymous ? undefined : response,
+        firstName: anonymous ? 'Anonymous' : (participantUser?.firstName ?? 'Student'),
+        lastName: anonymous ? '' : (participantUser?.lastName ?? ''),
         submittedAt: new Date().toISOString(),
+      },
+    }, 'instructor');
+    broadcastToSessionId(sessionId, {
+      type: 'poll:answer',
+      data: {
+        interactionId,
+        participantId: anonymous ? undefined : participant.id,
+        timestamp: new Date().toISOString(),
       },
     });
 
@@ -712,9 +746,19 @@ export async function getResponses(req: Request, res: Response, next: NextFuncti
 export async function getResponseSummary(req: Request, res: Response, next: NextFunction) {
   try {
     const { sessionId, interactionId } = req.params;
-
+    const userId = getUserId(req);
+    const session = await prisma.classroomSession.findUnique({
+      where: { id: sessionId },
+      select: { instructorId: true },
+    });
+    if (!session) throw new AppError(404, 'Session not found');
     const summary = await responseService.getResponseSummary(sessionId, interactionId);
-
+    if (session.instructorId !== userId) {
+      const interaction = await prisma.interaction.findUnique({ where: { id: interactionId } });
+      const settings = getPollSettings(interaction ?? { settings: {} });
+      res.json(toPublicPollSummary(summary as any, settings.showResults && settings.status === 'closed'));
+      return;
+    }
     res.json(summary);
   } catch (error) {
     next(error);
@@ -1437,4 +1481,103 @@ export async function exportSessionPdf(req: Request, res: Response, next: NextFu
     next(error);
   }
 }
+
+export async function createSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const instructorId = getUserId(req);
+    const launch = Boolean(req.body?.launch);
+    const result = await pollService.createAndMaybeLaunch(sessionId, instructorId, {
+      ...req.body,
+      launch,
+    });
+    res.status(launch ? 201 : 201).json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listSessionPolls(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const instructorId = getUserId(req);
+    const polls = await pollService.listSessionPolls(sessionId, instructorId);
+    res.json(polls);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const { pollId } = req.params;
+    const instructorId = getUserId(req);
+    const poll = await pollService.getPollForInstructor(sessionId, instructorId, pollId);
+    res.json(poll);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const { pollId } = req.params;
+    const instructorId = getUserId(req);
+    const poll = await pollService.updatePollDraft(sessionId, instructorId, pollId, req.body);
+    res.json(poll);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function launchSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const { pollId } = req.params;
+    const instructorId = getUserId(req);
+    const result = await pollService.launchPoll(sessionId, instructorId, pollId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function closeSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const { pollId } = req.params;
+    const instructorId = getUserId(req);
+    const result = await pollService.closePoll(sessionId, instructorId, pollId, { asInstructor: true, reason: 'instructor' });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function duplicateSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const { pollId } = req.params;
+    const instructorId = getUserId(req);
+    const poll = await pollService.duplicatePoll(sessionId, instructorId, pollId);
+    res.status(201).json(poll);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteSessionPoll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionId = req.params.sessionId || req.params.id;
+    const { pollId } = req.params;
+    const instructorId = getUserId(req);
+    const result = await pollService.deletePoll(sessionId, instructorId, pollId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
 

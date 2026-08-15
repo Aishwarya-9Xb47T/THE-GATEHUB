@@ -55,11 +55,15 @@ export interface Slide {
 export interface Interaction {
   id: string;
   type: string;
-  title: string;
-  question: string;
+  title?: string;
+  question?: string;
   options?: any[];
+  settings?: any;
   duration?: number;
   points: number;
+  timerEnabled?: boolean;
+  timerEndsAt?: string;
+  status?: string;
 }
 
 export interface StudentViewData {
@@ -126,6 +130,8 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
   const [activeInteraction, setActiveInteraction] = useState<Interaction | null>(null);
   const [submission, setSubmission] = useState<StudentSubmission | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [pollResults, setPollResults] = useState<any>(null);
+  const [pollRemaining, setPollRemaining] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // ── Chat
@@ -187,7 +193,10 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     });
 
     const activeId = snapshot.activeInteractionId;
-    if (activeId) {
+    if ((snapshot as any).activePoll) {
+      setActiveInteraction((snapshot as any).activePoll);
+      setPollRemaining((snapshot as any).remainingSeconds ?? null);
+    } else if (activeId) {
       setViewData((curr) => {
         if (!curr) return curr;
         const found = curr.presentation.slides
@@ -382,13 +391,16 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
 
       case 'interaction:activate':
       case 'interaction:launch':
-      case 'interaction:started': {
+      case 'interaction:started':
+      case 'poll:launch': {
         const enrichedInteraction = message.data?.interaction;
         const interactionId = message.data?.interactionId;
         const broadcastSlideId = message.data?.slideId;
 
         setSubmission(null);
         setRevealed(false);
+        setPollResults(null);
+        setPollRemaining(message.data?.remainingSeconds ?? null);
 
         if (enrichedInteraction) {
           setActiveInteraction(enrichedInteraction);
@@ -428,12 +440,42 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
 
       case 'interaction:deactivate':
       case 'interaction:close':
+      case 'poll:close':
         setViewData((curr) => curr ? {
           ...curr,
           session: { ...curr.session, activeInteractionId: null },
         } : curr);
-        setActiveInteraction(null);
-        setRevealed(false);
+        if (message.data?.summary || message.data?.results) {
+          setPollResults(message.data.summary || message.data.results);
+          setPollRemaining(0);
+          if (message.data?.interaction) {
+            setActiveInteraction(message.data.interaction);
+          }
+        } else {
+          setActiveInteraction(null);
+          setRevealed(false);
+        }
+        break;
+
+      case 'poll:results':
+        if (message.data?.summary) setPollResults(message.data.summary);
+        break;
+
+      case 'poll:timer':
+        if (typeof message.data?.remainingSeconds === 'number') {
+          setPollRemaining(message.data.remainingSeconds);
+        }
+        break;
+
+      case 'poll:sync':
+        if (message.data?.activePoll || message.data?.interaction) {
+          setActiveInteraction(message.data.activePoll || message.data.interaction);
+          setPollRemaining(message.data.remainingSeconds ?? null);
+          setViewData((curr) => curr ? {
+            ...curr,
+            session: { ...curr.session, activeInteractionId: message.data.interactionId || message.data.activePoll?.id || curr.session.activeInteractionId },
+          } : curr);
+        }
         break;
 
       case 'interaction:reveal':
@@ -627,7 +669,7 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     const interactionId = viewData.session.activeInteractionId;
     const startedAt = Date.now();
 
-    if (recovery.isInteractionSubmitted(interactionId)) {
+    if (recovery.isInteractionSubmitted(interactionId) && !activeInteraction?.settings?.allowChangeAnswer) {
       toast({ title: 'Already submitted', description: 'You have already answered this.', variant: 'destructive' });
       return;
     }
@@ -723,6 +765,8 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     activeInteraction,
     submission,
     revealed,
+    pollResults,
+    pollRemaining,
     isFullscreen,
     chatMessages,
     chatOpen,
