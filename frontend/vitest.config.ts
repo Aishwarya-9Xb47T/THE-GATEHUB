@@ -13,6 +13,7 @@ export default defineConfig({
       "src/lib/liveSession/**/*.test.ts",
       "src/lib/contentBuilder/**/*.test.ts",
       "src/lib/classroom/**/*.test.ts",
+      "src/lib/landingQueries.test.ts",
       "src/lib/pptxSvgPostProcess.test.ts",
       "src/lib/resolveLearningUniverseAsset.test.ts",
     ],

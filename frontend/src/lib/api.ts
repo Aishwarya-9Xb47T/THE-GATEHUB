@@ -79,6 +79,22 @@ export function getToken(): string | null {
 
 type ApiOptions = Omit<RequestInit, "body"> & { body?: unknown; skipLoginRedirect?: boolean };
 
+/** In-flight GET dedupe: identical path+auth shares one network request. */
+const inflightGetRequests = new Map<string, Promise<{ data?: unknown; error?: string }>>();
+
+function redirectToLoginSoft(fromPath: string) {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname.startsWith("/login")) return;
+  try {
+    localStorage.removeItem("lms_token");
+    sessionStorage.removeItem("lms_token");
+  } catch {
+    /* ignore */
+  }
+  // Auth expiry must leave private SPA state; soft client navigate via assign (no SPA cache bleed).
+  window.location.assign(`/login?from=${encodeURIComponent(fromPath)}`);
+}
+
 function sanitizePayload(value: unknown): unknown {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "number" && Number.isNaN(value)) return undefined;
@@ -127,12 +143,16 @@ export async function api<T>(
   options: ApiOptions = {}
 ): Promise<{ data?: T; error?: string }> {
   const { body, skipLoginRedirect, ...init } = options;
+  const method = String(init.method || "GET").toUpperCase();
+  const token = getToken();
+  const canDedupe = method === "GET" && body === undefined && !init.signal;
+
+  const run = async (): Promise<{ data?: T; error?: string }> => {
   const sanitizedBody = body !== undefined ? sanitizePayload(body) : undefined;
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     ...(init.headers as Record<string, string>),
   };
-  const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
   
   try {
@@ -175,9 +195,7 @@ export async function api<T>(
           json.error === "AUTH_REQUIRED" ||
           String(errorMessage).toLowerCase().includes("google");
         if (!isGoogleIntegration) {
-          if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-            window.location.href = `/login?from=${encodeURIComponent(window.location.pathname)}`;
-          }
+          redirectToLoginSoft(window.location.pathname);
         }
       }
       // Preserve full JSON body (logs, errors, etc.) for compile and similar endpoints
@@ -185,24 +203,46 @@ export async function api<T>(
     }
     return { data: json as T };
   } catch (err: any) {
+    if (err?.name === "AbortError") {
+      return { error: "Request cancelled" };
+    }
     console.error("API Call failed:", err);
     if (err.message === "Failed to fetch") {
       return { error: "Backend server is unreachable. Please ensure the backend is running on port 5000." };
     }
     return { error: err.message || "Network error occurred. Please check your connection." };
   }
+  };
+
+  if (!canDedupe) return run();
+
+  const dedupeKey = `${method}:${path}:${token || ""}`;
+  const existing = inflightGetRequests.get(dedupeKey);
+  if (existing) return existing as Promise<{ data?: T; error?: string }>;
+
+  const pending = run().finally(() => {
+    inflightGetRequests.delete(dedupeKey);
+  });
+  inflightGetRequests.set(dedupeKey, pending as Promise<{ data?: unknown; error?: string }>);
+  return pending;
 }
 
-export async function apiFormData<T>(path: string, formData: FormData): Promise<{
+export async function apiFormData<T>(
+  path: string,
+  formData: FormData,
+  init: Omit<RequestInit, "body" | "method"> = {},
+): Promise<{
   data?: T;
   error?: string;
   importError?: { message?: string; code?: string; suggestion?: string; supportId?: string; retryable?: boolean };
 }> {
   const token = getToken();
-  const headers: HeadersInit = {};
+  const headers: HeadersInit = {
+    ...(init.headers as Record<string, string>),
+  };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   try {
-    const res = await fetch(apiUrl(path), { method: "POST", headers, body: formData });
+    const res = await fetch(apiUrl(path), { method: "POST", ...init, headers, body: formData });
     let json: any = {};
     const text = await res.text();
     try {
@@ -217,10 +257,7 @@ export async function apiFormData<T>(path: string, formData: FormData): Promise<
         if (res.status === 404) errorMessage = "Resource not found.";
         else if (res.status === 401) {
           errorMessage = "Authentication required. Please log in again.";
-          localStorage.removeItem("lms_token");
-          if (!window.location.pathname.startsWith("/login")) {
-            window.location.href = "/login";
-          }
+          redirectToLoginSoft(window.location.pathname);
         }
         else if (res.status === 429) errorMessage = json.error || json.message || "Too many requests. Please wait a moment and try again.";
         else if (res.status === 403) errorMessage = json.importError?.message || "You do not have permission to perform this action.";
@@ -231,6 +268,9 @@ export async function apiFormData<T>(path: string, formData: FormData): Promise<
     }
     return { data: json as T };
   } catch (err: any) {
+    if (err?.name === "AbortError") {
+      return { error: "Request cancelled" };
+    }
     console.error("API FormData call failed:", err);
     if (err instanceof Error && err.message === "Failed to fetch") {
       return { error: "Backend server is unreachable. Please ensure the backend is running on port 5000." };

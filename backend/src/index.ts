@@ -15,6 +15,7 @@ process.on("uncaughtException", (error) => {
 });
 import express, { type Request, type Response } from "express";
 import cors from "cors";
+import compression from "compression";
 import passport from "passport";
 import path from "path";
 import rateLimit from "express-rate-limit";
@@ -116,7 +117,23 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === "production";
 
+// Render / reverse proxies: correct client IP for rate limiting
+app.set("trust proxy", 1);
+
 app.use(createSecurityHeadersMiddleware());
+
+// Compress JSON/text API responses; skip already-compressed media and Range streams.
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (req.headers["x-no-compression"]) return false;
+      const pathName = req.path || "";
+      if (pathName.startsWith("/uploads/")) return false;
+      if (req.headers.range) return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // Global API rate limit — production only; auth and editor autosave use dedicated rules.
 if (isProduction) {

@@ -1,6 +1,9 @@
 import { prisma } from "../utils/prisma.js";
 import { getClientIp } from "./auditLogService.js";
 
+const SESSION_TOUCH_THROTTLE_MS = 5 * 60 * 1000;
+const sessionTouchCache = new Map<string, number>();
+
 function parseUserAgent(ua: string | null): { browser: string; device: string } {
   if (!ua) return { browser: "Unknown", device: "Unknown" };
   let browser = "Unknown";
@@ -99,10 +102,21 @@ export async function revokeSession(sessionId: string, userId: string) {
 }
 
 export async function touchSession(sessionId: string, userId: string) {
-  await prisma.userSession.updateMany({
-    where: { id: sessionId, userId, revoked: false },
-    data: { lastActive: new Date() },
-  });
+  // Throttle DB writes: lastActive updates at most once per 5 minutes per session.
+  const key = `${userId}:${sessionId}`;
+  const now = Date.now();
+  const last = sessionTouchCache.get(key) ?? 0;
+  if (now - last < SESSION_TOUCH_THROTTLE_MS) return;
+  sessionTouchCache.set(key, now);
+  try {
+    await prisma.userSession.updateMany({
+      where: { id: sessionId, userId, revoked: false },
+      data: { lastActive: new Date() },
+    });
+  } catch (err) {
+    sessionTouchCache.delete(key);
+    console.warn("[auth] touchSession failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
 }
 
 /** Create session on first authenticated request if user has no active session (legacy tokens) */

@@ -97,6 +97,79 @@ export async function resolveCanonicalUniverseId(idOrCourseId: string): Promise<
   return null;
 }
 
+/**
+ * Batch-resolve Learning Universe IDs for many course IDs (dashboard enrollments hot path).
+ * Falls back to resolveCanonicalUniverseId for remaining unresolved IDs.
+ */
+export async function resolveCanonicalUniverseIds(
+  courseIds: string[],
+): Promise<Map<string, string | null>> {
+  const unique = [...new Set(courseIds.filter(Boolean))];
+  const out = new Map<string, string | null>();
+  if (unique.length === 0) return out;
+
+  for (const id of unique) out.set(id, null);
+
+  const products = await prisma.product.findMany({
+    where: {
+      OR: [{ courseId: { in: unique } }, { id: { in: unique } }, { learningUniverseId: { in: unique } }],
+    },
+    select: { id: true, courseId: true, learningUniverseId: true },
+  });
+
+  for (const p of products) {
+    if (!p.learningUniverseId) continue;
+    if (p.courseId && unique.includes(p.courseId)) out.set(p.courseId, p.learningUniverseId);
+    if (unique.includes(p.id)) out.set(p.id, p.learningUniverseId);
+    if (unique.includes(p.learningUniverseId)) out.set(p.learningUniverseId, p.learningUniverseId);
+  }
+
+  const unresolved = unique.filter((id) => !out.get(id));
+  if (unresolved.length === 0) return out;
+
+  const courses = await prisma.course.findMany({
+    where: { id: { in: unresolved } },
+    select: { id: true, aiContent: true },
+  });
+  const candidateLuIds: string[] = [];
+  const courseToCandidate = new Map<string, string>();
+  for (const course of courses) {
+    if (!course.aiContent) continue;
+    try {
+      const parsed = JSON.parse(course.aiContent) as {
+        academicStudio?: { learningUniverseId?: string };
+        learningUniverseId?: string;
+      };
+      const luId = parsed.academicStudio?.learningUniverseId || parsed.learningUniverseId;
+      if (typeof luId === "string" && luId) {
+        candidateLuIds.push(luId);
+        courseToCandidate.set(course.id, luId);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (candidateLuIds.length > 0) {
+    const existing = await prisma.learningUniverse.findMany({
+      where: { id: { in: [...new Set(candidateLuIds)] } },
+      select: { id: true },
+    });
+    const existingSet = new Set(existing.map((e) => e.id));
+    for (const [courseId, luId] of courseToCandidate) {
+      if (existingSet.has(luId)) out.set(courseId, luId);
+    }
+  }
+
+  const stillUnresolved = unique.filter((id) => !out.get(id));
+  await Promise.all(
+    stillUnresolved.map(async (id) => {
+      out.set(id, await resolveCanonicalUniverseId(id));
+    }),
+  );
+
+  return out;
+}
+
 /** Resolve the active publish version for a learning universe (latest published). */
 export async function getCurrentPublishVersionId(learningUniverseId: string): Promise<string | null> {
   const lu = await prisma.learningUniverse.findUnique({

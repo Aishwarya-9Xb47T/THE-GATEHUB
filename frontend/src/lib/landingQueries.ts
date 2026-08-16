@@ -36,7 +36,7 @@ export const landingCoursesQueryOptions = {
   gcTime: LANDING_GC_MS,
   retry: 2,
   retryDelay: 1000,
-  refetchOnMount: "always" as const,
+  refetchOnMount: false,
 };
 
 export type LandingUniversesResponse = any[];
@@ -64,7 +64,7 @@ export const landingUniversesQueryOptions = {
   gcTime: LANDING_GC_MS,
   retry: 2,
   retryDelay: 1000,
-  refetchOnMount: "always" as const,
+  refetchOnMount: false,
 };
 
 /** Warm landing JS + API caches before navigation (logo hover / focus / idle). */

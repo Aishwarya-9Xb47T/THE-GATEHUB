@@ -47,7 +47,7 @@ export async function check(req: AuthRequest, res: Response) {
 
 export async function myEnrollments(req: AuthRequest, res: Response) {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const { resolveCanonicalUniverseId } = await import("../services/learnerScopeService.js");
+  const { resolveCanonicalUniverseIds } = await import("../services/learnerScopeService.js");
 
   const enrollments = await prisma.enrollment.findMany({
     where: { userId: req.user.id },
@@ -81,6 +81,8 @@ export async function myEnrollments(req: AuthRequest, res: Response) {
     orderBy: { enrolledAt: "desc" },
   });
 
+  const luByCourseId = await resolveCanonicalUniverseIds(enrollments.map((e) => e.course.id));
+
   const enriched = await Promise.all(
     enrollments.map(async (e) => {
       const lectures = e.course.sections.flatMap((s) => s.lectures);
@@ -100,7 +102,7 @@ export async function myEnrollments(req: AuthRequest, res: Response) {
       let hasCertificate = false;
 
       // Architect / premium courses store real curriculum on Learning Universe — prefer that SOT.
-      const luId = await resolveCanonicalUniverseId(e.course.id);
+      const luId = luByCourseId.get(e.course.id) ?? null;
       if (luId) {
         learningUniverseId = luId;
         downloadTarget = "learning-universe";

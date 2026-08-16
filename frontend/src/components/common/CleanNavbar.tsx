@@ -10,15 +10,11 @@ interface CleanNavbarProps {
 
 export function CleanNavbar({ showDashboardButton = true }: CleanNavbarProps) {
   const navigate = useNavigate();
-  const { user } = useUserStore();
+  const { user, logout } = useUserStore();
 
-  const handleLogout = () => {
-    // Clear token from localStorage
-    localStorage.removeItem("lms_token");
-    
-    // Clear user from store
-    // Note: clearUser method doesn't exist, just reload to clear state
-    window.location.href = "/login";
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
   };
 
   const handleDashboard = () => {

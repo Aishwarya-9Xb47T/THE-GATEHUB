@@ -1,5 +1,4 @@
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   Users,
@@ -87,18 +86,9 @@ export function AdminLayout() {
         </div>
       </aside>
       <main className="flex flex-col flex-1 pl-64 min-h-screen">
-        <AnimatePresence mode="wait">
-          <motion.div 
-            key={location.pathname}
-            initial={{ opacity: 0, y: 15 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="flex-1 p-6 md:p-8"
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        <div className="flex-1 p-6 md:p-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

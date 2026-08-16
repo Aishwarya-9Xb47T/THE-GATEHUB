@@ -305,13 +305,8 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
         {/* Page content */}
         {!isImmersiveWorkspace && <EmailVerificationBanner />}
         {!isImmersiveWorkspace && <ContextHelpBanner pathname={location.pathname} />}
-        <AnimatePresence mode="wait">
-          <motion.div 
-            key={location.pathname}
-            initial={{ opacity: 0, y: 15 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.2, ease: "easeInOut" }}
+        {/* Stable Outlet: do NOT key by pathname — remounts wipe player/editor state and break fast back/forward. */}
+        <div
             className={cn(
               "flex-1 w-full min-w-0",
               isImmersiveWorkspace
@@ -321,8 +316,7 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
             data-floating-workspace={isImmersiveWorkspace ? undefined : "dashboard-main"}
           >
             <Outlet />
-          </motion.div>
-        </AnimatePresence>
+          </div>
         {layoutRole === "student" && !isImmersiveWorkspace && <OnboardingTour role="student" />}
         {layoutRole === "instructor" && !isImmersiveWorkspace && <OnboardingTour role="instructor" />}
         {layoutRole === "admin" && !isImmersiveWorkspace && <OnboardingTour role="admin" />}

@@ -1,5 +1,4 @@
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   BookOpen,
@@ -83,18 +82,9 @@ export function StudentLayout() {
         </aside>
       )}
       <main className={cn("flex flex-col flex-1 min-h-screen", !isLearnPage && "pl-64")}>
-        <AnimatePresence mode="wait">
-          <motion.div 
-            key={location.pathname}
-            initial={{ opacity: 0, y: 15 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className={cn("flex-1", !isLearnPage ? "app-workspace app-workspace--lg app-workspace--section" : "p-0")}
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        <div className={cn("flex-1", !isLearnPage ? "app-workspace app-workspace--lg app-workspace--section" : "p-0")}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );
