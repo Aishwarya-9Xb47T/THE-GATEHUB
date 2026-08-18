@@ -1,42 +1,23 @@
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { prisma } from "../../utils/prisma.js";
 import { AppError } from "../../middlewares/errorHandler.js";
 import { isAdminRole } from "../../utils/roles.js";
-import { hydrateLocalUpload, persistAtPublicRelative } from "../../middlewares/persistUpload.js";
+import { persistAtPublicRelative } from "../../middlewares/persistUpload.js";
 import { headObject, isB2Configured } from "../b2StorageService.js";
 import { renderPresentationSlides } from "./presentationRenderService.js";
-import { findClassroomAssetRelative } from "./classroomAssetService.js";
-import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
 import {
-  CLASSROOM_SOURCE_REST,
-  PPTX_MIME,
+  downloadPresentationPptx,
+  persistPptxBuffer,
+  resolvePresentationSource,
+} from "./classroomSourceResolver.js";
+import {
   SVG_MIME,
   canonicalPublicPath,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
 } from "./classroomAssetPath.js";
-
-async function locateSourcePptx(presentationId: string): Promise<{ relative: string; localPath: string }> {
-  const relatives = classroomAssetLookupRelatives(canonicalSourceRelative(presentationId));
-  for (const relative of relatives) {
-    const localPath = await hydrateLocalUpload(canonicalPublicPath(relative));
-    if (localPath) return { relative, localPath };
-  }
-
-  const listed = await findClassroomAssetRelative(presentationId, CLASSROOM_SOURCE_REST);
-  if (listed) {
-    const localPath = await hydrateLocalUpload(canonicalPublicPath(listed));
-    if (localPath) return { relative: listed, localPath };
-  }
-
-  throw new AppError(404, "PowerPoint source file was not found in storage", true, {
-    code: "CLASSROOM_PPTX_NOT_FOUND",
-    stage: "storage",
-    retryable: false,
-  });
-}
 
 function withVisual(
   content: unknown,
@@ -70,16 +51,16 @@ function withVisual(
 
 async function headFirst(relative: string) {
   if (!isB2Configured()) return null;
-  for (const candidate of classroomAssetLookupRelatives(relative)) {
-    const meta = await headObject(`uploads/${candidate}`);
-    if (meta) return { relative: candidate, meta };
+  const keys = [`uploads/${relative}`, relative];
+  for (const key of keys) {
+    const meta = await headObject(key);
+    if (meta) return { relative, key, meta };
   }
   return null;
 }
 
 export async function inspectPresentationVisuals(presentationId: string) {
-  const sourceRelative = canonicalSourceRelative(presentationId);
-  const sourceHit = await headFirst(sourceRelative);
+  const source = await resolvePresentationSource(presentationId);
   const slides = await prisma.slide.findMany({
     where: { presentationId },
     orderBy: { order: "asc" },
@@ -104,10 +85,19 @@ export async function inspectPresentationVisuals(presentationId: string) {
 
   return {
     presentationId,
-    sourceRelative,
-    sourceFound: Boolean(sourceHit),
-    sourceBytes: sourceHit?.meta.contentLength ?? null,
-    sourceContentType: sourceHit?.meta.contentType ?? null,
+    source: source.ok
+      ? {
+          found: true,
+          relative: source.relative,
+          key: source.key,
+          bytes: source.bytes,
+          contentType: source.contentType,
+          origin: source.origin,
+        }
+      : {
+          found: false,
+          keysChecked: source.keysChecked,
+        },
     slides: slideReports,
   };
 }
@@ -131,24 +121,36 @@ export async function regeneratePresentationVisuals(
     });
   }
 
-  const located = await locateSourcePptx(presentationId);
-  const pptxBuffer = await readFile(located.localPath);
-  if (pptxBuffer.length < 4 || pptxBuffer[0] !== 0x50 || pptxBuffer[1] !== 0x4b) {
-    throw new AppError(422, "PowerPoint source file is not a valid PPTX", true, {
-      code: "CLASSROOM_PPTX_INVALID",
-      stage: "validation",
+  const resolved = await resolvePresentationSource(presentationId);
+  if (!resolved.ok) {
+    console.warn("[CLASSROOM_REPAIR] source_not_found", {
+      presentationId,
+      stage: resolved.stage,
+      keysChecked: resolved.keysChecked,
+    });
+    throw new AppError(404, "The original PowerPoint file was not found in storage", true, {
+      code: "CLASSROOM_SOURCE_NOT_FOUND",
+      stage: "source-lookup",
+      retryable: false,
+      keysChecked: resolved.keysChecked,
     });
   }
 
-  if (located.relative !== canonicalSourceRelative(presentationId)) {
-    await persistAtPublicRelative(located.localPath, canonicalSourceRelative(presentationId), PPTX_MIME, {
-      keepLocal: true,
-    });
-  }
+  console.info("[CLASSROOM_REPAIR] source_resolved", {
+    presentationId,
+    stage: "source-lookup",
+    origin: resolved.origin,
+    key: resolved.key,
+    bytes: resolved.bytes,
+  });
+
+  const pptxBuffer = await downloadPresentationPptx(resolved);
+  const persistedSource = await persistPptxBuffer(presentationId, pptxBuffer);
 
   const outputDir = path.join(os.tmpdir(), `classroom-repair-${presentationId}`);
   const renderResult = await renderPresentationSlides(pptxBuffer, outputDir);
   const persistedIndexes = new Set<number>();
+  const renderErrors = [...renderResult.errors];
 
   try {
     for (const render of renderResult.renders) {
@@ -157,8 +159,8 @@ export async function regeneratePresentationVisuals(
       await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
       if (isB2Configured()) {
         const stored = await headObject(`uploads/${relative}`);
-        if (!stored) {
-          console.warn("[CLASSROOM_REPAIR] svg_not_stored", { presentationId, relative });
+        if (!stored || !(stored.contentLength && stored.contentLength > 0)) {
+          console.warn("[CLASSROOM_REPAIR] svg_not_stored", { presentationId, relative, stage: "svg-upload" });
           continue;
         }
       }
@@ -174,29 +176,42 @@ export async function regeneratePresentationVisuals(
         },
       });
     }
+
+    await prisma.presentation.update({
+      where: { id: presentationId },
+      data: {
+        sourceUrl: canonicalPublicPath(persistedSource.relative),
+        status: persistedIndexes.size > 0 || persistedSource.bytes > 0 ? "ready" : presentation.status,
+      },
+    });
   } finally {
     await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
 
-  if (!renderResult.success || persistedIndexes.size === 0) {
-    throw new AppError(500, "Slide visuals could not be regenerated from the PowerPoint source", true, {
-      code: "CLASSROOM_RENDER_FAILED",
-      stage: "render",
-      retryable: true,
-    });
-  }
-
-  console.info("[CLASSROOM_REPAIR] regenerated", {
+  const fallback = persistedIndexes.size === 0;
+  console.info("[CLASSROOM_REPAIR] complete", {
     presentationId,
+    stage: fallback ? "render-fallback" : "render",
     rendered: persistedIndexes.size,
-    sourceRelative: canonicalSourceRelative(presentationId),
+    sourceKey: `uploads/${persistedSource.relative}`,
+    fallback: fallback ? "client-pptx-wasm" : undefined,
+    renderErrors: renderErrors.slice(0, 3),
   });
 
   return {
     presentationId,
     rendered: persistedIndexes.size,
-    slideCount: renderResult.slideCount,
-    sourceRelative: canonicalSourceRelative(presentationId),
-    warnings: renderResult.warnings,
+    slideCount: renderResult.slideCount || presentation.slides.length,
+    sourceRelative: persistedSource.relative,
+    sourceKey: `uploads/${persistedSource.relative}`,
+    sourceBytes: persistedSource.bytes,
+    code: fallback ? "CLASSROOM_RENDER_FALLBACK" : "CLASSROOM_REGENERATE_OK",
+    fallback: fallback ? "client-pptx-wasm" : undefined,
+    warnings: [
+      ...renderResult.warnings,
+      ...(fallback
+        ? ["Server-side SVG render was unavailable; slides will display from the stored PowerPoint source."]
+        : []),
+    ],
   };
 }

@@ -8,13 +8,53 @@
  */
 
 import puppeteer from 'puppeteer';
+import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { stripPptxSvgDefaultTableGridLines } from './pptxSvgPostProcess.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const HARNESS_URL = pathToFileURL(path.join(__dirname, 'pptxRenderHarness.html')).href;
+const require = createRequire(import.meta.url);
+
+function pptxSvgAssetUrls(): { indexJs: string; wasm: string } | null {
+  try {
+    const indexJsPath = require.resolve('pptx-svg/dist/index.js');
+    const wasmPath = path.join(path.dirname(indexJsPath), 'main.wasm');
+    return {
+      indexJs: pathToFileURL(indexJsPath).href,
+      wasm: pathToFileURL(wasmPath).href,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function harnessHtml(indexJs: string, wasm: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8" /><title>PPTX Render Harness</title></head>
+<body>
+<script type="module">
+  import { PptxRenderer } from ${JSON.stringify(indexJs)};
+  window.__renderAllSlides = async (pptxBase64) => {
+    const binary = atob(pptxBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const renderer = new PptxRenderer({ logLevel: 'warn' });
+    await renderer.init(${JSON.stringify(wasm)});
+    const { slideCount } = await renderer.loadPptx(bytes.buffer);
+    const slides = [];
+    for (let i = 0; i < slideCount; i++) {
+      const svg = renderer.renderSlideSvg(i);
+      const failed = !svg || svg.startsWith('ERROR:');
+      slides.push({ index: i, svg: failed ? null : svg, error: failed ? (svg || 'Empty SVG output') : null });
+    }
+    return { slideCount, slides };
+  };
+</script>
+</body>
+</html>`;
+}
 
 export interface SlideRenderResult {
   index: number;
@@ -50,6 +90,17 @@ export async function renderPresentationSlides(
 
   await mkdir(outputDir, { recursive: true });
 
+  const assets = pptxSvgAssetUrls();
+  if (!assets) {
+    return {
+      success: false,
+      slideCount: 0,
+      renders,
+      warnings,
+      errors: ['CLASSROOM_RENDER_HARNESS_MISSING'],
+    };
+  }
+
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -71,7 +122,7 @@ export async function renderPresentationSlides(
       console.error('[Presentation render page error]', err.message);
     });
 
-    await page.goto(HARNESS_URL, { waitUntil: 'networkidle0', timeout: 120_000 });
+    await page.setContent(harnessHtml(assets.indexJs, assets.wasm), { waitUntil: 'domcontentloaded' });
 
     await page.waitForFunction(() => typeof (window as any).__renderAllSlides === 'function', {
       timeout: 30_000,

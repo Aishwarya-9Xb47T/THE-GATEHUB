@@ -18,4 +18,14 @@ describe("existing presentation repair contract", () => {
       "/uploads/classroom/cmsy6g8sr00b7owbuj0gvy1rb/renders/slide-002.svg",
     );
   });
+
+  it("resolves DB sourceUrl onto the same presentation prefix", async () => {
+    const { collectSourceRelatives, relativeFromSourceUrl } = await import("../classroomSourceResolver.js");
+    const id = "cmsyrby060001ttlabj9g4fmw";
+    expect(relativeFromSourceUrl(`/uploads/classroom/${id}/source/original.pptx`, id)).toBe(
+      `classroom/${id}/source/original.pptx`,
+    );
+    expect(collectSourceRelatives(id, null)).toContain(`classroom/${id}/source/original.pptx`);
+    expect(collectSourceRelatives(id, null)).toContain(`classroom-studio/${id}/source/original.pptx`);
+  });
 });

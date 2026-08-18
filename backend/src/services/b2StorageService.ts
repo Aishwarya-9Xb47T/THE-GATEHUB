@@ -312,6 +312,15 @@ export async function headObject(key: string): Promise<{ contentType?: string; c
   }
 }
 
+export async function downloadObjectToBuffer(key: string): Promise<Buffer> {
+  const { body } = await getObjectStream(key);
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array | Buffer | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function downloadObjectToFile(key: string, destPath: string): Promise<void> {
   const { body } = await getObjectStream(key);
   await pipeline(body, createWriteStream(destPath));

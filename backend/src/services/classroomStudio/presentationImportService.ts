@@ -28,6 +28,10 @@ import {
   PPTX_MIME,
   SVG_MIME,
 } from './classroomAssetPath.js';
+import {
+  persistPptxBuffer,
+  requireDurableClassroomStorage,
+} from './classroomSourceResolver.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -242,21 +246,14 @@ async function persistImportedContent(
   }
   console.info('[Classroom import] Media extracted', { presentationId, count: assetUrls.size });
 
-  if (sourcePptxAsset) {
-    const relative = `classroom/${presentationId}/source/original.pptx`;
-    const diskPath = path.join(assetRoot, 'source/original.pptx');
-    await persistAtPublicRelative(
-      diskPath,
-      relative,
-      sourcePptxAsset.mimeType,
-      { keepLocal: true },
-    );
-    if (isB2Configured()) {
-      const stored = await headObject(`uploads/${relative}`);
-      if (!stored) {
-        throw new AppError(500, 'PowerPoint source file was not stored');
-      }
-    }
+  if (sourceFileBuffer) {
+    requireDurableClassroomStorage();
+    const stored = await persistPptxBuffer(presentationId, sourceFileBuffer);
+    console.info('[Classroom import] Source PPTX stored', {
+      presentationId,
+      relative: stored.relative,
+      bytes: stored.bytes,
+    });
   }
 
   const originalPptxAssetUrl = sourcePptxAsset ? `asset://${sourcePptxAsset.path}` : undefined;
@@ -486,12 +483,13 @@ export async function importPresentation(
     const renderWarnings = await persistImportedContent(presentation.id, importResult, sourceFileBuffer);
     warnings.push(...renderWarnings);
     const sourceRelative = canonicalSourceRelative(presentation.id);
-    if (sourceFileBuffer && isB2Configured()) {
-      const stored = await headObject(`uploads/${sourceRelative}`);
-      if (!stored) {
+    if (sourceFileBuffer) {
+      requireDurableClassroomStorage();
+      const storedSource = await headObject(`uploads/${sourceRelative}`);
+      if (isB2Configured() && (!storedSource || !(storedSource.contentLength && storedSource.contentLength > 0))) {
         throw new AppError(500, 'PowerPoint source file was not stored', true, {
-          code: 'CLASSROOM_PPTX_NOT_FOUND',
-          stage: 'storage',
+          code: 'CLASSROOM_SOURCE_UPLOAD_FAILED',
+          stage: 'source-upload',
         });
       }
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalClassroomApiAsset,
+  classroomAssetErrorFromBody,
   classroomVisualFetchUrls,
   decodeSlideAltText,
   isCompatiblePptxContentType,
@@ -51,6 +52,17 @@ describe("classroomAssetUrls", () => {
     expect(urls).toEqual([
       "/api/classroom-studio/presentations/cmsy6g8sr00b7owbuj0gvy1rb/assets/renders/slide-002.svg",
     ]);
+  });
+
+  it("parses regenerate error bodies for instructor-safe codes", () => {
+    expect(
+      classroomAssetErrorFromBody({
+        error: { code: "CLASSROOM_SOURCE_NOT_FOUND", message: "The original PowerPoint file was not found in storage" },
+      }),
+    ).toEqual({
+      code: "CLASSROOM_SOURCE_NOT_FOUND",
+      message: "The original PowerPoint file was not found in storage",
+    });
   });
 
   it("cleans Office auto-generated alt text", () => {

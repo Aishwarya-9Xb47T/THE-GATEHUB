@@ -17,6 +17,12 @@ import {
 import { classroomAssetLookupRelatives } from "../services/classroomStudio/classroomAssetUrls.js";
 import { classroomAssetAccessDecision } from "../services/classroomStudio/classroomAssetAccess.js";
 import { mimeFromUploadPath } from "../utils/uploadMedia.js";
+import {
+  collectSourceRelatives,
+  isCompatiblePptxContentType,
+  isValidPptxBuffer,
+  relativeFromSourceUrl,
+} from "../services/classroomStudio/classroomSourceResolver.js";
 
 function run(name: string, fn: () => void) {
   fn();
@@ -103,6 +109,33 @@ run("upload MIME", () => {
     mimeFromUploadPath("source/original.pptx"),
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   );
+});
+
+run("source key resolution", () => {
+  const id = "cmsyrby060001ttlabj9g4fmw";
+  const relatives = collectSourceRelatives(id, `/uploads/classroom/${id}/source/original.pptx`);
+  assert.ok(relatives[0] === `classroom/${id}/source/original.pptx` || relatives.includes(`classroom/${id}/source/original.pptx`));
+  assert.ok(relatives.includes(`classroom-studio/${id}/source/original.pptx`));
+  assert.equal(relativeFromSourceUrl(`/uploads/classroom/${id}/source/original.pptx`, id), `classroom/${id}/source/original.pptx`);
+  assert.equal(relativeFromSourceUrl("/uploads/videos/other.mp4", id), null);
+});
+
+run("missing source candidate keys", () => {
+  const id = "missing-pres";
+  const relatives = collectSourceRelatives(id, null);
+  assert.ok(relatives.includes(`classroom/${id}/source/original.pptx`));
+  assert.ok(relatives.includes(`classroom-studio/${id}/source/original.pptx`));
+  assert.equal(relatives.length <= 8, true);
+});
+
+run("PPTX magic bytes and MIME", () => {
+  assert.equal(isValidPptxBuffer(Buffer.from("PK\u0003\u0004xxxx")), true);
+  assert.equal(isValidPptxBuffer(Buffer.from("<html>")), false);
+  assert.equal(isValidPptxBuffer(Buffer.from("{}")), false);
+  assert.equal(isValidPptxBuffer(Buffer.alloc(0)), false);
+  assert.equal(isCompatiblePptxContentType("application/vnd.openxmlformats-officedocument.presentationml.presentation"), true);
+  assert.equal(isCompatiblePptxContentType("application/json"), false);
+  assert.equal(isCompatiblePptxContentType("text/html"), false);
 });
 
 console.info("classroom asset assertions passed");

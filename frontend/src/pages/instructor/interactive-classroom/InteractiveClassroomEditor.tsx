@@ -30,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToastStore } from "@/store/toastStore";
+import { classroomAssetErrorFromBody } from "@/lib/classroom/classroomAssetUrls";
 import { apiUrl, getToken } from "@/lib/api";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
 import { SessionQrPanel } from "@/components/classroom/SessionQrPanel";
@@ -211,11 +212,24 @@ export function InteractiveClassroomEditor() {
       );
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        const message = body?.error?.message || body?.error || "Could not regenerate slide visuals";
-        toast({ title: "Regenerate failed", description: String(message), variant: "destructive" });
+        const parsed = classroomAssetErrorFromBody(body) || {
+          code: "CLASSROOM_REGENERATE_FAILED",
+          message: typeof body?.error === "string" ? body.error : "Unable to regenerate the slide visuals.",
+        };
+        toast({
+          title: "Unable to regenerate the slide visuals.",
+          description: `Code: ${parsed.code}${parsed.message ? ` — ${parsed.message}` : ""}`,
+          variant: "destructive",
+        });
         return;
       }
-      toast({ title: "Slide visuals regenerated", description: "Reloading the presentation." });
+      const result = await response.json().catch(() => null);
+      toast({
+        title: result?.fallback ? "PowerPoint source restored" : "Slide visuals regenerated",
+        description: result?.fallback
+          ? "The original PPTX was stored. Slides will display from the PowerPoint source."
+          : "Reloading the presentation.",
+      });
       await fetchPresentation();
     } catch {
       toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });

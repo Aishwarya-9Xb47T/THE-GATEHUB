@@ -187,7 +187,9 @@ export async function persistAtPublicRelative(
     contentType: contentType || detectContentType(cleaned),
   });
   const meta = await headObject(key);
-  if (!meta) throw new Error("B2 upload verification failed");
+  if (!meta || !(meta.contentLength && meta.contentLength > 0)) {
+    throw new Error("B2 upload verification failed");
+  }
   if (!options?.keepLocal) {
     await unlinkQuietly(localPath);
   }

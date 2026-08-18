@@ -7,7 +7,7 @@ export class AppError extends Error {
     public statusCode: number,
     message: string,
     public isOperational = true,
-    public details?: { code: string; stage?: string; retryable?: boolean }
+    public details?: { code: string; stage?: string; retryable?: boolean; keysChecked?: string[] }
   ) {
     super(message);
     Object.setPrototypeOf(this, AppError.prototype);
@@ -37,6 +37,7 @@ export function errorHandler(
           message: err.message,
           stage: err.details.stage,
           retryable: err.details.retryable ?? false,
+          ...(err.details.keysChecked ? { keysChecked: err.details.keysChecked } : {}),
         },
       });
     }
