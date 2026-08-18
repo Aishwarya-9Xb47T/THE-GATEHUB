@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { prisma } from "../../utils/prisma.js";
@@ -6,7 +6,11 @@ import { AppError } from "../../middlewares/errorHandler.js";
 import { isAdminRole } from "../../utils/roles.js";
 import { persistAtPublicRelative } from "../../middlewares/persistUpload.js";
 import { headObject, isB2Configured } from "../b2StorageService.js";
-import { renderPresentationSlides } from "./presentationRenderService.js";
+import {
+  describeClassroomRenderer,
+  isValidRenderedSvg,
+  renderPresentationSlides,
+} from "./presentationRenderService.js";
 import {
   downloadPresentationPptx,
   persistPptxBuffer,
@@ -17,7 +21,19 @@ import {
   buildSlideVisual,
   canonicalPublicPath,
   canonicalSlideSvgRelative,
+  canonicalSourceRelative,
 } from "./classroomAssetPath.js";
+
+function classroomRenderPersistLog(
+  presentationId: string,
+  slide: number,
+  relative: string,
+  bytes: number,
+) {
+  console.info(
+    `[CLASSROOM_RENDER] slide=${slide} success bytes=${bytes} key=uploads/${relative} presentationId=${presentationId}`,
+  );
+}
 
 function withVisual(
   content: unknown,
@@ -127,21 +143,68 @@ export async function regeneratePresentationVisuals(
     key: resolved.key,
     bytes: resolved.bytes,
   });
+  console.info("[CLASSROOM_RENDER]", describeClassroomRenderer());
 
   const pptxBuffer = await downloadPresentationPptx(resolved);
-  const persistedSource = await persistPptxBuffer(presentationId, pptxBuffer);
+  const expected = presentation.slides.length;
+  const canonicalRelative = canonicalSourceRelative(presentationId);
+  console.info("[CLASSROOM_RENDER]", {
+    presentationId,
+    slides: expected,
+    sourceKey: resolved.key,
+    sourceBytes: resolved.bytes,
+    reuseSource: resolved.relative === canonicalRelative,
+  });
+  const persistedSource =
+    resolved.relative === canonicalRelative
+      ? { relative: resolved.relative, bytes: resolved.bytes }
+      : await persistPptxBuffer(presentationId, pptxBuffer);
+
+  return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
+    skipExisting: true,
+    sourceRelative: persistedSource.relative,
+    sourceBytes: persistedSource.bytes,
+  });
+}
+
+export async function renderAndPersistPresentationVisuals(
+  presentationId: string,
+  pptxBuffer: Buffer,
+  options?: {
+    skipExisting?: boolean;
+    sourceRelative?: string;
+    sourceBytes?: number;
+  },
+) {
+  const presentation = await prisma.presentation.findUnique({
+    where: { id: presentationId },
+    include: { slides: { orderBy: { order: "asc" } } },
+  });
+  if (!presentation) {
+    throw new AppError(404, "Presentation not found");
+  }
 
   const expected = presentation.slides.length;
+  const sourceRelative = options?.sourceRelative ?? canonicalSourceRelative(presentationId);
   const alreadyRendered = new Set<number>();
-  for (const slide of presentation.slides) {
-    const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
-    const existing = await headFirst(svgRelative);
-    if (existing?.meta.contentLength && existing.meta.contentLength > 32) {
-      alreadyRendered.add(slide.order - 1);
+  if (options?.skipExisting) {
+    for (const slide of presentation.slides) {
+      const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
+      const existing = await headFirst(svgRelative);
+      if (existing?.meta.contentLength && existing.meta.contentLength > 32) {
+        alreadyRendered.add(slide.order - 1);
+      }
     }
   }
 
-  const outputDir = path.join(os.tmpdir(), `classroom-repair-${presentationId}`);
+  console.info("[CLASSROOM_RENDER]", {
+    presentationId,
+    slides: expected,
+    skipExisting: alreadyRendered.size,
+    renderer: describeClassroomRenderer().renderer,
+  });
+
+  const outputDir = path.join(os.tmpdir(), `classroom-render-${presentationId}`);
   const missingIndexes = presentation.slides
     .map((slide) => slide.order - 1)
     .filter((index) => !alreadyRendered.has(index));
@@ -155,13 +218,27 @@ export async function regeneratePresentationVisuals(
       if (persistedIndexes.has(render.index)) continue;
       const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
       const diskPath = path.join(outputDir, path.basename(render.path));
-      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
+      let svgText: string;
+      try {
+        svgText = await readFile(diskPath, "utf8");
+      } catch {
+        console.warn("[CLASSROOM_REPAIR] svg_missing_on_disk", { presentationId, relative, stage: "svg-validate" });
+        continue;
+      }
+      if (!isValidRenderedSvg(svgText)) {
+        console.warn("[CLASSROOM_REPAIR] svg_invalid", { presentationId, relative, stage: "svg-validate", bytes: svgText.length });
+        continue;
+      }
+      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() });
       if (isB2Configured()) {
         const stored = await headObject(`uploads/${relative}`);
         if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
           console.warn("[CLASSROOM_REPAIR] svg_not_stored", { presentationId, relative, stage: "svg-upload" });
           continue;
         }
+        classroomRenderPersistLog(presentationId, render.index + 1, relative, stored.contentLength);
+      } else {
+        classroomRenderPersistLog(presentationId, render.index + 1, relative, render.svgLength);
       }
       persistedIndexes.add(render.index);
     }
@@ -179,7 +256,7 @@ export async function regeneratePresentationVisuals(
     const failedSlideNumbers = presentation.slides
       .filter((slide) => !persistedIndexes.has(slide.order - 1))
       .map((slide) => slide.order);
-    const status = persistedIndexes.size === expected
+    const status = persistedIndexes.size === expected && expected > 0
       ? "ready"
       : persistedIndexes.size > 0
         ? "rendering_partial"
@@ -188,10 +265,14 @@ export async function regeneratePresentationVisuals(
     await prisma.presentation.update({
       where: { id: presentationId },
       data: {
-        sourceUrl: canonicalPublicPath(persistedSource.relative),
+        sourceUrl: canonicalPublicPath(sourceRelative),
         status,
       },
     });
+
+    console.info(
+      `[CLASSROOM_RENDER] complete requested=${expected} rendered=${persistedIndexes.size} failed=${failedSlideNumbers.length} skipped=${alreadyRendered.size} status=${status} presentationId=${presentationId}`,
+    );
 
     if (persistedIndexes.size === 0) {
       throw new AppError(500, "Slide visuals could not be generated from the PowerPoint source", true, {
@@ -202,29 +283,20 @@ export async function regeneratePresentationVisuals(
         slidesSucceeded: 0,
         slidesFailed: failedSlideNumbers.length,
         failedSlideNumbers,
-        sourceKey: `uploads/${persistedSource.relative}`,
+        sourceKey: `uploads/${sourceRelative}`,
         method: renderResult.method,
+        rendererErrors: renderResult.errors.slice(0, 12),
       });
     }
-
-    console.info("[CLASSROOM_REPAIR] complete", {
-      presentationId,
-      stage: "render",
-      rendered: persistedIndexes.size,
-      skipped: alreadyRendered.size,
-      sourceKey: `uploads/${persistedSource.relative}`,
-      method: renderResult.method,
-      failedSlideNumbers,
-    });
 
     return {
       presentationId,
       rendered: persistedIndexes.size,
       skipped: alreadyRendered.size,
       slideCount: expected,
-      sourceRelative: persistedSource.relative,
-      sourceKey: `uploads/${persistedSource.relative}`,
-      sourceBytes: persistedSource.bytes,
+      sourceRelative,
+      sourceKey: `uploads/${sourceRelative}`,
+      sourceBytes: options?.sourceBytes,
       method: renderResult.method,
       code: failedSlideNumbers.length ? "CLASSROOM_RENDER_PARTIAL" : "CLASSROOM_REGENERATE_OK",
       slidesSucceeded: persistedIndexes.size,

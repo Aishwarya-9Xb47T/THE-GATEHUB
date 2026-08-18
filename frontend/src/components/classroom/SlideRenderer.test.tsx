@@ -151,6 +151,43 @@ describe('SlideRenderer', () => {
     expect(pptxCalls.length).toBe(1);
   });
 
+  it('shows rendering progress instead of unavailable while visuals are being generated', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
+      ok: false,
+      status: 404,
+      contentType: 'application/json',
+      text: JSON.stringify({ error: { code: 'CLASSROOM_ASSET_NOT_FOUND', message: 'missing' } }),
+    })));
+
+    const content = {
+      version: 2,
+      size: { width: 12_192_000, height: 6_858_000 },
+      background: { type: 'solid', color: '#ffffff' },
+      visual: {
+        type: 'svg',
+        src: '/uploads/classroom/demo/renders/slide-002.svg',
+        slideIndex: 1,
+      },
+      elements: [],
+    };
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="Rendering slide"
+        slideNumber={2}
+        presentationId="demo"
+        pipelineStatus="rendering"
+        slideCount={20}
+      />,
+    );
+
+    const error = await screen.findByTestId('classroom-visual-error');
+    expect(error.textContent).toContain('CLASSROOM_RENDERING');
+    expect(error.textContent).toContain('Rendering slide 2 of 20');
+    expect(error.textContent).not.toContain('Regenerate slide visuals');
+  });
+
   it('renders native PPTX SVG when a slide visual source is present', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
       contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',

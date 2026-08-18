@@ -65,6 +65,7 @@ interface SessionData {
   presentation: {
     id: string;
     title: string;
+    status?: string;
     slides: Slide[];
   };
   participants: Participant[];
@@ -1170,6 +1171,8 @@ export function InteractiveClassroomSession() {
                   className="w-full h-full max-h-full rounded-lg"
                   canRepair
                   repairing={repairingVisuals}
+                  pipelineStatus={session.presentation.status}
+                  slideCount={session.presentation.slides.length}
                   onRepair={() => void repairVisuals()}
                 />
             ) : (

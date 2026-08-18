@@ -842,6 +842,8 @@ export function InteractiveClassroomEditor() {
                   className="w-full h-full max-h-full"
                   canRepair
                   repairing={repairingVisuals}
+                  pipelineStatus={presentation.status}
+                  slideCount={slides.length}
                   onRepair={() => void handleRegenerateVisuals()}
                 />
               </div>

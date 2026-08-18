@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '../../utils/prisma.js';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { persistAtPublicRelative } from '../../middlewares/persistUpload.js';
@@ -14,6 +14,7 @@ import * as powerPointParser from './powerPointParser.js';
 import * as googleSlidesAdapter from './googleSlidesAdapter.js';
 import { parsePDFPresentation } from './pdfImporter.js';
 import {
+  isValidRenderedSvg,
   renderPresentationSlides,
   validateSlideVisualCoverage,
 } from './presentationRenderService.js';
@@ -35,7 +36,7 @@ import {
   requireDurableClassroomStorage,
   isValidPptxBuffer,
 } from './classroomSourceResolver.js';
-import { regeneratePresentationVisuals } from './presentationVisualRepairService.js';
+import { renderAndPersistPresentationVisuals } from './presentationVisualRepairService.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -362,7 +363,12 @@ async function persistImportedContent(
         renderErrors.push(`Rendered SVG missing before storage: ${relative}`);
         continue;
       }
-      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
+      const svgText = await readFile(diskPath, 'utf8');
+      if (!isValidRenderedSvg(svgText)) {
+        renderErrors.push(`Rendered SVG failed validation: ${relative}`);
+        continue;
+      }
+      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() });
       if (isB2Configured()) {
         const stored = await headObject(`uploads/${relative}`);
         if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
@@ -607,13 +613,35 @@ export async function importPresentation(
       },
     });
 
-    if (isPptxPipeline && persistResult.visualRenderStatus === 'pending') {
+    if (isPptxPipeline && persistResult.visualRenderStatus === 'pending' && sourceFileBuffer) {
+      const buffer = sourceFileBuffer;
+      const presentationId = presentation.id;
       setImmediate(() => {
-        regeneratePresentationVisuals(presentation.id, input.instructorId).catch((error) => {
+        console.info('[CLASSROOM_RENDER] background_start', {
+          presentationId,
+          bytes: buffer.length,
+          slides: persistResult.expectedCount,
+        });
+        renderAndPersistPresentationVisuals(presentationId, buffer, {
+          skipExisting: true,
+          sourceRelative: canonicalSourceRelative(presentationId),
+          sourceBytes: buffer.length,
+        }).catch(async (error) => {
           console.error('[Classroom import] Background slide render failed', {
-            presentationId: presentation.id,
+            presentationId,
             error: error instanceof Error ? error.message : String(error),
+            details: error instanceof AppError ? error.details : undefined,
           });
+          const current = await prisma.presentation.findUnique({
+            where: { id: presentationId },
+            select: { status: true },
+          });
+          if (current?.status === 'rendering') {
+            await prisma.presentation.update({
+              where: { id: presentationId },
+              data: { status: 'render_failed' },
+            }).catch(() => undefined);
+          }
         });
       });
     }

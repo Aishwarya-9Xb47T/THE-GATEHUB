@@ -29,3 +29,13 @@ describe("existing presentation repair contract", () => {
     expect(collectSourceRelatives(id, null)).toContain(`classroom-studio/${id}/source/original.pptx`);
   });
 });
+
+describe("rendered SVG validation", () => {
+  it("accepts SVG markup and rejects JSON or HTML", async () => {
+    const { isValidRenderedSvg } = await import("../presentationRenderService.js");
+    expect(isValidRenderedSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>')).toBe(true);
+    expect(isValidRenderedSvg('{"error":"nope"}')).toBe(false);
+    expect(isValidRenderedSvg('<!DOCTYPE html><html><body>fail</body></html>')).toBe(false);
+    expect(isValidRenderedSvg('')).toBe(false);
+  });
+});

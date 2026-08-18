@@ -89,6 +89,19 @@ export async function persistPptxBuffer(presentationId: string, buffer: Buffer):
   }
   requireDurableClassroomStorage();
   const relative = canonicalSourceRelative(presentationId);
+  if (isB2Configured()) {
+    for (const key of [`uploads/${relative}`, relative]) {
+      const existing = await headObject(key);
+      if (existing?.contentLength && existing.contentLength > 32 && isCompatiblePptxContentType(existing.contentType ?? null)) {
+        console.info("[CLASSROOM_SOURCE] reuse_existing", {
+          presentationId,
+          key,
+          bytes: existing.contentLength,
+        });
+        return { relative, bytes: existing.contentLength };
+      }
+    }
+  }
   if (!isB2Configured()) {
     const dest = resolveSafeUploadPath(relative);
     if (!dest) {

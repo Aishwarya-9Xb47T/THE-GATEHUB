@@ -115,6 +115,8 @@ export type SlideRendererProps = {
   canRepair?: boolean;
   onRepair?: () => void;
   repairing?: boolean;
+  pipelineStatus?: string;
+  slideCount?: number;
 };
 
 type RenderDiagnostic = {
@@ -1551,6 +1553,8 @@ export function SlideRenderer({
   canRepair = false,
   onRepair,
   repairing = false,
+  pipelineStatus,
+  slideCount,
 }: SlideRendererProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const slideCanvasRef = useRef<HTMLDivElement>(null);
@@ -1652,6 +1656,35 @@ export function SlideRenderer({
           });
         };
 
+        const rendering = ['rendering', 'uploading', 'extracting', 'source_stored'].includes(pipelineStatus || '');
+        if (rendering && presentationId) {
+          const n = slideNumber ?? slideIndex + 1;
+          const svgUrls = classroomVisualFetchUrls(
+            `/api/classroom-studio/presentations/${presentationId}/assets/renders/slide-${String(n).padStart(3, '0')}.svg`,
+            presentationId,
+            'svg',
+          );
+          const found = await fetchFirstSuccessfulUpload(svgUrls);
+          if (found) {
+            const contentType = found.response.headers.get('content-type');
+            const svg = await found.response.text();
+            if (isSvgMarkup(svg) && !svg.startsWith('ERROR:') && isCompatibleSvgContentType(contentType)) {
+              applySvg(svg, 'pre-rendered-svg', found.url);
+              return;
+            }
+          }
+          const total = slideCount || n;
+          throw Object.assign(
+            new Error(total ? `Rendering slide ${n} of ${total}…` : `Rendering slide ${n}…`),
+            { code: 'CLASSROOM_RENDERING' },
+          );
+        }
+        if (pipelineStatus === 'render_failed') {
+          throw Object.assign(new Error('Slide visual rendering failed. Retry rendering.'), {
+            code: 'CLASSROOM_RENDER_FAILED',
+          });
+        }
+
         const renderPptxWasm = async (pptxSrcHint?: string) => {
           const pptxSrc = pptxSrcHint
             || (visual.type === 'pptx' ? visual.src : undefined)
@@ -1750,7 +1783,7 @@ export function SlideRenderer({
     return () => {
       cancelled = true;
     };
-  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic]);
+  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount]);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {
@@ -1893,7 +1926,13 @@ export function SlideRenderer({
               }}
             >
               <div>
-                <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>Presentation asset unavailable</p>
+                <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>
+                  {nativeVisualError.code === 'CLASSROOM_RENDERING'
+                    ? 'Rendering slide visuals'
+                    : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
+                      ? 'Rendering failed'
+                      : 'Presentation asset unavailable'}
+                </p>
                 <p style={{ fontSize: 14, margin: '0 0 12px', color: '#64748b', maxWidth: 420 }}>
                   {nativeVisualError.message}
                 </p>
@@ -1902,7 +1941,7 @@ export function SlideRenderer({
                   {slideNumber != null ? ` · Slide: ${slideNumber}` : ''}
                   {presentationId ? ` · Presentation: ${presentationId}` : ''}
                 </p>
-                {canRepair && onRepair && (
+                {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
                   <button
                     type="button"
                     onClick={onRepair}
@@ -1918,7 +1957,7 @@ export function SlideRenderer({
                       cursor: repairing ? 'wait' : 'pointer',
                     }}
                   >
-                    {repairing ? 'Regenerating…' : 'Regenerate slide visuals'}
+                    {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED' ? 'Retry rendering' : 'Regenerate slide visuals'}
                   </button>
                 )}
               </div>
