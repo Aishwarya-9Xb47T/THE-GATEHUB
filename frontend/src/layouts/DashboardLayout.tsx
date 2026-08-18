@@ -66,8 +66,11 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
   const isImmersiveCoursePlayer = /\/course\/[^/]+\/learn/.test(location.pathname);
   const isQuizAuthoringStudio = /\/quiz-room\/quizzes\/[^/]+\/edit/.test(location.pathname);
   const isQuizRoomStudio = /\/quiz-room\/(create|templates)/.test(location.pathname);
+  const isInteractiveClassroomLive =
+    /\/instructor\/interactive-classroom\/session\//.test(location.pathname) ||
+    /\/student\/classroom\/session\//.test(location.pathname);
   const isImmersiveWorkspace =
-    isLearnExperience || isImmersiveCoursePlayer || isQuizAuthoringStudio || isQuizRoomStudio;
+    isLearnExperience || isImmersiveCoursePlayer || isQuizAuthoringStudio || isQuizRoomStudio || isInteractiveClassroomLive;
   const hideDashboardChrome = isImmersiveWorkspace;
   const sidebarBeforeImmersive = useRef<boolean | null>(null);
 

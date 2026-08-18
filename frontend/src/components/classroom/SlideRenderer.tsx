@@ -21,9 +21,10 @@ import pptxWasmUrl from 'pptx-svg/wasm?url';
 import { fetchAuthenticatedUpload, withUploadAuth } from '@/lib/courseMediaUrls';
 import { stripPptxSvgDefaultTableGridLines } from '@/lib/pptxSvgPostProcess';
 import {
-  classroomVisualUrlCandidates,
+  classroomVisualFetchUrls,
   decodeSlideAltText,
   isOfficeGeneratedAlt,
+  isSvgMarkup,
   rewriteClassroomAssetRef,
 } from '@/lib/classroom/classroomAssetUrls';
 import { resolveColor, buildGradient } from './engine/colorResolver';
@@ -831,17 +832,22 @@ function resolveSlideAssetUrl(src: string | undefined, presentationId?: string):
 const pptxBufferCache = new Map<string, ArrayBuffer>();
 
 async function fetchFirstSuccessfulUpload(urls: string[]): Promise<{ response: Response; url: string } | null> {
+  let authError: Error | null = null;
   for (const url of urls) {
     try {
       const response = await fetchAuthenticatedUpload(url);
       if (response.ok) return { response, url };
       if (response.status === 401 || response.status === 403) {
-        throw new Error(formatPptxVisualError(response.status));
+        authError = new Error(formatPptxVisualError(response.status));
+        continue;
       }
     } catch (error) {
-      if (error instanceof Error && /HTTP 40[13]/.test(error.message)) throw error;
+      if (error instanceof Error && /HTTP 40[13]/.test(error.message)) {
+        authError = error;
+      }
     }
   }
+  if (authError) throw authError;
   return null;
 }
 
@@ -1613,24 +1619,24 @@ export function SlideRenderer({
             || (typeof visual.source === 'object' && visual.source && 'src' in visual.source
               ? String((visual.source as { src?: string }).src || '')
               : '');
-          const urls = classroomVisualUrlCandidates(pptxSrc || undefined, presentationId);
+          const urls = classroomVisualFetchUrls(pptxSrc || undefined, presentationId, 'pptx');
           const buffer = await loadCachedPptxBuffer(urls);
           const renderer = new PptxRenderer();
           await renderer.init(pptxWasmUrl);
           await renderer.loadPptx(buffer);
           const svg = renderer.renderSlideSvg(slideIndex);
-          if (!svg?.trim() || svg.startsWith('ERROR:')) {
+          if (!svg?.trim() || svg.startsWith('ERROR:') || !isSvgMarkup(svg)) {
             throw new Error(`PowerPoint renderer returned no SVG for slide index ${slideIndex}.`);
           }
           applySvg(svg, 'client-pptx-wasm', urls[0] || pptxSrc);
         };
 
         if (visual.type === 'svg') {
-          const svgUrls = classroomVisualUrlCandidates(visual.src, presentationId);
+          const svgUrls = classroomVisualFetchUrls(visual.src, presentationId, 'svg');
           const found = await fetchFirstSuccessfulUpload(svgUrls);
           if (found) {
             const svg = await found.response.text();
-            if (svg?.trim() && !svg.startsWith('ERROR:')) {
+            if (isSvgMarkup(svg) && !svg.startsWith('ERROR:')) {
               applySvg(svg, 'pre-rendered-svg', found.url);
               return;
             }
@@ -1644,7 +1650,7 @@ export function SlideRenderer({
         }
 
         if (visual.type === 'image') {
-          const imageUrls = classroomVisualUrlCandidates(visual.src, presentationId);
+          const imageUrls = classroomVisualFetchUrls(visual.src, presentationId, 'any');
           const found = await fetchFirstSuccessfulUpload(imageUrls);
           if (!found) throw new Error(formatPptxVisualError(404));
           const blob = await found.response.blob();

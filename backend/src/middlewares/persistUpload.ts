@@ -353,8 +353,13 @@ export async function serveStoredUpload(
 
   let key = "";
   let meta: Awaited<ReturnType<typeof headObject>> = null;
+  const candidateKeys: string[] = [];
   for (const relative of relatives) {
-    const candidateKey = `uploads/${normalizeUploadRelativePath(relative)}`;
+    const normalized = normalizeUploadRelativePath(relative);
+    candidateKeys.push(`uploads/${normalized}`);
+    candidateKeys.push(normalized);
+  }
+  for (const candidateKey of [...new Set(candidateKeys)]) {
     const candidateMeta = await headObject(candidateKey);
     if (candidateMeta) {
       key = candidateKey;
@@ -363,7 +368,7 @@ export async function serveStoredUpload(
     }
   }
   if (!meta) {
-    mediaLog("MEDIA_B2", { key, found: 0 });
+    mediaLog("MEDIA_B2", { path: relativePath, keysTried: candidateKeys.length, found: 0 });
     return false;
   }
 

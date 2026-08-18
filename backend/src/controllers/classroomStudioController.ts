@@ -19,6 +19,10 @@ import * as aiRecommendationService from '../services/classroomStudio/aiRecommen
 import * as presentationImportService from '../services/classroomStudio/presentationImportService.js';
 import * as googleSlidesPublicService from '../services/classroomStudio/googleSlidesPublicService.js';
 import * as sessionTokenService from '../services/classroomStudio/sessionTokenService.js';
+import {
+  assertCanAccessClassroomPresentation,
+  streamClassroomPresentationAsset,
+} from '../services/classroomStudio/classroomAssetService.js';
 import { analyzeSlideContent as parseSlideInteraction } from '../services/classroomStudio/slideParserEngine.js';
 import { enrichInteractionSettings } from '../services/classroomStudio/slideContentParser.js';
 import { broadcastToSessionId, updateSessionRuntimeState } from '../ws/classroomStudioServer.js';
@@ -67,6 +71,32 @@ export async function getPresentation(req: Request, res: Response, next: NextFun
     const presentation = await presentationService.getPresentationById(id, instructorId);
 
     res.json(presentation);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function servePresentationAsset(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const fromParams = String((req.params as Record<string, string>)[0] || "");
+    const fromPath = String(req.path || "").split("/assets/")[1] || "";
+    const rest = (fromParams || fromPath).replace(/^\/+/, "");
+    if (!id || !rest) {
+      throw new AppError(400, "Invalid presentation asset path");
+    }
+
+    const userId = getUserId(req);
+    const role = (req as any).user?.role as string | undefined;
+    await assertCanAccessClassroomPresentation(userId, role, id);
+
+    const streamed = await streamClassroomPresentationAsset(res, id, rest, {
+      method: req.method,
+      origin: typeof req.headers.origin === "string" ? req.headers.origin : undefined,
+      range: typeof req.headers.range === "string" ? req.headers.range : undefined,
+    });
+    if (streamed) return;
+    res.status(404).json({ success: false, error: "Presentation asset not found" });
   } catch (error) {
     next(error);
   }

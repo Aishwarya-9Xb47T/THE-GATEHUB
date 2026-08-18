@@ -14,6 +14,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   type GetObjectCommandOutput,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -314,6 +315,39 @@ export async function headObject(key: string): Promise<{ contentType?: string; c
 export async function downloadObjectToFile(key: string, destPath: string): Promise<void> {
   const { body } = await getObjectStream(key);
   await pipeline(body, createWriteStream(destPath));
+}
+
+export async function listObjectKeys(prefix: string, maxKeys = 250): Promise<string[]> {
+  if (!isB2Configured()) return [];
+  const cleaned = prefix.replace(/^\/+/, "");
+  if (!cleaned || cleaned.includes("..")) return [];
+  const keys: string[] = [];
+  let token: string | undefined;
+  try {
+    do {
+      const out = await getClient().send(
+        new ListObjectsV2Command({
+          Bucket: requireBucket(),
+          Prefix: cleaned,
+          MaxKeys: Math.min(1000, Math.max(1, maxKeys - keys.length)),
+          ContinuationToken: token,
+        }),
+      );
+      for (const obj of out.Contents ?? []) {
+        if (obj.Key) keys.push(obj.Key);
+        if (keys.length >= maxKeys) return keys;
+      }
+      token = out.IsTruncated ? out.NextContinuationToken : undefined;
+    } while (token);
+  } catch (err) {
+    console.error(
+      "[MEDIA_B2] list_failed prefix=" +
+        cleaned +
+        " message=" +
+        (err instanceof Error ? err.message : "unknown"),
+    );
+  }
+  return keys;
 }
 
 export async function pingB2Storage(): Promise<"connected" | "unconfigured" | "error"> {

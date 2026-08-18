@@ -35,6 +35,7 @@ interface Props {
   connectionStatus: 'connected' | 'disconnected' | 'recovering';
   pollResults?: any;
   remainingSeconds?: number | null;
+  presentationId?: string;
 }
 
 function formatResponseLabel(response: unknown): string {
@@ -59,6 +60,7 @@ export function StudentSlideViewer({
   onInteractionSubmit,
   pollResults,
   remainingSeconds,
+  presentationId,
 }: Props) {
   const isLocked = navigation === 'locked';
   const [overlayDismissed, setOverlayDismissed] = useState(false);
@@ -123,6 +125,7 @@ export function StudentSlideViewer({
                 content={currentSlide.content}
                 title={currentSlide.title}
                 slideNumber={currentSlide.order}
+                presentationId={presentationId}
                 pointer={pointer}
                 className="w-full h-full"
               />

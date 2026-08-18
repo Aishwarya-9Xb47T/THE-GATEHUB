@@ -34,6 +34,7 @@ router.use(authenticate);
 router.post('/presentations', classroomStudioController.createPresentation);
 router.get('/presentations', classroomStudioController.getPresentations);
 router.get('/presentations/stats', classroomStudioController.getPresentationStats);
+router.get('/presentations/:id/assets/*', classroomStudioController.servePresentationAsset);
 router.get('/presentations/:id', classroomStudioController.getPresentation);
 router.put('/presentations/:id', classroomStudioController.updatePresentation);
 router.delete('/presentations/:id', classroomStudioController.deletePresentation);

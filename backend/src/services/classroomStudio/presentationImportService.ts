@@ -8,6 +8,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { persistAtPublicRelative } from '../../middlewares/persistUpload.js';
+import { headObject, isB2Configured } from '../b2StorageService.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import * as powerPointParser from './powerPointParser.js';
 import * as googleSlidesAdapter from './googleSlidesAdapter.js';
@@ -234,6 +235,23 @@ async function persistImportedContent(
     assetUrls.set(`asset://${asset.path}`, `/uploads/classroom/${presentationId}/${asset.path}`);
   }
   console.info('[Classroom import] Media extracted', { presentationId, count: assetUrls.size });
+
+  if (sourcePptxAsset) {
+    const relative = `classroom/${presentationId}/source/original.pptx`;
+    const diskPath = path.join(assetRoot, 'source/original.pptx');
+    await persistAtPublicRelative(
+      diskPath,
+      relative,
+      sourcePptxAsset.mimeType,
+      { keepLocal: true },
+    );
+    if (isB2Configured()) {
+      const stored = await headObject(`uploads/${relative}`);
+      if (!stored) {
+        throw new AppError(500, 'PowerPoint source file was not stored');
+      }
+    }
+  }
 
   const originalPptxAssetUrl = sourcePptxAsset ? `asset://${sourcePptxAsset.path}` : undefined;
   if (originalPptxAssetUrl) {
