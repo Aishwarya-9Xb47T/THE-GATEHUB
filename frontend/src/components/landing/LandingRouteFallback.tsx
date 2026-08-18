@@ -19,7 +19,7 @@ export function LandingRouteFallback() {
               <div className="landing-hero__actions flex flex-col sm:flex-row items-center justify-center gap-3">
                 <span className="landing-btn landing-btn--primary w-full sm:w-auto opacity-90">Start Learning</span>
                 <span className="landing-btn landing-btn--secondary w-full sm:w-auto opacity-90">
-                  Explore Learning Paths
+                  Explore Courses
                 </span>
               </div>
             </div>

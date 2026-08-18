@@ -1757,7 +1757,8 @@ export function EditorLayout({
             <History className="w-5 h-5" />
           </Button>
           <h1 className="font-bold text-sm tracking-tight text-white hidden md:flex items-center gap-2">
-            <BrandHomeButton markOnly size="sm" className="rounded" />
+            <BrandHomeButton className="text-white" />
+            <span className="text-slate-400">/</span>
             {editorTitle}
           </h1>
         </div>

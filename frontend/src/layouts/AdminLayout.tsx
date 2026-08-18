@@ -43,8 +43,8 @@ export function AdminLayout() {
       <aside data-floating-obstacle="sidebar" className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-border bg-card shadow-sm ring-1 ring-border/40">
         <div className="flex h-full flex-col p-4">
           <div className="mb-6 flex items-center gap-2 px-2">
-            <BrandHomeButton markOnly size="md" />
-            <span className="text-lg font-bold font-display text-text-primary">THE GATEHUB Admin</span>
+            <BrandHomeButton />
+            <span className="text-lg font-bold font-display text-text-primary">Admin</span>
           </div>
           <nav className="flex-1 space-y-1">
             {nav.map(({ to, end, label, icon: Icon }) => (

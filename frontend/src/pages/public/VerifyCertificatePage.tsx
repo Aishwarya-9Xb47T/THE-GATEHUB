@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { CheckCircle2, XCircle, ShieldAlert, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BrandMark } from "@/components/common/Logo";
+import { BrandHomeButton } from "@/components/common/Logo";
 import { apiUrl } from "@/lib/api";
 
 interface VerificationResult {
@@ -51,9 +51,7 @@ export function VerifyCertificatePage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
       <div className="max-w-2xl mx-auto px-4 py-16 space-y-8">
         <div className="text-center space-y-3">
-          <div className="flex justify-center">
-            <BrandMark size="xl" />
-          </div>
+          <BrandHomeButton className="justify-center" />
           <h1 className="text-3xl font-bold tracking-tight">Certificate Verification</h1>
           <p className="text-slate-400">THE GATEHUB — official credential verification</p>
         </div>

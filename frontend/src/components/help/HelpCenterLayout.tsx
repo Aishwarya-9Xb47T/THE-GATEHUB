@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { DocsSidebar } from "./DocsSidebar";
 import { DocsCommandPalette } from "./DocsCommandPalette";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
-import { Logo, BrandHomeButton } from "@/components/common/Logo";
+import { BrandHomeButton } from "@/components/common/Logo";
 import { Button } from "@/components/ui/button";
 import { useUserStore } from "@/store/userStore";
 import { AppAssistantFooter } from "@/assistant/AppAssistantFooter";
@@ -61,9 +61,7 @@ export function HelpCenterLayout() {
             <Button variant="ghost" size="icon" className="lg:hidden shrink-0 h-8 w-8" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </Button>
-            <BrandHomeButton className="help-center__brand" hideText>
-              <Logo size="md" />
-            </BrandHomeButton>
+            <BrandHomeButton className="help-center__brand" />
           </div>
           <div className="help-center__header-end">
             <Button variant="outline" size="sm" className="help-center__search-btn hidden sm:flex" onClick={() => setPaletteOpen(true)}>

@@ -8,7 +8,6 @@ import {
   PanelRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BrandMark } from "@/components/common/Logo";
 import { FooterAssistantAction } from "@/assistant/FooterAssistantAction";
 import { cn } from "@/lib/utils";
 
@@ -114,12 +113,7 @@ export function WorkspaceShell({
 
       <footer className="h-7 shrink-0 border-t border-[#30363d] bg-[#161b22] px-3 flex items-center justify-between text-[11px] text-[#8b949e]">
         <div className="flex items-center gap-2 min-w-0">
-          {statusLeft ?? (
-            <>
-              <BrandMark size="sm" className="rounded" />
-              <span>THE GATEHUB Workspace</span>
-            </>
-          )}
+          {statusLeft ?? <span>THE GATEHUB Workspace</span>}
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {statusRight}

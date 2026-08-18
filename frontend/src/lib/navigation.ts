@@ -1,4 +1,4 @@
-/** Public landing page — logo always navigates here */
+/** Public landing page — home control always navigates here */
 export const LANDING_PATH = "/";
 
 export function isLandingPath(pathname: string): boolean {
@@ -114,7 +114,7 @@ export function navigateIfDifferent(
   navigate(to, options);
 }
 
-/** Central logo handler — always lands on the public home page */
+/** Brand home control — always lands on the public home page */
 export function navigateToLanding(navigate: NavigateFn, current: { pathname: string; search?: string }): void {
   navigateIfDifferent(navigate, current, LANDING_PATH);
 }

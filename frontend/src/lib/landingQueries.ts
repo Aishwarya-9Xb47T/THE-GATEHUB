@@ -41,6 +41,48 @@ export const landingCoursesQueryOptions = {
 
 export type LandingUniversesResponse = any[];
 
+function normalizeCatalogTitle(title: unknown): string {
+  return String(title || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+export type LandingExploreItem =
+  | { kind: "universe"; id: string; universe: Record<string, any> }
+  | { kind: "course"; id: string; course: LandingCoursesResponse["courses"][number] };
+
+/** Combine landing universes + featured courses, dropping duplicates by id/title/linked course. */
+export function mergeLandingExploreItems(
+  universes: LandingUniversesResponse | undefined,
+  courses: LandingCoursesResponse["courses"] | undefined,
+): LandingExploreItem[] {
+  const items: LandingExploreItem[] = [];
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  for (const universe of universes || []) {
+    if (!universe?.id || seenIds.has(universe.id)) continue;
+    const linkedId = universe.structuredData?.linkedCourseId;
+    seenIds.add(universe.id);
+    if (typeof linkedId === "string" && linkedId) seenIds.add(linkedId);
+    const title = normalizeCatalogTitle(universe.title);
+    if (title) seenTitles.add(title);
+    items.push({ kind: "universe", id: universe.id, universe });
+  }
+
+  for (const course of courses || []) {
+    if (!course?.id || seenIds.has(course.id)) continue;
+    const title = normalizeCatalogTitle(course.title);
+    if (title && seenTitles.has(title)) continue;
+    seenIds.add(course.id);
+    if (title) seenTitles.add(title);
+    items.push({ kind: "course", id: course.id, course });
+  }
+
+  return items;
+}
+
 export function normalizeLandingUniverses(payload: unknown): any[] {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
@@ -67,7 +109,7 @@ export const landingUniversesQueryOptions = {
   refetchOnMount: false,
 };
 
-/** Warm landing JS + API caches before navigation (logo hover / focus / idle). */
+/** Warm landing JS + API caches before navigation (home hover / focus / idle). */
 export function prefetchLandingData(queryClient: QueryClient): void {
   prefetchLandingRoute();
   void Promise.all([

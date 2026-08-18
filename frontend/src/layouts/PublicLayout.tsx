@@ -72,7 +72,7 @@ export function PublicLayout() {
       >
         <div className="app-workspace app-workspace--bar app-workspace--lg">
           <div className="flex h-16 items-center justify-between">
-            {/* Logo */}
+            {/* Home */}
             <div className="flex items-center gap-8">
               <BrandHomeButton />
             </div>

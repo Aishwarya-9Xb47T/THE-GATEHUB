@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { useRazorpayCheckout } from "@/hooks/useRazorpayCheckout";
 import { studentCourseCta } from "@/lib/paymentUtils";
+import { mergeLandingExploreItems } from "@/lib/landingQueries";
 
 interface Course {
   id: string;
@@ -41,7 +42,7 @@ export function BrowseCourses() {
   const user = useUserStore((s) => s.user);
   const toast = useToastStore((s) => s.add);
 
-  const { checkout, isProcessing } = useRazorpayCheckout({
+  const { isProcessing } = useRazorpayCheckout({
     user,
     onSuccess: () => {
       toast({ title: "Payment successful!", variant: "success" });
@@ -124,6 +125,8 @@ export function BrowseCourses() {
   const learningUniverses = luData ?? [];
   const enrollments = enrollmentsData?.enrollments ?? [];
   const luEnrollments = luEnrollmentsData?.enrollments ?? [];
+  const exploreItems = mergeLandingExploreItems(learningUniverses, courses);
+  const catalogLoading = isLoading || luLoading;
 
   const getLuEnrollmentStatus = (luId: string) => {
     const enrollment = luEnrollments.find((e: any) => e.learningUniverseId === luId || e.learningUniverse?.id === luId);
@@ -187,13 +190,13 @@ export function BrowseCourses() {
   return (
     <div className="catalog-layout space-y-8">
       <div>
-        <h1 className="page-title tracking-tight text-foreground">Browse Learning</h1>
-        <p className="mt-1 text-lg text-muted-foreground">Courses, learning universes, and more — all in one place</p>
+        <h1 className="page-title tracking-tight text-foreground">Explore Courses</h1>
+        <p className="mt-1 text-lg text-muted-foreground">Learning universes and courses in one catalog</p>
       </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search courses and learning universes..." className="pl-12 h-12 rounded-xl bg-background/50 border-border/50 text-base shadow-sm focus-visible:ring-primary/20" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Search courses..." className="pl-12 h-12 rounded-xl bg-background/50 border-border/50 text-base shadow-sm focus-visible:ring-primary/20" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <select
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm focus-visible:ring-primary/20"
@@ -225,7 +228,7 @@ export function BrowseCourses() {
           <option value="paid">Paid</option>
         </select>
       </div>
-      {isLoading ? (
+      {catalogLoading ? (
         <div className="course-cards-grid">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
             <div key={i} className="course-card-skeleton border border-border/50 bg-card/50 animate-pulse">
@@ -247,82 +250,7 @@ export function BrowseCourses() {
             <Button onClick={() => refetch()} variant="outline" className="border-red-500/20 text-red-500 hover:bg-red-500/10 hover:text-red-600">Try Again</Button>
           </CardContent>
         </Card>
-      ) : (
-        <div className="course-cards-grid">
-          {courses.map((c, i) => {
-            const enrollmentStatus = getEnrollmentStatus(c.id);
-            return (
-              <motion.div key={c.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
-                <CourseCard
-                  course={{
-                    id: c.id,
-                    title: c.title,
-                    subtitle: c.subtitle,
-                    thumbnail: c.thumbnail,
-                    bannerUrl: c.bannerUrl || c.thumbnail,
-                    price: c.price,
-                    category: c.category?.name,
-                    instructor: c.instructor ? `${c.instructor.firstName} ${c.instructor.lastName}` : undefined,
-                    rating: c.averageRating,
-                    reviewCount: c.reviewCount,
-                    difficulty: c.difficulty || undefined,
-                    studentCount: c._count?.enrollments,
-                    isEnrolled: enrollmentStatus.isEnrolled,
-                    progress: enrollmentStatus.progress,
-                  }}
-                  onClick={() => navigate(`/course/${c.id}`)}
-                  topRightOverlay={<WishlistHeartButton courseId={c.id} />}
-                  headerBadge={
-                    enrollmentStatus.isEnrolled && (
-                      <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-1 rounded-full text-xs font-bold">
-                        {enrollmentStatus.progress === 100 ? (
-                          <>
-                            <Award className="w-3 h-3 mr-1 inline" />
-                            Completed
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-3 h-3 mr-1 inline" />
-                            Enrolled
-                          </>
-                        )}
-                      </span>
-                    )
-                  }
-                  actions={
-                    enrollmentStatus.isEnrolled ? (
-                      <Button 
-                        size="sm" 
-                        className="course-card__cta rounded-lg shadow-sm hover:-translate-y-0.5 transition-all ml-auto bg-green-600 hover:bg-green-700"
-                        onClick={(e) => { e.stopPropagation(); handleContinueLearning(c.id); }}
-                      >
-                        {enrollmentStatus.isCompleted || enrollmentStatus.progress === 100
-                          ? "Review Course"
-                          : enrollmentStatus.progress > 0
-                            ? "Continue Learning"
-                            : "Start Learning"}
-                      </Button>
-                    ) : (
-                      <Button 
-                        size="sm" 
-                        className={cn(
-                          "course-card__cta rounded-lg shadow-sm hover:-translate-y-0.5 transition-all ml-auto",
-                          c.price > 0 ? "bg-amber-600 hover:bg-amber-700" : "bg-primary"
-                        )} 
-                        onClick={(e) => { e.stopPropagation(); handleEnroll(c.id, c.price, c.title); }}
-                        disabled={isProcessing}
-                      >
-                        {studentCourseCta(c.price, enrollmentStatus.isEnrolled)}
-                      </Button>
-                    )
-                  }
-                />
-              </motion.div>
-            );
-          })}
-        </div>
-      )}
-      {!isLoading && !isError && courses.length === 0 && learningUniverses.length === 0 && (
+      ) : exploreItems.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-12 text-center">
             <p className="text-lg font-semibold text-foreground">No courses to browse yet</p>
@@ -331,16 +259,14 @@ export function BrowseCourses() {
             </p>
           </CardContent>
         </Card>
-      )}
-
-      {learningUniverses.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold">Learning Universes</h2>
-          <div className="course-cards-grid">
-            {learningUniverses.map((lu: any, i: number) => {
+      ) : (
+        <div className="course-cards-grid">
+          {exploreItems.map((item, i) => {
+            if (item.kind === "universe") {
+              const lu = item.universe;
               const status = getLuEnrollmentStatus(lu.id);
               return (
-                <motion.div key={lu.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
+                <motion.div key={`universe-${lu.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
                   <CourseCard
                     course={{
                       id: lu.id,
@@ -380,8 +306,81 @@ export function BrowseCourses() {
                   />
                 </motion.div>
               );
-            })}
-          </div>
+            }
+
+            const c = item.course as Course;
+            const enrollmentStatus = getEnrollmentStatus(c.id);
+            return (
+              <motion.div key={`course-${c.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
+                <CourseCard
+                  course={{
+                    id: c.id,
+                    title: c.title,
+                    subtitle: c.subtitle,
+                    thumbnail: c.thumbnail,
+                    bannerUrl: c.bannerUrl || c.thumbnail,
+                    price: c.price,
+                    category: c.category?.name,
+                    instructor: c.instructor ? `${c.instructor.firstName} ${c.instructor.lastName}` : undefined,
+                    rating: c.averageRating,
+                    reviewCount: c.reviewCount,
+                    difficulty: c.difficulty || undefined,
+                    studentCount: c._count?.enrollments,
+                    isEnrolled: enrollmentStatus.isEnrolled,
+                    progress: enrollmentStatus.progress,
+                  }}
+                  onClick={() => navigate(`/course/${c.id}`)}
+                  topRightOverlay={<WishlistHeartButton courseId={c.id} />}
+                  headerBadge={
+                    enrollmentStatus.isEnrolled ? (
+                      <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-1 rounded-full text-xs font-bold">
+                        {enrollmentStatus.progress === 100 ? (
+                          <>
+                            <Award className="w-3 h-3 mr-1 inline" />
+                            Completed
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3 h-3 mr-1 inline" />
+                            Enrolled
+                          </>
+                        )}
+                      </span>
+                    ) : (
+                      <p className="type-section-label text-primary truncate">Course</p>
+                    )
+                  }
+                  actions={
+                    enrollmentStatus.isEnrolled ? (
+                      <Button
+                        size="sm"
+                        className="course-card__cta rounded-lg shadow-sm hover:-translate-y-0.5 transition-all ml-auto bg-green-600 hover:bg-green-700"
+                        onClick={(e) => { e.stopPropagation(); handleContinueLearning(c.id); }}
+                      >
+                        {enrollmentStatus.isCompleted || enrollmentStatus.progress === 100
+                          ? "Review Course"
+                          : enrollmentStatus.progress > 0
+                            ? "Continue Learning"
+                            : "Start Learning"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className={cn(
+                          "course-card__cta rounded-lg shadow-sm hover:-translate-y-0.5 transition-all ml-auto",
+                          c.price > 0 ? "bg-amber-600 hover:bg-amber-700" : "bg-primary"
+                        )}
+                        onClick={(e) => { e.stopPropagation(); handleEnroll(c.id, c.price, c.title); }}
+                        disabled={isProcessing}
+                      >
+                        {studentCourseCta(c.price, enrollmentStatus.isEnrolled)}
+                      </Button>
+                    )
+                  }
+                />
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </div>

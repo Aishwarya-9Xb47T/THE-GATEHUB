@@ -1,66 +1,54 @@
 import type { ReactNode } from "react";
-import { motion } from "framer-motion";
+import { Sparkles } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { BRAND_LOGO_HEIGHT, BRAND_LOGO_SRC, BRAND_NAME, type BrandLogoSize } from "@/lib/brand";
+import { BRAND_NAME } from "@/lib/brand";
 import { navigateToLanding } from "@/lib/navigation";
 import { prefetchLandingData } from "@/lib/landingQueries";
 
 interface BrandMarkProps {
-  size?: BrandLogoSize;
+  size?: "sm" | "md" | "lg" | "xl";
   className?: string;
   onClick?: () => void;
   onMouseEnter?: () => void;
   onFocus?: () => void;
 }
 
-/** Official logo mark only — use beside custom titles or in compact headers */
-export function BrandMark({ size = "lg", className, onClick, onMouseEnter, onFocus }: BrandMarkProps) {
-  const height = BRAND_LOGO_HEIGHT[size];
+/** Text wordmark only — visual logo mark is not rendered in the product UI. */
+export function BrandMark({ className, onClick, onMouseEnter, onFocus }: BrandMarkProps) {
+  if (!onClick) return null;
   return (
-    <img
-      src={BRAND_LOGO_SRC}
-      alt={`${BRAND_NAME} Logo`}
-      className={cn("object-contain w-auto shrink-0", onClick && "cursor-pointer", className)}
-      style={{ height, width: "auto" }}
-      height={height}
-      width={height}
-      decoding="async"
+    <button
+      type="button"
+      className={cn("brand-wordmark font-display border-0 bg-transparent p-0 cursor-pointer", className)}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onFocus={onFocus}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-    />
+      aria-label={`${BRAND_NAME} home`}
+    >
+      {BRAND_NAME}
+    </button>
   );
 }
 
 interface BrandAvatarProps {
-  /** Diameter in pixels */
   size?: number;
   className?: string;
 }
 
-/** Circular black avatar — logo clipped to circle (assistant, compact UI) */
+/** Neutral assistant glyph — not the product logo. */
 export function BrandAvatar({ size = 36, className }: BrandAvatarProps) {
   return (
     <span
-      className={cn("brand-avatar", className)}
+      className={cn(
+        "inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0",
+        className
+      )}
       style={{ width: size, height: size }}
       aria-hidden
     >
-      <img src={BRAND_LOGO_SRC} alt="" className="brand-avatar__img" decoding="async" />
+      <Sparkles style={{ width: Math.round(size * 0.48), height: Math.round(size * 0.48) }} />
     </span>
   );
 }
@@ -68,53 +56,25 @@ export function BrandAvatar({ size = 36, className }: BrandAvatarProps) {
 interface LogoProps {
   className?: string;
   hideText?: boolean;
-  size?: BrandLogoSize;
+  size?: "sm" | "md" | "lg" | "xl";
 }
 
-export function Logo({ className, hideText = false, size = "lg" }: LogoProps) {
-  return (
-    <div className="flex items-center gap-3">
-      <motion.div
-        animate={{ y: [0, -2, 0] }}
-        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-        className="relative"
-      >
-        <motion.div
-          className="absolute inset-0 rounded-full blur-xl opacity-25 dark:opacity-35 bg-gradient-to-tr from-brand-blue/40 via-brand-indigo/30 to-primary/40"
-          animate={{
-            rotate: 360,
-            scale: [1, 1.06, 1],
-            opacity: [0.15, 0.3, 0.15],
-          }}
-          transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-        />
-        <BrandMark
-          size={size}
-          className={cn(
-            "relative z-10 rounded-full bg-background/80 dark:bg-background/50 shadow-sm transition-all duration-500",
-            className
-          )}
-        />
-      </motion.div>
-      {!hideText && (
-        <span className="brand-wordmark font-display">{BRAND_NAME}</span>
-      )}
-    </div>
-  );
+export function Logo({ className, hideText = false }: LogoProps) {
+  if (hideText) return null;
+  return <span className={cn("brand-wordmark font-display", className)}>{BRAND_NAME}</span>;
 }
 
 interface BrandHomeButtonProps {
   hideText?: boolean;
-  size?: BrandLogoSize;
+  size?: "sm" | "md" | "lg" | "xl";
   className?: string;
   children?: ReactNode;
   markOnly?: boolean;
 }
 
-/** Logo / brand mark that always navigates to the public landing page */
+/** Brand home control — wordmark text, no logo image. */
 export function BrandHomeButton({
   hideText,
-  size = "lg",
   className,
   children,
   markOnly = false,
@@ -148,18 +108,6 @@ export function BrandHomeButton({
     );
   }
 
-  if (markOnly) {
-    return (
-      <BrandMark
-        size={size}
-        className={className}
-        onClick={goHome}
-        onMouseEnter={prefetchHome}
-        onFocus={prefetchHome}
-      />
-    );
-  }
-
   return (
     <button
       type="button"
@@ -170,7 +118,11 @@ export function BrandHomeButton({
       )}
       aria-label={`${BRAND_NAME} home`}
     >
-      <Logo hideText={hideText} size={size} />
+      {hideText || markOnly ? (
+        <span className="brand-wordmark font-display text-sm">{BRAND_NAME}</span>
+      ) : (
+        <Logo />
+      )}
     </button>
   );
 }

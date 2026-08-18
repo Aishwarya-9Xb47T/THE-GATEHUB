@@ -1,7 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { ShimmerHeading } from "@/components/landing/ShimmerHeading";
-import { BrandMark } from "@/components/common/Logo";
 import { FooterAssistantAction } from "@/assistant/FooterAssistantAction";
 import { isLandingPath } from "@/lib/navigation";
 import { Linkedin, Instagram, Mail } from "lucide-react";
@@ -39,9 +38,6 @@ export function GlobalFooter() {
       <div className="landing-shell site-footer__shell py-12 md:py-16">
         <div className="site-footer__inner">
           <motion.div className="site-footer__brand" {...fade(0, motionOff)}>
-            <div className="site-footer__logo-wrap">
-              <BrandMark size="xl" className="site-footer__logo" />
-            </div>
             <ShimmerHeading as="p" className="site-footer__brand-name font-display">
               THE GATEHUB
             </ShimmerHeading>

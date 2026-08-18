@@ -2,10 +2,7 @@ import { lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { ShimmerHeading } from "@/components/landing/ShimmerHeading";
-import {
-  LandingCoursesSectionFallback,
-  LandingPathsSectionFallback,
-} from "@/components/landing/LandingSectionFallbacks";
+import { LandingExploreSectionFallback } from "@/components/landing/LandingSectionFallbacks";
 
 const TechnologyEcosystemMarquee = lazy(() =>
   import("@/components/landing/TechnologyEcosystemMarquee").then((m) => ({
@@ -19,15 +16,9 @@ const EcosystemValueSection = lazy(() =>
   }))
 );
 
-const LandingLearningPathsSection = lazy(() =>
-  import("@/pages/public/landing/LandingLearningPathsSection").then((m) => ({
-    default: m.LandingLearningPathsSection,
-  }))
-);
-
-const LandingFeaturedCoursesSection = lazy(() =>
-  import("@/pages/public/landing/LandingFeaturedCoursesSection").then((m) => ({
-    default: m.LandingFeaturedCoursesSection,
+const LandingExploreCoursesSection = lazy(() =>
+  import("@/pages/public/landing/LandingExploreCoursesSection").then((m) => ({
+    default: m.LandingExploreCoursesSection,
   }))
 );
 
@@ -66,8 +57,8 @@ export function LandingPage() {
                 <Link to="/register" className="landing-btn landing-btn--primary w-full sm:w-auto">
                   Start Learning
                 </Link>
-                <a href="#learning-paths" className="landing-btn landing-btn--secondary w-full sm:w-auto">
-                  Explore Learning Paths
+                <a href="#courses" className="landing-btn landing-btn--secondary w-full sm:w-auto">
+                  Explore Courses
                 </a>
               </div>
             </div>
@@ -84,12 +75,8 @@ export function LandingPage() {
           <EcosystemValueSection />
         </Suspense>
 
-        <Suspense fallback={<LandingPathsSectionFallback />}>
-          <LandingLearningPathsSection />
-        </Suspense>
-
-        <Suspense fallback={<LandingCoursesSectionFallback />}>
-          <LandingFeaturedCoursesSection />
+        <Suspense fallback={<LandingExploreSectionFallback />}>
+          <LandingExploreCoursesSection />
         </Suspense>
 
         <section className="landing-section-compact bg-transparent dark:bg-background transition-colors border-t border-border/40">

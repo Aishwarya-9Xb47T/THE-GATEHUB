@@ -1,7 +1,7 @@
 /** Official THE GATEHUB brand assets — single source of truth */
 export const BRAND_NAME = "THE GATEHUB";
 
-/** Official logo served from /public/logo.png */
+/** Favicon / certificate asset path. Not rendered as in-app chrome. */
 export const BRAND_LOGO_SRC = "/logo.png";
 
 export const BRAND_LOGO_HEIGHT = {
