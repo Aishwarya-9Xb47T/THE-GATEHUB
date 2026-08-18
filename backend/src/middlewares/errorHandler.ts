@@ -7,7 +7,18 @@ export class AppError extends Error {
     public statusCode: number,
     message: string,
     public isOperational = true,
-    public details?: { code: string; stage?: string; retryable?: boolean; keysChecked?: string[] }
+    public details?: {
+      code: string;
+      stage?: string;
+      retryable?: boolean;
+      keysChecked?: string[];
+      presentationId?: string;
+      slidesSucceeded?: number;
+      slidesFailed?: number;
+      failedSlideNumbers?: number[];
+      sourceKey?: string;
+      method?: string;
+    }
   ) {
     super(message);
     Object.setPrototypeOf(this, AppError.prototype);
@@ -38,6 +49,12 @@ export function errorHandler(
           stage: err.details.stage,
           retryable: err.details.retryable ?? false,
           ...(err.details.keysChecked ? { keysChecked: err.details.keysChecked } : {}),
+          ...(err.details.presentationId ? { presentationId: err.details.presentationId } : {}),
+          ...(err.details.slidesSucceeded != null ? { slidesSucceeded: err.details.slidesSucceeded } : {}),
+          ...(err.details.slidesFailed != null ? { slidesFailed: err.details.slidesFailed } : {}),
+          ...(err.details.failedSlideNumbers ? { failedSlideNumbers: err.details.failedSlideNumbers } : {}),
+          ...(err.details.sourceKey ? { sourceKey: err.details.sourceKey } : {}),
+          ...(err.details.method ? { method: err.details.method } : {}),
         },
       });
     }

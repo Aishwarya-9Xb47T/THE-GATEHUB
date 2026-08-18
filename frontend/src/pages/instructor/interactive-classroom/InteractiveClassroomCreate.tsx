@@ -21,6 +21,7 @@ export function InteractiveClassroomCreate() {
   const toast = useToastStore((s) => s.add);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [pipelineLabel, setPipelineLabel] = useState("Uploading PowerPoint…");
   const [step, setStep] = useState<"source" | "details">("source");
   const [sourceType, setSourceType] = useState<"manual" | "powerpoint" | "google_slides">("manual");
   const [formData, setFormData] = useState({
@@ -188,20 +189,60 @@ export function InteractiveClassroomCreate() {
         formDataToSend.append("sourceType", "powerpoint");
 
         setUploadProgress(0);
+        setPipelineLabel("Uploading PowerPoint…");
         const result = await new Promise<{ status: number; ok: boolean; data: any }>((resolve, reject) => {
           const request = new XMLHttpRequest();
           request.open("POST", apiUrl("/api/classroom-studio/import"));
           request.setRequestHeader("Authorization", headers.Authorization);
+          request.setRequestHeader("X-No-Compression", "1");
           request.upload.onprogress = (event) => {
-            if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+            if (!event.lengthComputable) return;
+            const pct = Math.max(0, Math.min(10, Math.round((event.loaded / event.total) * 10)));
+            setUploadProgress(pct);
+            setPipelineLabel("Uploading PowerPoint…");
           };
-          request.timeout = 180_000;
+          request.timeout = 600_000;
           request.onerror = () => reject(new Error("Upload failed. Check your network connection and try again."));
-          request.ontimeout = () => reject(new Error("Import timed out. The presentation processing took longer than 3 minutes."));
+          request.ontimeout = () => reject(new Error("Import timed out. Slide rendering took longer than 10 minutes."));
+          const applyProgressFromBody = () => {
+            const text = request.responseText || "";
+            const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+            for (let i = lines.length - 1; i >= 0; i -= 1) {
+              try {
+                const parsed = JSON.parse(lines[i]);
+                if (parsed?.type === "progress") {
+                  if (typeof parsed.percent === "number") setUploadProgress(parsed.percent);
+                  if (typeof parsed.message === "string") setPipelineLabel(parsed.message);
+                  break;
+                }
+              } catch {
+                /* ignore partial NDJSON line */
+              }
+            }
+          };
+          request.onprogress = applyProgressFromBody;
           request.onload = () => {
             try {
-              const resData = JSON.parse(request.responseText || "{}");
-              resolve({ status: request.status, ok: request.status >= 200 && request.status < 300, data: resData });
+              applyProgressFromBody();
+              const text = request.responseText || "{}";
+              const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+              let data: any = {};
+              for (const line of lines) {
+                try {
+                  const parsed = JSON.parse(line);
+                  if (parsed?.type === "result" || parsed?.presentationId || parsed?.success === false) {
+                    data = parsed.type === "result" ? parsed : parsed;
+                  } else if (!parsed?.type) {
+                    data = parsed;
+                  }
+                } catch {
+                  /* ignore */
+                }
+              }
+              if (!data || Object.keys(data).length === 0) {
+                data = JSON.parse(lines[lines.length - 1] || "{}");
+              }
+              resolve({ status: request.status, ok: request.status >= 200 && request.status < 300, data });
             } catch {
               reject(new Error(`Server returned status ${request.status} with non-JSON content.`));
             }
@@ -209,20 +250,54 @@ export function InteractiveClassroomCreate() {
           request.send(formDataToSend);
         });
 
-        if (result.ok && (result.data.presentationId || result.data.id)) {
-          const id = result.data.presentationId ?? result.data.id;
-          const warnCount = result.data.warnings?.length ?? 0;
+        const payload = result.data || {};
+        const id = payload.presentationId ?? payload.id;
+        const renderFailed =
+          payload.success === false ||
+          payload.code === "CLASSROOM_RENDER_FAILED" ||
+          payload.overallStatus === "render_failed" ||
+          payload.error?.code === "CLASSROOM_RENDER_FAILED";
+        const extractionCount = payload.extractionWarnings?.length ?? 0;
+        const warnCount = payload.warnings?.length ?? 0;
+
+        if (renderFailed) {
           toast({
-            title: "Success",
-            description: warnCount
-              ? `PowerPoint imported with ${warnCount} extraction warning(s)`
-              : "PowerPoint imported successfully",
+            title: "PowerPoint imported, but slide visuals could not be generated.",
+            description: payload.error?.code
+              ? `Code: ${payload.error.code}${payload.error.method ? ` • ${payload.error.method}` : ""}`
+              : (typeof payload.error === "string" ? payload.error : "Regenerate slide visuals after the renderer is available."),
+            variant: "destructive",
           });
+          if (id) {
+            navigate(`/instructor/interactive-classroom/presentations/${id}/editor`);
+            return;
+          }
+          throw new Error(payload.error?.message || payload.error || "Failed to import PowerPoint file");
+        }
+
+        if (result.ok && id) {
+          if (payload.code === "CLASSROOM_RENDER_PARTIAL" || payload.overallStatus === "rendering_partial") {
+            toast({
+              title: "PowerPoint imported with incomplete slide visuals",
+              description: `${payload.slidesSucceeded ?? 0} of ${payload.slideCount ?? 0} slides rendered. Use Regenerate slide visuals for the rest.`,
+              variant: "destructive",
+            });
+          } else if (extractionCount || warnCount) {
+            toast({
+              title: "Success",
+              description: `PowerPoint imported with ${extractionCount || warnCount} extraction warning(s)`,
+            });
+          } else {
+            toast({
+              title: "Success",
+              description: "PowerPoint imported successfully",
+            });
+          }
           navigate(`/instructor/interactive-classroom/presentations/${id}/editor`);
           return;
         }
 
-        throw new Error(result.data.error || "Failed to import PowerPoint file");
+        throw new Error(payload.error?.message || payload.error || "Failed to import PowerPoint file");
       }
 
       // Manual Presentation Creation
@@ -415,7 +490,7 @@ export function InteractiveClassroomCreate() {
                         <div className="mt-4" aria-live="polite">
                           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-2">
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            Processing PowerPoint presentation {uploadProgress}%
+                            {pipelineLabel} {uploadProgress}%
                           </div>
                           <div className="h-2 w-full max-w-sm mx-auto rounded-full bg-muted overflow-hidden">
                             <div className="h-full bg-primary transition-all" style={{ width: `${uploadProgress}%` }} />

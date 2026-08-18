@@ -1013,6 +1013,20 @@ export async function importPresentation(req: Request, res: Response, next: Next
       console.info('[Classroom import] ZIP validated', { fileName: file.originalname });
     }
 
+    const streamProgress = sourceType === 'powerpoint' && Boolean(file);
+    let streaming = false;
+    const writeLine = (payload: Record<string, unknown>) => {
+      if (!streaming) {
+        res.status(200);
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Accel-Buffering', 'no');
+        streaming = true;
+      }
+      res.write(`${JSON.stringify(payload)}\n`);
+      (res as any).flush?.();
+    };
+
     const result = await presentationImportService.importPresentation({
       instructorId,
       title,
@@ -1021,20 +1035,54 @@ export async function importPresentation(req: Request, res: Response, next: Next
       sourceUrl,
       file: file?.buffer,
       options,
+      onProgress: streamProgress
+        ? async (event) => {
+            writeLine({ type: 'progress', ...event });
+          }
+        : undefined,
     });
 
-    console.info('[Classroom import] Returning success response', result);
+    console.info('[Classroom import] Returning success response', {
+      presentationId: result.presentationId,
+      overallStatus: result.overallStatus,
+      renderedCount: result.renderedCount,
+    });
+    if (streamProgress) {
+      writeLine({ type: 'result', success: true, ...result });
+      res.end();
+      return;
+    }
     return res.status(201).json({ success: true, ...result });
   } catch (error: any) {
     console.error('[Classroom import] Request failed', error);
     const statusCode = error.statusCode || error.status || 500;
-    return res.status(statusCode).json({
+    const details = error.details || {};
+    const payload = {
       success: false,
-      stage: error.stage || 'server',
-      error: error.message || 'Failed to import presentation',
+      stage: details.stage || error.stage || 'server',
+      error: details.code
+        ? {
+            code: details.code,
+            message: error.message || 'Failed to import presentation',
+            stage: details.stage,
+            retryable: details.retryable ?? false,
+            presentationId: details.presentationId,
+            slidesSucceeded: details.slidesSucceeded,
+            slidesFailed: details.slidesFailed,
+            failedSlideNumbers: details.failedSlideNumbers,
+            sourceKey: details.sourceKey,
+            method: details.method,
+          }
+        : error.message || 'Failed to import presentation',
       slideNumber: error.slideNumber,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-    });
+      presentationId: details.presentationId,
+    };
+    if (res.headersSent) {
+      res.write(`${JSON.stringify({ type: 'result', ...payload })}\n`);
+      res.end();
+      return;
+    }
+    return res.status(statusCode).json(payload);
   }
 }
 

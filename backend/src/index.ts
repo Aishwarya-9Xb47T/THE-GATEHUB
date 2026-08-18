@@ -129,6 +129,7 @@ app.use(
       if (req.headers["x-no-compression"]) return false;
       const pathName = req.path || "";
       if (pathName.startsWith("/uploads/")) return false;
+      if (pathName.startsWith("/api/classroom-studio/import")) return false;
       if (req.headers.range) return false;
       return compression.filter(req, res);
     },

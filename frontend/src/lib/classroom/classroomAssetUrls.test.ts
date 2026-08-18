@@ -27,6 +27,15 @@ describe("classroomAssetUrls", () => {
     expect(urls).toEqual([canonicalClassroomApiAsset("abc", "renders", "slide-002.svg")]);
   });
 
+  it("keeps canonical API SVG URLs on the authenticated asset route", () => {
+    const urls = classroomVisualFetchUrls(
+      "/api/classroom-studio/presentations/abc/assets/renders/slide-001.svg",
+      "abc",
+      "svg",
+    );
+    expect(urls).toEqual([canonicalClassroomApiAsset("abc", "renders", "slide-001.svg")]);
+  });
+
   it("requests the authenticated original PPTX for native fallback", () => {
     const urls = classroomVisualFetchUrls("asset://source/original.pptx", "abc", "pptx");
     expect(urls).toEqual([canonicalClassroomApiAsset("abc", "source", "original.pptx")]);

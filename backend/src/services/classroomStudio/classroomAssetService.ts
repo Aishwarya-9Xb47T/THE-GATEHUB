@@ -122,7 +122,9 @@ export async function streamClassroomPresentationAsset(
       origin: options?.origin,
       range: options?.range,
       mimeType: classroomAssetMime(safeRest),
-      cacheControl: "private, max-age=120",
+      cacheControl: safeRest.endsWith(".svg")
+        ? "private, max-age=86400"
+        : "private, max-age=3600",
     });
     if (streamed) {
       console.info("[CLASSROOM_ASSET] streamed", { presentationId, relative, status: 200 });
@@ -137,7 +139,9 @@ export async function streamClassroomPresentationAsset(
       origin: options?.origin,
       range: options?.range,
       mimeType: classroomAssetMime(safeRest),
-      cacheControl: "private, max-age=120",
+      cacheControl: safeRest.endsWith(".svg")
+        ? "private, max-age=86400"
+        : "private, max-age=3600",
     });
     if (streamed) return true;
   }

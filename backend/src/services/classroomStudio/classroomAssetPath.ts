@@ -23,8 +23,47 @@ export function canonicalSlideSvgRelative(presentationId: string, slideNumber: n
   return `${CLASSROOM_PREFIX}/${presentationId}/renders/${paddedSlideFile(slideNumber)}`;
 }
 
+export function canonicalSlideSvgApi(presentationId: string, slideNumber: number): string {
+  return `/api/classroom-studio/presentations/${presentationId}/assets/renders/${paddedSlideFile(slideNumber)}`;
+}
+
+export function canonicalSourceApi(presentationId: string): string {
+  return `/api/classroom-studio/presentations/${presentationId}/assets/source/original.pptx`;
+}
+
 export function canonicalPublicPath(relative: string): string {
   return `/uploads/${relative.replace(/^\/+/, "").replace(/^uploads\//, "")}`;
+}
+
+export function buildSlideVisual(
+  presentationId: string,
+  slideIndex: number,
+  hasSvg: boolean,
+): Record<string, unknown> {
+  const source = {
+    type: "pptx",
+    src: canonicalSourceApi(presentationId),
+    storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
+    slideIndex,
+  };
+  if (hasSvg) {
+    return {
+      type: "svg",
+      src: canonicalSlideSvgApi(presentationId, slideIndex + 1),
+      storageKey: `uploads/${canonicalSlideSvgRelative(presentationId, slideIndex + 1)}`,
+      slideIndex,
+      availability: "available",
+      source,
+    };
+  }
+  return {
+    type: "pptx",
+    src: canonicalSourceApi(presentationId),
+    storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
+    slideIndex,
+    availability: "missing",
+    source,
+  };
 }
 
 export function sanitizeClassroomAssetRest(raw: string): string | null {

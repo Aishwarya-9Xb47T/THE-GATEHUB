@@ -54,16 +54,19 @@ export function classroomVisualFetchUrls(
     return [canonicalClassroomApiAsset(presentationId, "source", "original.pptx")];
   }
 
-  if (kind === "svg") {
-    const rewritten = rewriteClassroomAssetRef(src || "", presentationId);
+  const rewritten = rewriteClassroomAssetRef(src || "", presentationId);
+  const apiRender = rewritten.match(/\/api\/classroom-studio\/presentations\/([^/]+)\/assets\/renders\/slide-(\d+)\.svg$/i);
+  if (kind === "svg" || apiRender) {
     const match = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/renders\/slide-(\d+)\.svg$/i);
-    const id = match?.[1] || presentationId;
-    const n = match ? Number(match[2]) : NaN;
-    if (!id || !Number.isFinite(n) || n < 1) return [];
-    return [canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n))];
+    const id = apiRender?.[1] || match?.[1] || presentationId;
+    const n = Number(apiRender?.[2] || match?.[2]);
+    if (!id || !Number.isFinite(n) || n < 1) {
+      if (kind === "svg") return [];
+    } else {
+      return [canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n))];
+    }
   }
 
-  const rewritten = rewriteClassroomAssetRef(src || "", presentationId);
   const uploadMatch = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/(source|renders)\/([^/]+)$/i);
   if (uploadMatch) {
     const kindPart = uploadMatch[2].toLowerCase() === "source" ? "source" : "renders";

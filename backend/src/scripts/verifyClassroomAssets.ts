@@ -7,7 +7,9 @@ import {
   CLASSROOM_SOURCE_REST,
   PPTX_MIME,
   SVG_MIME,
+  buildSlideVisual,
   canonicalPublicPath,
+  canonicalSlideSvgApi,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
   parseClassroomAssetFilename,
@@ -28,6 +30,20 @@ function run(name: string, fn: () => void) {
   fn();
   console.info(`ok  ${name}`);
 }
+
+run("canonical API visual refs", () => {
+  assert.equal(
+    canonicalSlideSvgApi("pres-1", 1),
+    "/api/classroom-studio/presentations/pres-1/assets/renders/slide-001.svg",
+  );
+  const visual = buildSlideVisual("pres-1", 0, true);
+  assert.equal(visual.type, "svg");
+  assert.equal(visual.src, canonicalSlideSvgApi("pres-1", 1));
+  assert.equal(visual.availability, "available");
+  const missing = buildSlideVisual("pres-1", 3, false);
+  assert.equal(missing.type, "pptx");
+  assert.equal(missing.availability, "missing");
+});
 
 run("canonical storage keys", () => {
   assert.equal(canonicalSourceRelative("pres-1"), "classroom/pres-1/source/original.pptx");
@@ -139,3 +155,4 @@ run("PPTX magic bytes and MIME", () => {
 });
 
 console.info("classroom asset assertions passed");
+process.exit(0);

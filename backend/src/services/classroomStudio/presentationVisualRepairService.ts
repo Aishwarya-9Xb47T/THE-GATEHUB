@@ -14,9 +14,9 @@ import {
 } from "./classroomSourceResolver.js";
 import {
   SVG_MIME,
+  buildSlideVisual,
   canonicalPublicPath,
   canonicalSlideSvgRelative,
-  canonicalSourceRelative,
 } from "./classroomAssetPath.js";
 
 function withVisual(
@@ -29,23 +29,7 @@ function withVisual(
     content && typeof content === "object" && !Array.isArray(content)
       ? { ...(content as Record<string, unknown>) }
       : {};
-  const source = {
-    type: "pptx",
-    src: canonicalPublicPath(canonicalSourceRelative(presentationId)),
-    slideIndex,
-  };
-  base.visual = hasSvg
-    ? {
-        type: "svg",
-        src: canonicalPublicPath(canonicalSlideSvgRelative(presentationId, slideIndex + 1)),
-        slideIndex,
-        source,
-      }
-    : {
-        type: "pptx",
-        src: canonicalPublicPath(canonicalSourceRelative(presentationId)),
-        slideIndex,
-      };
+  base.visual = buildSlideVisual(presentationId, slideIndex, hasSvg);
   return base;
 }
 
@@ -147,19 +131,34 @@ export async function regeneratePresentationVisuals(
   const pptxBuffer = await downloadPresentationPptx(resolved);
   const persistedSource = await persistPptxBuffer(presentationId, pptxBuffer);
 
+  const expected = presentation.slides.length;
+  const alreadyRendered = new Set<number>();
+  for (const slide of presentation.slides) {
+    const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
+    const existing = await headFirst(svgRelative);
+    if (existing?.meta.contentLength && existing.meta.contentLength > 32) {
+      alreadyRendered.add(slide.order - 1);
+    }
+  }
+
   const outputDir = path.join(os.tmpdir(), `classroom-repair-${presentationId}`);
-  const renderResult = await renderPresentationSlides(pptxBuffer, outputDir);
-  const persistedIndexes = new Set<number>();
-  const renderErrors = [...renderResult.errors];
+  const missingIndexes = presentation.slides
+    .map((slide) => slide.order - 1)
+    .filter((index) => !alreadyRendered.has(index));
+  const renderResult = missingIndexes.length === 0
+    ? { success: true, slideCount: expected, renders: [], warnings: [], errors: [], method: "puppeteer-pptx-svg" as const }
+    : await renderPresentationSlides(pptxBuffer, outputDir, { skipIndexes: alreadyRendered });
+  const persistedIndexes = new Set<number>(alreadyRendered);
 
   try {
     for (const render of renderResult.renders) {
+      if (persistedIndexes.has(render.index)) continue;
       const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
       const diskPath = path.join(outputDir, path.basename(render.path));
       await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
       if (isB2Configured()) {
         const stored = await headObject(`uploads/${relative}`);
-        if (!stored || !(stored.contentLength && stored.contentLength > 0)) {
+        if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
           console.warn("[CLASSROOM_REPAIR] svg_not_stored", { presentationId, relative, stage: "svg-upload" });
           continue;
         }
@@ -177,41 +176,63 @@ export async function regeneratePresentationVisuals(
       });
     }
 
+    const failedSlideNumbers = presentation.slides
+      .filter((slide) => !persistedIndexes.has(slide.order - 1))
+      .map((slide) => slide.order);
+    const status = persistedIndexes.size === expected
+      ? "ready"
+      : persistedIndexes.size > 0
+        ? "rendering_partial"
+        : "render_failed";
+
     await prisma.presentation.update({
       where: { id: presentationId },
       data: {
         sourceUrl: canonicalPublicPath(persistedSource.relative),
-        status: persistedIndexes.size > 0 || persistedSource.bytes > 0 ? "ready" : presentation.status,
+        status,
       },
     });
+
+    if (persistedIndexes.size === 0) {
+      throw new AppError(500, "Slide visuals could not be generated from the PowerPoint source", true, {
+        code: "CLASSROOM_RENDER_FAILED",
+        stage: "render",
+        retryable: true,
+        presentationId,
+        slidesSucceeded: 0,
+        slidesFailed: failedSlideNumbers.length,
+        failedSlideNumbers,
+        sourceKey: `uploads/${persistedSource.relative}`,
+        method: renderResult.method,
+      });
+    }
+
+    console.info("[CLASSROOM_REPAIR] complete", {
+      presentationId,
+      stage: "render",
+      rendered: persistedIndexes.size,
+      skipped: alreadyRendered.size,
+      sourceKey: `uploads/${persistedSource.relative}`,
+      method: renderResult.method,
+      failedSlideNumbers,
+    });
+
+    return {
+      presentationId,
+      rendered: persistedIndexes.size,
+      skipped: alreadyRendered.size,
+      slideCount: expected,
+      sourceRelative: persistedSource.relative,
+      sourceKey: `uploads/${persistedSource.relative}`,
+      sourceBytes: persistedSource.bytes,
+      method: renderResult.method,
+      code: failedSlideNumbers.length ? "CLASSROOM_RENDER_PARTIAL" : "CLASSROOM_REGENERATE_OK",
+      slidesSucceeded: persistedIndexes.size,
+      slidesFailed: failedSlideNumbers.length,
+      failedSlideNumbers,
+      warnings: [...renderResult.warnings, ...renderResult.errors],
+    };
   } finally {
     await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
-
-  const fallback = persistedIndexes.size === 0;
-  console.info("[CLASSROOM_REPAIR] complete", {
-    presentationId,
-    stage: fallback ? "render-fallback" : "render",
-    rendered: persistedIndexes.size,
-    sourceKey: `uploads/${persistedSource.relative}`,
-    fallback: fallback ? "client-pptx-wasm" : undefined,
-    renderErrors: renderErrors.slice(0, 3),
-  });
-
-  return {
-    presentationId,
-    rendered: persistedIndexes.size,
-    slideCount: renderResult.slideCount || presentation.slides.length,
-    sourceRelative: persistedSource.relative,
-    sourceKey: `uploads/${persistedSource.relative}`,
-    sourceBytes: persistedSource.bytes,
-    code: fallback ? "CLASSROOM_RENDER_FALLBACK" : "CLASSROOM_REGENERATE_OK",
-    fallback: fallback ? "client-pptx-wasm" : undefined,
-    warnings: [
-      ...renderResult.warnings,
-      ...(fallback
-        ? ["Server-side SVG render was unavailable; slides will display from the stored PowerPoint source."]
-        : []),
-    ],
-  };
 }

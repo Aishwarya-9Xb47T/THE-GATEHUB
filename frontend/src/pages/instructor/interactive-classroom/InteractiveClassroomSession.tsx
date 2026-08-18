@@ -276,12 +276,18 @@ export function InteractiveClassroomSession() {
         return;
       }
       const result = await response.json().catch(() => null);
-      toast({
-        title: result?.fallback ? "PowerPoint source restored" : "Slide visuals regenerated",
-        description: result?.fallback
-          ? "The original PPTX was stored. Slides will display from the PowerPoint source."
-          : "Reloading the presentation.",
-      });
+      if (result?.code === "CLASSROOM_RENDER_PARTIAL") {
+        toast({
+          title: "Some slide visuals could not be generated",
+          description: `${result.slidesSucceeded ?? 0} succeeded, ${result.slidesFailed ?? 0} failed${result.method ? ` • ${result.method}` : ""}.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Slide visuals regenerated",
+          description: result?.method ? `Renderer: ${result.method}. Reloading the presentation.` : "Reloading the presentation.",
+        });
+      }
       await fetchSession();
     } catch {
       toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });

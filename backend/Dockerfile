@@ -32,6 +32,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 COPY backend/package*.json ./
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm install --omit=dev \
   && npm install --omit=dev --no-save prisma@5.22.0
 
@@ -57,10 +59,15 @@ RUN apt-get update \
     texlive-fonts-recommended \
     texlive-latex-extra \
     texlive-pictures \
+    chromium \
+    fonts-liberation \
+    fonts-dejavu-core \
+    fonts-noto-core \
   && rm -rf /var/lib/apt/lists/* \
   && test -x /usr/bin/pdflatex \
   && command -v pdflatex \
   && pdflatex --version \
+  && (test -x /usr/bin/chromium || test -x /usr/bin/chromium-browser) \
   && test -x /usr/bin/python3 \
   && ln -sf /usr/bin/python3 /usr/bin/python \
   && command -v gcc \
@@ -75,6 +82,9 @@ ENV PORT=5000
 ENV UPLOAD_DIR=/app/uploads
 ENV PATH="/usr/bin:${PATH}"
 ENV LATEX_PDFLATEX_PATH=/usr/bin/pdflatex
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 EXPOSE 5000
 

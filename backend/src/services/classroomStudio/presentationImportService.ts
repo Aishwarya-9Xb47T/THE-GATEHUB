@@ -24,13 +24,16 @@ import {
 } from './presentationFidelityValidator.js';
 import {
   canonicalPublicPath,
+  canonicalSlideSvgRelative,
   canonicalSourceRelative,
+  buildSlideVisual,
   PPTX_MIME,
   SVG_MIME,
 } from './classroomAssetPath.js';
 import {
   persistPptxBuffer,
   requireDurableClassroomStorage,
+  isValidPptxBuffer,
 } from './classroomSourceResolver.js';
 import type {
   ImportResult,
@@ -53,6 +56,14 @@ const WEB_SAFE_FONTS = new Set([
   'Palatino Linotype', 'Book Antiqua', 'Lucida Sans Unicode', 'Lucida Console',
 ]);
 
+export interface ImportProgressEvent {
+  stage: 'upload' | 'source' | 'extract' | 'render' | 'verify' | 'ready';
+  percent: number;
+  message: string;
+  slide?: number;
+  total?: number;
+}
+
 export interface ImportPresentationInput {
   instructorId: string;
   title: string;
@@ -61,6 +72,7 @@ export interface ImportPresentationInput {
   sourceUrl?: string;
   file?: Buffer;
   options?: PowerPointImportOptions | GoogleSlidesImportOptions;
+  onProgress?: (event: ImportProgressEvent) => void | Promise<void>;
 }
 
 export interface ImportPresentationResult {
@@ -68,6 +80,19 @@ export interface ImportPresentationResult {
   slideCount: number;
   sourceSlideCount?: number;
   warnings?: string[];
+  extractionWarnings?: string[];
+  renderErrors?: string[];
+  sourcePptxStatus?: string;
+  extractionStatus?: string;
+  visualRenderStatus?: string;
+  overallStatus?: string;
+  renderedCount?: number;
+  method?: string;
+  code?: string;
+  slidesSucceeded?: number;
+  slidesFailed?: number;
+  failedSlideNumbers?: number[];
+  sourceKey?: string;
 }
 
 function getGooglePresentationId(sourceUrl: string): string {
@@ -213,12 +238,28 @@ async function resolveImportFromInput(
   return { importResult, sourceFileBuffer };
 }
 
+type PersistOutcome = {
+  renderWarnings: string[];
+  renderErrors: string[];
+  renderedCount: number;
+  expectedCount: number;
+  failedSlideNumbers: number[];
+  method?: string;
+  visualRenderStatus: 'complete' | 'partial' | 'failed' | 'skipped';
+};
+
 async function persistImportedContent(
   presentationId: string,
   importResult: ImportResult,
-  sourceFileBuffer?: Buffer,
-): Promise<string[]> {
+  sourceFileBuffer: Buffer | undefined,
+  options: {
+    isPptxPipeline: boolean;
+    sourceAlreadyStored?: boolean;
+    onProgress?: (event: ImportProgressEvent) => void | Promise<void>;
+  },
+): Promise<PersistOutcome> {
   const renderWarnings: string[] = [];
+  const renderErrors: string[] = [];
   const assetRoot = path.resolve(
     process.cwd(),
     process.env.UPLOAD_DIR || 'uploads',
@@ -226,16 +267,10 @@ async function persistImportedContent(
     presentationId,
   );
   const assetUrls = new Map<string, string>();
+  const expectedCount = importResult.slides!.length;
 
-  const sourcePptxAsset = sourceFileBuffer
-    ? {
-        path: 'source/original.pptx',
-        data: sourceFileBuffer,
-        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      }
-    : undefined;
-
-  for (const asset of [...(importResult.assets ?? []), ...(sourcePptxAsset ? [sourcePptxAsset] : [])]) {
+  for (const asset of importResult.assets ?? []) {
+    if (asset.path === 'source/original.pptx') continue;
     const diskPath = path.resolve(assetRoot, asset.path);
     if (!diskPath.startsWith(`${assetRoot}${path.sep}`)) {
       throw new AppError(400, 'Invalid media path in PowerPoint package');
@@ -246,7 +281,7 @@ async function persistImportedContent(
   }
   console.info('[Classroom import] Media extracted', { presentationId, count: assetUrls.size });
 
-  if (sourceFileBuffer) {
+  if (options.isPptxPipeline && sourceFileBuffer && !options.sourceAlreadyStored) {
     requireDurableClassroomStorage();
     const stored = await persistPptxBuffer(presentationId, sourceFileBuffer);
     console.info('[Classroom import] Source PPTX stored', {
@@ -254,78 +289,6 @@ async function persistImportedContent(
       relative: stored.relative,
       bytes: stored.bytes,
     });
-  }
-
-  const originalPptxAssetUrl = sourcePptxAsset ? `asset://${sourcePptxAsset.path}` : undefined;
-  if (originalPptxAssetUrl) {
-    assetUrls.set(
-      originalPptxAssetUrl,
-      `/uploads/classroom/${presentationId}/${sourcePptxAsset!.path}`,
-    );
-  }
-
-  const renderedByIndex = new Map<number, string>();
-  if (sourceFileBuffer) {
-    console.info('[Classroom import] Rendering faithful slide visuals', { presentationId });
-    const renderResult = await renderPresentationSlides(
-      sourceFileBuffer,
-      path.join(assetRoot, 'renders'),
-    );
-    renderWarnings.push(...renderResult.warnings, ...renderResult.errors);
-
-    for (const render of renderResult.renders) {
-      const assetPath = render.path;
-      const relative = `classroom/${presentationId}/${assetPath}`;
-      const diskPath = path.join(assetRoot, assetPath);
-      assetUrls.set(
-        `asset://${assetPath}`,
-        `/uploads/classroom/${presentationId}/${assetPath}`,
-      );
-      if (!existsSync(diskPath)) {
-        console.warn('[Classroom import] Rendered SVG missing on disk', { presentationId, relative });
-        renderWarnings.push(`Rendered SVG missing before storage: ${assetPath}`);
-        continue;
-      }
-      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
-      if (isB2Configured()) {
-        const stored = await headObject(`uploads/${relative}`);
-        if (!stored) {
-          renderWarnings.push(`Slide visual was not stored: ${relative}`);
-          continue;
-        }
-      }
-      renderedByIndex.set(render.index, `asset://${assetPath}`);
-    }
-
-    const sourceSlideCount = (importResult.metadata?.sourceSlideCount as number | undefined)
-      ?? importResult.slides!.length;
-    renderWarnings.push(
-      ...validateSlideVisualCoverage(
-        sourceSlideCount,
-        renderResult.renders.length,
-        importResult.slides!.length,
-      ),
-    );
-
-    if (!renderResult.success) {
-      console.error('[Classroom import] FAITHFUL RENDER FAILED', {
-        presentationId,
-        slideCount: renderResult.slideCount,
-        rendered: renderResult.renders.length,
-        errors: renderResult.errors,
-        warnings: renderResult.warnings,
-      });
-      renderWarnings.push(
-        'Faithful slide rendering failed; structured HTML fallback will be used until visuals are regenerated.',
-        ...renderResult.errors,
-      );
-    } else {
-      console.info('[Classroom import] Faithful render succeeded', {
-        presentationId,
-        slideCount: renderResult.slideCount,
-        rendered: renderResult.renders.length,
-      });
-    }
   }
 
   const replaceAssets = (value: any): any => {
@@ -346,58 +309,120 @@ async function persistImportedContent(
       title: slideData.title || `Slide ${index + 1}`,
       content: replaceAssets({
         ...slideData.content,
-        ...(sourcePptxAsset ? {
-          visual: renderedByIndex.has(index)
-            ? {
-                type: 'svg',
-                src: renderedByIndex.get(index),
-                slideIndex: index,
-                width: slideData.content?.size?.width,
-                height: slideData.content?.size?.height,
-                source: {
-                  type: 'pptx',
-                  src: originalPptxAssetUrl,
-                  slideIndex: index,
-                },
-              }
-            : {
-                type: 'pptx',
-                src: originalPptxAssetUrl,
-                slideIndex: index,
-              },
-        } : {}),
+        ...(options.isPptxPipeline
+          ? { visual: buildSlideVisual(presentationId, index, false) }
+          : {}),
       }),
       notes: slideData.notes,
     })),
   });
 
+  const renderedByIndex = new Set<number>();
+  let method: string | undefined;
+  if (options.isPptxPipeline && sourceFileBuffer) {
+    await options.onProgress?.({
+      stage: 'render',
+      percent: 46,
+      message: `Rendering slide 1 of ${expectedCount}…`,
+      slide: 1,
+      total: expectedCount,
+    });
+    console.info('[Classroom import] Rendering faithful slide visuals', { presentationId });
+    const renderDir = path.join(assetRoot, 'renders');
+    const renderResult = await renderPresentationSlides(sourceFileBuffer, renderDir, {
+      onProgress: async ({ slide, total }) => {
+        const percent = 45 + Math.round((slide / Math.max(1, total)) * 50);
+        await options.onProgress?.({
+          stage: 'render',
+          percent: Math.min(95, percent),
+          message: `Rendering slide ${slide} of ${total}…`,
+          slide,
+          total,
+        });
+      },
+    });
+    method = renderResult.method;
+    renderWarnings.push(...renderResult.warnings);
+    renderErrors.push(...renderResult.errors);
+
+    await options.onProgress?.({
+      stage: 'verify',
+      percent: 96,
+      message: 'Verifying slide visuals…',
+      total: expectedCount,
+    });
+
+    for (const render of renderResult.renders) {
+      const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
+      const diskPath = path.join(renderDir, path.basename(render.path));
+      if (!existsSync(diskPath)) {
+        console.warn('[Classroom import] Rendered SVG missing on disk', { presentationId, relative });
+        renderErrors.push(`Rendered SVG missing before storage: ${relative}`);
+        continue;
+      }
+      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
+      if (isB2Configured()) {
+        const stored = await headObject(`uploads/${relative}`);
+        if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
+          renderErrors.push(`Slide visual was not stored: ${relative}`);
+          continue;
+        }
+      }
+      renderedByIndex.add(render.index);
+    }
+
+    const savedSlides = await prisma.slide.findMany({
+      where: { presentationId },
+      orderBy: { order: 'asc' },
+    });
+    for (const slide of savedSlides) {
+      const hasSvg = renderedByIndex.has(slide.order - 1);
+      await prisma.slide.update({
+        where: { id: slide.id },
+        data: {
+          content: {
+            ...((slide.content && typeof slide.content === 'object' && !Array.isArray(slide.content)
+              ? slide.content
+              : {}) as object),
+            visual: buildSlideVisual(presentationId, slide.order - 1, hasSvg),
+          },
+        },
+      });
+    }
+
+    const sourceSlideCount = (importResult.metadata?.sourceSlideCount as number | undefined)
+      ?? expectedCount;
+    renderWarnings.push(
+      ...validateSlideVisualCoverage(sourceSlideCount, renderedByIndex.size, expectedCount),
+    );
+
+    if (renderedByIndex.size === 0) {
+      console.error('[Classroom import] FAITHFUL RENDER FAILED', {
+        presentationId,
+        slideCount: renderResult.slideCount,
+        rendered: renderedByIndex.size,
+        errors: renderResult.errors,
+      });
+    } else {
+      console.info('[Classroom import] Faithful render persisted', {
+        presentationId,
+        slideCount: renderResult.slideCount,
+        rendered: renderedByIndex.size,
+        method,
+      });
+    }
+  }
+
   const sourceSlideCount = (importResult.metadata?.sourceSlideCount as number | undefined)
-    ?? importResult.slides!.length;
+    ?? expectedCount;
   const persistedSlides: PersistedSlideLike[] = importResult.slides!.map((slideData, index) => ({
     order: index + 1,
     title: slideData.title,
     content: replaceAssets({
       ...slideData.content,
-      ...(sourcePptxAsset ? {
-        visual: renderedByIndex.has(index)
-          ? {
-              type: 'svg',
-              src: renderedByIndex.get(index),
-              slideIndex: index,
-              width: slideData.content?.size?.width,
-              height: slideData.content?.size?.height,
-              source: {
-                type: 'pptx',
-                src: originalPptxAssetUrl,
-                slideIndex: index,
-              },
-            }
-          : {
-              type: 'pptx',
-              src: originalPptxAssetUrl,
-              slideIndex: index,
-            },
-      } : {}),
+      ...(options.isPptxPipeline
+        ? { visual: buildSlideVisual(presentationId, index, renderedByIndex.has(index)) }
+        : {}),
     }),
   }));
 
@@ -405,40 +430,31 @@ async function persistImportedContent(
     slides: persistedSlides,
     assetRoot,
     presentationId,
-    originalPptxPath: sourcePptxAsset ? path.join(assetRoot, 'source/original.pptx') : undefined,
+    originalPptxPath: options.isPptxPipeline ? path.join(assetRoot, 'source/original.pptx') : undefined,
     sourceSlideCount,
   });
 
   if (!fidelityResult.passed) {
-    console.error('[Classroom import] Fidelity validation failed', {
+    console.warn('[Classroom import] Fidelity validation reported issues', {
       presentationId,
       issueCount: fidelityResult.issues.length,
-      errors: fidelityResult.issues.filter((i) => i.severity === 'error').length,
     });
     renderWarnings.push(
-      'Presentation fidelity validation reported errors.',
       ...fidelityResult.issues
         .filter((i) => i.severity === 'error')
         .map((i) => i.message),
     );
-  } else {
-    console.info('[Classroom import] Fidelity validation passed', {
-      presentationId,
-      slides: fidelityResult.sourceSlideCount,
-      visualAssets: fidelityResult.visualAssetCount,
-    });
   }
 
   if (process.env.LOG_FIDELITY_REPORT === '1') {
     console.info(formatFidelityReport(fidelityResult));
   }
 
-  const uniquePublicUrls = [...new Set(assetUrls.values())];
-  for (const publicUrl of uniquePublicUrls) {
+  for (const [assetRef, publicUrl] of assetUrls.entries()) {
+    if (assetRef.includes('renders/slide-') || assetRef.endsWith('original.pptx')) continue;
     const relative = publicUrl.replace(/^\/uploads\//, '');
     const diskPath = path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads', ...relative.split('/'));
     if (!existsSync(diskPath)) {
-      console.warn('[Classroom import] Asset missing on disk before B2 persist', { presentationId, relative });
       renderWarnings.push(`Asset missing before storage: ${relative}`);
       continue;
     }
@@ -446,13 +462,44 @@ async function persistImportedContent(
     await persistAtPublicRelative(diskPath, relative, mime, { keepLocal: true });
   }
 
+  const failedSlideNumbers = importResult.slides!
+    .map((_, index) => index + 1)
+    .filter((order) => !renderedByIndex.has(order - 1));
+  const visualRenderStatus: PersistOutcome['visualRenderStatus'] = !options.isPptxPipeline
+    ? 'skipped'
+    : renderedByIndex.size === expectedCount && expectedCount > 0
+      ? 'complete'
+      : renderedByIndex.size > 0
+        ? 'partial'
+        : 'failed';
+
   console.info('[Classroom import] Slides saved', {
     presentationId,
-    count: importResult.slides!.length,
+    count: expectedCount,
     renderedVisuals: renderedByIndex.size,
-    fidelityPassed: fidelityResult.passed,
+    visualRenderStatus,
   });
-  return renderWarnings;
+
+  return {
+    renderWarnings,
+    renderErrors,
+    renderedCount: renderedByIndex.size,
+    expectedCount,
+    failedSlideNumbers: options.isPptxPipeline ? failedSlideNumbers : [],
+    method,
+    visualRenderStatus,
+  };
+}
+
+function overallStatusFromPipeline(args: {
+  isPptxPipeline: boolean;
+  visualRenderStatus: PersistOutcome['visualRenderStatus'];
+  expectedCount: number;
+}): string {
+  if (!args.isPptxPipeline) return args.expectedCount > 0 ? 'ready' : 'draft';
+  if (args.visualRenderStatus === 'complete') return 'ready';
+  if (args.visualRenderStatus === 'partial') return 'rendering_partial';
+  return 'render_failed';
 }
 
 export async function importPresentation(
@@ -463,9 +510,8 @@ export async function importPresentation(
     instructorId: input.instructorId,
   });
 
-  const { importResult, sourceFileBuffer } = await resolveImportFromInput(input);
-  const warnings = collectImportWarnings(importResult);
-  const sourceSlideCount = importResult.metadata?.sourceSlideCount as number | undefined;
+  const isPptxPipeline = input.sourceType === 'powerpoint' || input.sourceType === 'google_slides';
+  const onProgress = input.onProgress ?? (async () => undefined);
 
   const presentation = await prisma.presentation.create({
     data: {
@@ -473,56 +519,166 @@ export async function importPresentation(
       description: input.description,
       sourceType: input.sourceType,
       sourceUrl: input.sourceUrl,
-      status: 'draft',
+      status: isPptxPipeline ? 'uploading' : 'draft',
       instructorId: input.instructorId,
     },
   });
   console.info('[Classroom import] Presentation created', { presentationId: presentation.id });
 
+  let sourceStored = false;
+  let sourceFileBuffer = input.file;
+
   try {
-    const renderWarnings = await persistImportedContent(presentation.id, importResult, sourceFileBuffer);
-    warnings.push(...renderWarnings);
-    const sourceRelative = canonicalSourceRelative(presentation.id);
-    if (sourceFileBuffer) {
-      requireDurableClassroomStorage();
-      const storedSource = await headObject(`uploads/${sourceRelative}`);
-      if (isB2Configured() && (!storedSource || !(storedSource.contentLength && storedSource.contentLength > 0))) {
-        throw new AppError(500, 'PowerPoint source file was not stored', true, {
-          code: 'CLASSROOM_SOURCE_UPLOAD_FAILED',
-          stage: 'source-upload',
+    if (input.sourceType === 'powerpoint') {
+      if (!sourceFileBuffer || !isValidPptxBuffer(sourceFileBuffer)) {
+        throw new AppError(400, 'Upload a valid .pptx PowerPoint Open XML file', true, {
+          code: 'CLASSROOM_PPTX_INVALID',
+          stage: 'validation',
         });
       }
+      await onProgress({ stage: 'source', percent: 12, message: 'Saving source…' });
+      requireDurableClassroomStorage();
+      const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
+      sourceStored = true;
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: {
+          status: 'source_stored',
+          sourceUrl: canonicalPublicPath(stored.relative),
+        },
+      });
+      await onProgress({ stage: 'extract', percent: 28, message: 'Extracting slides…' });
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: 'extracting' },
+      });
     }
+
+    const resolved = await resolveImportFromInput({ ...input, file: sourceFileBuffer });
+    sourceFileBuffer = resolved.sourceFileBuffer;
+    const importResult = resolved.importResult;
+    const extractionWarnings = collectImportWarnings(importResult);
+    const sourceSlideCount = importResult.metadata?.sourceSlideCount as number | undefined;
+
+    if (isPptxPipeline && sourceFileBuffer && !sourceStored) {
+      await onProgress({ stage: 'source', percent: 18, message: 'Saving source…' });
+      requireDurableClassroomStorage();
+      const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
+      sourceStored = true;
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: {
+          status: 'source_stored',
+          sourceUrl: canonicalPublicPath(stored.relative),
+        },
+      });
+    }
+
+    if (isPptxPipeline) {
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: 'rendering' },
+      });
+    }
+
+    const persistResult = await persistImportedContent(
+      presentation.id,
+      importResult,
+      sourceFileBuffer,
+      { isPptxPipeline, sourceAlreadyStored: sourceStored, onProgress },
+    );
+
+    const overallStatus = overallStatusFromPipeline({
+      isPptxPipeline,
+      visualRenderStatus: persistResult.visualRenderStatus,
+      expectedCount: persistResult.expectedCount,
+    });
+    const sourceRelative = canonicalSourceRelative(presentation.id);
     await prisma.presentation.update({
       where: { id: presentation.id },
       data: {
-        status: sourceFileBuffer ? 'ready' : 'draft',
-        ...(input.sourceType === 'powerpoint'
-          ? { sourceUrl: canonicalPublicPath(sourceRelative) }
-          : {}),
+        status: overallStatus,
+        ...(isPptxPipeline ? { sourceUrl: canonicalPublicPath(sourceRelative) } : {}),
       },
     });
-    console.info('[Classroom import] Presentation marked ready', {
+
+    const result: ImportPresentationResult = {
       presentationId: presentation.id,
-      sourceRelative,
-      renderedVisuals: renderWarnings.some((w) => /missing|not stored|render/i.test(w)) ? 'partial' : 'ok',
+      slideCount: importResult.slides!.length,
+      sourceSlideCount,
+      warnings: [...extractionWarnings, ...persistResult.renderWarnings, ...persistResult.renderErrors],
+      extractionWarnings,
+      renderErrors: persistResult.renderErrors,
+      sourcePptxStatus: isPptxPipeline ? (sourceStored ? 'stored' : 'failed') : 'n/a',
+      extractionStatus: 'complete',
+      visualRenderStatus: persistResult.visualRenderStatus,
+      overallStatus,
+      renderedCount: persistResult.renderedCount,
+      method: persistResult.method,
+      slidesSucceeded: persistResult.renderedCount,
+      slidesFailed: persistResult.failedSlideNumbers.length,
+      failedSlideNumbers: persistResult.failedSlideNumbers,
+      sourceKey: isPptxPipeline ? `uploads/${sourceRelative}` : undefined,
+      code:
+        persistResult.visualRenderStatus === 'partial'
+          ? 'CLASSROOM_RENDER_PARTIAL'
+          : persistResult.visualRenderStatus === 'complete' || persistResult.visualRenderStatus === 'skipped'
+            ? 'CLASSROOM_IMPORT_OK'
+            : 'CLASSROOM_RENDER_FAILED',
+    };
+
+    if (isPptxPipeline && persistResult.visualRenderStatus === 'failed') {
+      throw new AppError(500, 'PowerPoint imported, but slide visuals could not be generated.', true, {
+        code: 'CLASSROOM_RENDER_FAILED',
+        stage: 'render',
+        retryable: true,
+        presentationId: presentation.id,
+        slidesSucceeded: persistResult.renderedCount,
+        slidesFailed: persistResult.failedSlideNumbers.length,
+        failedSlideNumbers: persistResult.failedSlideNumbers,
+        sourceKey: `uploads/${sourceRelative}`,
+        method: persistResult.method,
+      });
+    }
+
+    if (overallStatus === 'ready') {
+      await onProgress({ stage: 'ready', percent: 100, message: 'Presentation ready.' });
+    }
+
+    console.info('[Classroom import] Presentation pipeline complete', {
+      presentationId: presentation.id,
+      overallStatus,
+      rendered: persistResult.renderedCount,
+      extractionWarnings: extractionWarnings.length,
     });
+
+    if (extractionWarnings.length) {
+      console.warn('[Classroom import] Extraction warnings', {
+        presentationId: presentation.id,
+        count: extractionWarnings.length,
+      });
+    }
+
+    return result;
   } catch (error) {
-    await prisma.presentation.delete({ where: { id: presentation.id } });
+    if (!sourceStored) {
+      await prisma.presentation.delete({ where: { id: presentation.id } }).catch(() => undefined);
+    } else {
+      const code = error instanceof AppError ? error.details?.code : undefined;
+      const failedStatus =
+        code === 'CLASSROOM_SOURCE_UPLOAD_FAILED' || code === 'CLASSROOM_STORAGE_NOT_CONFIGURED'
+          ? 'source_failed'
+          : code === 'CLASSROOM_RENDER_FAILED'
+            ? 'render_failed'
+            : 'extraction_failed';
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: failedStatus },
+      }).catch(() => undefined);
+    }
     console.error('[Classroom import] Persistence failed', { presentationId: presentation.id, error });
     throw error;
   }
-
-  if (warnings.length) {
-    console.warn('[Classroom import] Extraction warnings', { presentationId: presentation.id, warnings });
-  }
-
-  return {
-    presentationId: presentation.id,
-    slideCount: importResult.slides!.length,
-    sourceSlideCount,
-    warnings: warnings.length ? warnings : undefined,
-  };
 }
 
 export async function updatePresentationFromSource(
@@ -567,11 +723,21 @@ export async function updatePresentationFromSource(
   const warnings = collectImportWarnings(importResult);
 
   await prisma.slide.deleteMany({ where: { presentationId } });
-  const renderWarnings = await persistImportedContent(presentationId, importResult, exportResult.fileBuffer);
-  warnings.push(...renderWarnings);
+  const persistResult = await persistImportedContent(
+    presentationId,
+    importResult,
+    exportResult.fileBuffer,
+    { isPptxPipeline: true, sourceAlreadyStored: false },
+  );
+  warnings.push(...persistResult.renderWarnings, ...persistResult.renderErrors);
+  const overallStatus = overallStatusFromPipeline({
+    isPptxPipeline: true,
+    visualRenderStatus: persistResult.visualRenderStatus,
+    expectedCount: persistResult.expectedCount,
+  });
   await prisma.presentation.update({
     where: { id: presentationId },
-    data: { status: 'ready' },
+    data: { status: overallStatus },
   });
 
   if (warnings.length) {

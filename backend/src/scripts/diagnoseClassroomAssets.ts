@@ -12,7 +12,7 @@ import {
 } from "../services/classroomStudio/classroomAssetPath.js";
 import { classroomAssetLookupRelatives } from "../services/classroomStudio/classroomAssetUrls.js";
 
-const presentationId = process.argv[2] || "cmsy6g8sr00b7owbuj0gvy1rb";
+const presentationId = process.argv[2] || "cmsytfa5v0005i9tsssuq2kb9";
 
 function apiAsset(kind: "source" | "renders", filename: string) {
   return `/api/classroom-studio/presentations/${presentationId}/assets/${kind}/${filename}`;
@@ -41,11 +41,14 @@ async function main() {
     const health = await inspectPresentationVisuals(presentationId);
     console.info("[CLASSROOM_DIAG] storage_health", {
       presentationId: health.presentationId,
-      sourceFound: health.sourceFound,
-      sourceBytes: health.sourceBytes,
-      sourceContentType: health.sourceContentType,
+      sourceFound: health.source.found,
+      sourceBytes: health.source.found ? health.source.bytes : null,
+      sourceKey: health.source.found ? health.source.key : null,
+      sourceOrigin: health.source.found ? health.source.origin : null,
+      keysChecked: health.source.found ? undefined : health.source.keysChecked,
       slideCount: health.slides.length,
       missingSvg: health.slides.filter((slide) => !slide.svgFound).map((slide) => slide.order),
+      presentSvg: health.slides.filter((slide) => slide.svgFound).map((slide) => slide.order),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "inspect_failed";

@@ -47,3 +47,11 @@ esbuild.buildSync({
 });
 
 console.log(`[SUCCESS] Backend production build completed in ${Date.now() - start}ms.`);
+
+const harnessSrc = path.join("src", "services", "classroomStudio", "pptxRenderHarness.html");
+const harnessDestDir = path.join("dist", "services", "classroomStudio");
+if (fs.existsSync(harnessSrc)) {
+  fs.mkdirSync(harnessDestDir, { recursive: true });
+  fs.copyFileSync(harnessSrc, path.join(harnessDestDir, "pptxRenderHarness.html"));
+  console.log("[BUILD] Copied pptxRenderHarness.html");
+}
