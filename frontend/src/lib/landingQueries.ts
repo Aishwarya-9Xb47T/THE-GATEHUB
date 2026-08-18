@@ -41,6 +41,27 @@ export const landingCoursesQueryOptions = {
 
 export type LandingUniversesResponse = any[];
 
+/** Minimal identity used to merge Learning Universe + course catalogs without forcing a single payload shape. */
+export interface CatalogMergeIdentity {
+  id: string;
+  title?: string | null;
+}
+
+export interface CatalogUniverseIdentity extends CatalogMergeIdentity {
+  structuredData?: {
+    linkedCourseId?: string | null;
+  } | null;
+}
+
+export type CatalogExploreItem<TUniverse extends CatalogUniverseIdentity, TCourse extends CatalogMergeIdentity> =
+  | { kind: "universe"; id: string; universe: TUniverse }
+  | { kind: "course"; id: string; course: TCourse };
+
+export type LandingExploreItem = CatalogExploreItem<
+  CatalogUniverseIdentity,
+  LandingCoursesResponse["courses"][number]
+>;
+
 function normalizeCatalogTitle(title: unknown): string {
   return String(title || "")
     .trim()
@@ -48,16 +69,15 @@ function normalizeCatalogTitle(title: unknown): string {
     .replace(/\s+/g, " ");
 }
 
-export type LandingExploreItem =
-  | { kind: "universe"; id: string; universe: Record<string, any> }
-  | { kind: "course"; id: string; course: LandingCoursesResponse["courses"][number] };
-
-/** Combine landing universes + featured courses, dropping duplicates by id/title/linked course. */
-export function mergeLandingExploreItems(
-  universes: LandingUniversesResponse | undefined,
-  courses: LandingCoursesResponse["courses"] | undefined,
-): LandingExploreItem[] {
-  const items: LandingExploreItem[] = [];
+/** Combine universes + courses, dropping duplicates by id/title/linked course. */
+export function mergeLandingExploreItems<
+  TUniverse extends CatalogUniverseIdentity,
+  TCourse extends CatalogMergeIdentity,
+>(
+  universes: readonly TUniverse[] | undefined,
+  courses: readonly TCourse[] | undefined,
+): CatalogExploreItem<TUniverse, TCourse>[] {
+  const items: CatalogExploreItem<TUniverse, TCourse>[] = [];
   const seenIds = new Set<string>();
   const seenTitles = new Set<string>();
 

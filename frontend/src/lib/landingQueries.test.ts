@@ -50,4 +50,12 @@ describe("mergeLandingExploreItems", () => {
     expect(items).toHaveLength(1);
     expect(items[0].id).toBe("lu-1");
   });
+
+  it("accepts nullable catalog fields from student browse payloads", () => {
+    const items = mergeLandingExploreItems(
+      [{ id: "lu-1", title: "Path", structuredData: { linkedCourseId: null } }],
+      [{ id: "c-1", title: "Course", subtitle: null as string | null }],
+    );
+    expect(items.map((item) => item.id)).toEqual(["lu-1", "c-1"]);
+  });
 });

@@ -308,7 +308,7 @@ export function BrowseCourses() {
               );
             }
 
-            const c = item.course as Course;
+            const c = item.course;
             const enrollmentStatus = getEnrollmentStatus(c.id);
             return (
               <motion.div key={`course-${c.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
