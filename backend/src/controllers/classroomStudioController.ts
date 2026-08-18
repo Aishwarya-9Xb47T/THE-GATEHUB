@@ -991,7 +991,8 @@ export async function getTeachingInsights(req: Request, res: Response, next: Nex
 export async function importPresentation(req: Request, res: Response, next: NextFunction) {
   try {
     const instructorId = getUserId(req);
-    const { title, description, sourceType, sourceUrl, options } = req.body;
+    const { title, description, sourceType: rawSourceType, sourceUrl, options } = req.body;
+    const sourceType = String(rawSourceType || "").trim();
     const file = req.file;
     console.info('[Classroom import] Upload received', { sourceType, title, fileName: file?.originalname, bytes: file?.size });
 
@@ -1033,7 +1034,7 @@ export async function importPresentation(req: Request, res: Response, next: Next
       description,
       sourceType,
       sourceUrl,
-      file: file?.buffer,
+      file: file?.buffer ? Buffer.from(file.buffer) : undefined,
       options,
       onProgress: streamProgress
         ? async (event) => {

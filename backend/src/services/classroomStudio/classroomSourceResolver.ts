@@ -38,8 +38,9 @@ export type MissingPresentationSource = {
   keysChecked: string[];
 };
 
-export function isValidPptxBuffer(buffer: Buffer): boolean {
-  return buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+export function isValidPptxBuffer(buffer: Buffer | Uint8Array | null | undefined): boolean {
+  if (!buffer || buffer.length < 4) return false;
+  return buffer[0] === 0x50 && buffer[1] === 0x4b;
 }
 
 export function isCompatiblePptxContentType(contentType: string | null | undefined): boolean {

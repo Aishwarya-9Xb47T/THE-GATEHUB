@@ -806,12 +806,27 @@ export async function parsePowerPoint(
   try {
     console.info('[Classroom import] Parser started', { bytes: fileBuffer.length });
 
-    const zip = await JSZip.loadAsync(fileBuffer);
-    const read = async (path: string): Promise<string | undefined> => zip.file(path)?.async('string');
+    const zip = await JSZip.loadAsync(fileBuffer, { checkCRC32: false });
+    const zipEntry = (relative: string) => {
+      const wanted = relative.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+      const exact = zip.file(relative) || zip.file(wanted);
+      if (exact && !exact.dir) return exact;
+      const hit = Object.keys(zip.files).find((name) => {
+        if (zip.files[name]?.dir) return false;
+        const normalized = name.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+        return normalized === wanted || normalized.endsWith(`/${wanted}`);
+      });
+      return hit ? zip.file(hit) : null;
+    };
+    const read = async (path: string): Promise<string | undefined> =>
+      (await zipEntry(path)?.async('string')) ?? undefined;
 
     // ── Presentation root ──────────────────────────────────────────────────
     const presentationXml = await read('ppt/presentation.xml');
     if (!presentationXml) {
+      console.warn('[Classroom import] presentation.xml missing; listing zip parts', {
+        entries: Object.keys(zip.files).filter((name) => /ppt\//i.test(name)).slice(0, 20),
+      });
       return { success: false, error: 'This file is not a valid PPTX presentation package.' };
     }
     const presentation = xml.parse(presentationXml)['p:presentation'];
@@ -826,7 +841,7 @@ export async function parsePowerPoint(
     const assets: ImportedAsset[] = [];
     const assetUrl = async (target: string, external: boolean): Promise<string | undefined> => {
       if (external) return target;
-      const file = zip.file(target);
+      const file = zipEntry(target) ?? zip.file(target);
       if (!file) return undefined;
       const data = await file.async('nodebuffer');
       const name = target.split('/').pop()!;
@@ -1234,9 +1249,12 @@ export async function parsePowerPoint(
     };
   } catch (error) {
     console.error('[Classroom import] Parser failed', error);
+    const message = error instanceof Error ? error.message : 'Failed to parse PowerPoint file';
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to parse PowerPoint file',
+      error: /end of data|corrupt|invalid zip|is not a zip/i.test(message)
+        ? 'This file is not a readable PPTX package. Export again as .pptx and retry.'
+        : message,
     };
   }
 }

@@ -251,35 +251,36 @@ export function InteractiveClassroomCreate() {
         });
 
         const payload = result.data || {};
-        const id = payload.presentationId ?? payload.id;
+        const id = payload.presentationId ?? payload.id ?? payload.error?.presentationId;
+        const errorMessage =
+          typeof payload.error === "string"
+            ? payload.error
+            : payload.error?.message || (typeof payload.error === "object" && payload.error?.code) || "Failed to import PowerPoint file";
         const renderFailed =
-          payload.success === false ||
           payload.code === "CLASSROOM_RENDER_FAILED" ||
           payload.overallStatus === "render_failed" ||
           payload.error?.code === "CLASSROOM_RENDER_FAILED";
         const extractionCount = payload.extractionWarnings?.length ?? 0;
         const warnCount = payload.warnings?.length ?? 0;
 
-        if (renderFailed) {
-          toast({
-            title: "PowerPoint imported, but slide visuals could not be generated.",
-            description: payload.error?.code
-              ? `Code: ${payload.error.code}${payload.error.method ? ` • ${payload.error.method}` : ""}`
-              : (typeof payload.error === "string" ? payload.error : "Regenerate slide visuals after the renderer is available."),
-            variant: "destructive",
-          });
-          if (id) {
-            navigate(`/instructor/interactive-classroom/presentations/${id}/editor`);
-            return;
-          }
-          throw new Error(payload.error?.message || payload.error || "Failed to import PowerPoint file");
-        }
-
-        if (result.ok && id) {
-          if (payload.code === "CLASSROOM_RENDER_PARTIAL" || payload.overallStatus === "rendering_partial") {
+        if (id) {
+          if (renderFailed) {
+            toast({
+              title: "PowerPoint imported, but slide visuals could not be generated.",
+              description: payload.error?.code
+                ? `Code: ${payload.error.code}${payload.error.method ? ` • ${payload.error.method}` : ""}`
+                : "Use Regenerate slide visuals in the editor.",
+              variant: "destructive",
+            });
+          } else if (payload.overallStatus === "rendering" || payload.code === "CLASSROOM_RENDERING") {
+            toast({
+              title: "PowerPoint imported",
+              description: `${payload.slideCount ?? 0} slides saved. Generating slide visuals…`,
+            });
+          } else if (payload.code === "CLASSROOM_RENDER_PARTIAL" || payload.overallStatus === "rendering_partial") {
             toast({
               title: "PowerPoint imported with incomplete slide visuals",
-              description: `${payload.slidesSucceeded ?? 0} of ${payload.slideCount ?? 0} slides rendered. Use Regenerate slide visuals for the rest.`,
+              description: `${payload.slidesSucceeded ?? 0} of ${payload.slideCount ?? 0} slides rendered.`,
               variant: "destructive",
             });
           } else if (extractionCount || warnCount) {
@@ -297,7 +298,7 @@ export function InteractiveClassroomCreate() {
           return;
         }
 
-        throw new Error(payload.error?.message || payload.error || "Failed to import PowerPoint file");
+        throw new Error(errorMessage);
       }
 
       // Manual Presentation Creation

@@ -137,7 +137,7 @@ export function InteractiveClassroomEditor() {
     setSelectedSlideId(slideId);
   }, []);
 
-  const fetchPresentation = useCallback(async () => {
+  const fetchPresentation = useCallback(async (options?: { silent?: boolean }) => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
@@ -156,6 +156,7 @@ export function InteractiveClassroomEditor() {
       lastSavedSnapshot.current = snapshot;
       setSaveState("saved");
     } catch (error: any) {
+      if (options?.silent) return;
       toast({
         title: "Error",
         description:
@@ -168,13 +169,22 @@ export function InteractiveClassroomEditor() {
       });
     } finally {
       window.clearTimeout(timeout);
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }, [presentationId, toast]);
 
   useEffect(() => {
     void fetchPresentation();
   }, [fetchPresentation]);
+
+  useEffect(() => {
+    const status = presentation?.status;
+    if (!status || !["rendering", "uploading", "extracting", "source_stored"].includes(status)) return;
+    const timer = window.setInterval(() => {
+      void fetchPresentation({ silent: true });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [presentation?.status, fetchPresentation]);
 
   const markUnsaved = useCallback(() => {
     setSaveState((current) => (current === "saving" ? current : "unsaved"));

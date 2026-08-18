@@ -35,6 +35,7 @@ import {
   requireDurableClassroomStorage,
   isValidPptxBuffer,
 } from './classroomSourceResolver.js';
+import { regeneratePresentationVisuals } from './presentationVisualRepairService.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -229,10 +230,10 @@ async function resolveImportFromInput(
   }
 
   if (!importResult.success || !importResult.slides) {
-    const err: any = new AppError(400, importResult.error || 'Import failed');
-    err.stage = (importResult as any).stage || 'parser';
-    err.slideNumber = (importResult as any).slideNumber;
-    throw err;
+    throw new AppError(400, importResult.error || 'Import failed', true, {
+      code: 'CLASSROOM_EXTRACTION_FAILED',
+      stage: (importResult as { stage?: string }).stage || 'parser',
+    });
   }
 
   return { importResult, sourceFileBuffer };
@@ -245,7 +246,7 @@ type PersistOutcome = {
   expectedCount: number;
   failedSlideNumbers: number[];
   method?: string;
-  visualRenderStatus: 'complete' | 'partial' | 'failed' | 'skipped';
+  visualRenderStatus: 'complete' | 'partial' | 'failed' | 'skipped' | 'pending';
 };
 
 async function persistImportedContent(
@@ -255,6 +256,7 @@ async function persistImportedContent(
   options: {
     isPptxPipeline: boolean;
     sourceAlreadyStored?: boolean;
+    deferRender?: boolean;
     onProgress?: (event: ImportProgressEvent) => void | Promise<void>;
   },
 ): Promise<PersistOutcome> {
@@ -319,7 +321,7 @@ async function persistImportedContent(
 
   const renderedByIndex = new Set<number>();
   let method: string | undefined;
-  if (options.isPptxPipeline && sourceFileBuffer) {
+  if (options.isPptxPipeline && sourceFileBuffer && !options.deferRender) {
     await options.onProgress?.({
       stage: 'render',
       percent: 46,
@@ -467,6 +469,8 @@ async function persistImportedContent(
     .filter((order) => !renderedByIndex.has(order - 1));
   const visualRenderStatus: PersistOutcome['visualRenderStatus'] = !options.isPptxPipeline
     ? 'skipped'
+    : options.deferRender
+      ? 'pending'
     : renderedByIndex.size === expectedCount && expectedCount > 0
       ? 'complete'
       : renderedByIndex.size > 0
@@ -498,6 +502,7 @@ function overallStatusFromPipeline(args: {
 }): string {
   if (!args.isPptxPipeline) return args.expectedCount > 0 ? 'ready' : 'draft';
   if (args.visualRenderStatus === 'complete') return 'ready';
+  if (args.visualRenderStatus === 'pending') return 'rendering';
   if (args.visualRenderStatus === 'partial') return 'rendering_partial';
   return 'render_failed';
 }
@@ -585,7 +590,7 @@ export async function importPresentation(
       presentation.id,
       importResult,
       sourceFileBuffer,
-      { isPptxPipeline, sourceAlreadyStored: sourceStored, onProgress },
+      { isPptxPipeline, sourceAlreadyStored: sourceStored, deferRender: isPptxPipeline, onProgress },
     );
 
     const overallStatus = overallStatusFromPipeline({
@@ -601,6 +606,17 @@ export async function importPresentation(
         ...(isPptxPipeline ? { sourceUrl: canonicalPublicPath(sourceRelative) } : {}),
       },
     });
+
+    if (isPptxPipeline && persistResult.visualRenderStatus === 'pending') {
+      setImmediate(() => {
+        regeneratePresentationVisuals(presentation.id, input.instructorId).catch((error) => {
+          console.error('[Classroom import] Background slide render failed', {
+            presentationId: presentation.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      });
+    }
 
     const result: ImportPresentationResult = {
       presentationId: presentation.id,
@@ -620,29 +636,19 @@ export async function importPresentation(
       failedSlideNumbers: persistResult.failedSlideNumbers,
       sourceKey: isPptxPipeline ? `uploads/${sourceRelative}` : undefined,
       code:
-        persistResult.visualRenderStatus === 'partial'
+        persistResult.visualRenderStatus === 'pending'
+          ? 'CLASSROOM_RENDERING'
+          : persistResult.visualRenderStatus === 'partial'
           ? 'CLASSROOM_RENDER_PARTIAL'
           : persistResult.visualRenderStatus === 'complete' || persistResult.visualRenderStatus === 'skipped'
             ? 'CLASSROOM_IMPORT_OK'
             : 'CLASSROOM_RENDER_FAILED',
     };
 
-    if (isPptxPipeline && persistResult.visualRenderStatus === 'failed') {
-      throw new AppError(500, 'PowerPoint imported, but slide visuals could not be generated.', true, {
-        code: 'CLASSROOM_RENDER_FAILED',
-        stage: 'render',
-        retryable: true,
-        presentationId: presentation.id,
-        slidesSucceeded: persistResult.renderedCount,
-        slidesFailed: persistResult.failedSlideNumbers.length,
-        failedSlideNumbers: persistResult.failedSlideNumbers,
-        sourceKey: `uploads/${sourceRelative}`,
-        method: persistResult.method,
-      });
-    }
-
     if (overallStatus === 'ready') {
       await onProgress({ stage: 'ready', percent: 100, message: 'Presentation ready.' });
+    } else if (overallStatus === 'rendering') {
+      await onProgress({ stage: 'render', percent: 50, message: 'Generating slide visuals…' });
     }
 
     console.info('[Classroom import] Presentation pipeline complete', {
@@ -675,6 +681,13 @@ export async function importPresentation(
         where: { id: presentation.id },
         data: { status: failedStatus },
       }).catch(() => undefined);
+      if (error instanceof AppError && !error.details?.presentationId) {
+        error.details = {
+          ...(error.details || { code: error.details?.code || 'CLASSROOM_IMPORT_FAILED' }),
+          code: error.details?.code || 'CLASSROOM_IMPORT_FAILED',
+          presentationId: presentation.id,
+        };
+      }
     }
     console.error('[Classroom import] Persistence failed', { presentationId: presentation.id, error });
     throw error;
