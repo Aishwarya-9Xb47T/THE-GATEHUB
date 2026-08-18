@@ -1,9 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  classroomGridTemplate,
-  classroomPanelVisible,
-  classroomStageFrameClass,
-} from "@/lib/classroom/classroomLiveLayout";
+import { classroomGridTemplate, classroomPanelVisible } from "@/lib/classroom/classroomLiveLayout";
 
 interface ClassroomLiveShellProps {
   focusMode: boolean;
@@ -35,7 +31,7 @@ export function ClassroomLiveShell({
 
   return (
     <div
-      className="flex h-full min-h-0 w-full flex-col bg-slate-950 text-slate-100"
+      className="fixed inset-0 z-40 flex min-h-0 w-full flex-col bg-slate-950 text-slate-100"
       data-classroom-focus={focusMode ? "true" : "false"}
       data-testid="classroom-live-shell"
     >
@@ -45,26 +41,25 @@ export function ClassroomLiveShell({
         data-testid="classroom-live-grid"
         style={{ gridTemplateColumns: classroomGridTemplate(focusMode, showLeft, showRight) }}
       >
-        <aside
-          data-testid="classroom-panel-left"
-          data-classroom-panel="left"
-          className="min-h-0 flex-col overflow-hidden border-r border-white/10 bg-slate-900/50"
-          style={{ display: showLeft ? "flex" : "none" }}
-          aria-hidden={!showLeft}
-        >
-          {left}
-        </aside>
+        {showLeft ? (
+          <aside
+            data-testid="classroom-panel-left"
+            data-classroom-panel="left"
+            className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-slate-900/50"
+          >
+            {left}
+          </aside>
+        ) : null}
 
         <section
           data-testid="classroom-stage"
           className="relative z-0 flex min-h-0 min-w-0 flex-col overflow-hidden"
         >
-          <div
-            className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,_#27365d,_#080d1b_65%)] ${
-              focusMode ? "p-[1.5vh]" : "p-3 md:p-5"
-            }`}
-          >
-            <div className={classroomStageFrameClass(focusMode)} data-testid="classroom-slide-frame">
+          <div className="relative min-h-0 flex-1">
+            <div
+              className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,_#27365d,_#080d1b_65%)] p-3 md:p-4"
+              data-testid="classroom-slide-frame"
+            >
               {stage}
             </div>
           </div>
@@ -72,15 +67,15 @@ export function ClassroomLiveShell({
           {bottomNav}
         </section>
 
-        <aside
-          data-testid="classroom-panel-right"
-          data-classroom-panel="right"
-          className="relative z-10 min-h-0 flex-col overflow-hidden border-l border-white/10 bg-slate-900"
-          style={{ display: showRight ? "flex" : "none" }}
-          aria-hidden={!showRight}
-        >
-          {right}
-        </aside>
+        {showRight ? (
+          <aside
+            data-testid="classroom-panel-right"
+            data-classroom-panel="right"
+            className="relative z-10 flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-white/10 bg-slate-900"
+          >
+            {right}
+          </aside>
+        ) : null}
       </div>
       {extras}
     </div>

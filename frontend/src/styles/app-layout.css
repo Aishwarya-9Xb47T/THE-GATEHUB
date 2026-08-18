@@ -119,6 +119,10 @@
     flex-shrink: 0;
   }
 
+  html[data-classroom-focus="true"] [data-testid="classroom-live-grid"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
   html[data-classroom-focus="true"] [data-classroom-panel] {
     display: none !important;
     width: 0 !important;

@@ -1,50 +1,56 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalClassroomApiAsset,
   classroomVisualFetchUrls,
-  classroomVisualUrlCandidates,
   decodeSlideAltText,
+  isCompatiblePptxContentType,
+  isCompatibleSvgContentType,
   isOfficeGeneratedAlt,
   isSvgMarkup,
   rewriteClassroomAssetRef,
-  toClassroomApiAssetUrl,
 } from "./classroomAssetUrls";
 
 describe("classroomAssetUrls", () => {
-  it("rewrites asset:// PowerPoint sources", () => {
+  it("rewrites asset:// PowerPoint sources onto the canonical classroom prefix", () => {
     expect(rewriteClassroomAssetRef("asset://source/original.pptx", "abc")).toBe(
       "/uploads/classroom/abc/source/original.pptx",
     );
   });
 
-  it("tries classroom-studio when the current prefix 404s", () => {
-    const urls = classroomVisualUrlCandidates("/uploads/classroom/abc/source/original.pptx", "abc");
-    expect(urls[0]).toBe("/uploads/classroom/abc/source/original.pptx");
-    expect(urls).toContain("/uploads/classroom-studio/abc/source/original.pptx");
-  });
-
-  it("does not treat a PowerPoint file as an SVG candidate", () => {
-    const svgUrls = classroomVisualFetchUrls(
+  it("requests the authenticated SVG asset API for a stored visual", () => {
+    const urls = classroomVisualFetchUrls(
       "/uploads/classroom/abc/renders/slide-002.svg",
       "abc",
       "svg",
     );
-    expect(svgUrls.every((url) => /\.svg($|\?)/i.test(url) || url.includes("/assets/renders/"))).toBe(true);
-    expect(svgUrls.some((url) => url.endsWith(".pptx"))).toBe(false);
-    expect(svgUrls[0]).toBe("/api/classroom-studio/presentations/abc/assets/renders/slide-002.svg");
+    expect(urls).toEqual([canonicalClassroomApiAsset("abc", "renders", "slide-002.svg")]);
   });
 
-  it("prefers the authenticated classroom asset API for PPTX", () => {
+  it("requests the authenticated original PPTX for native fallback", () => {
     const urls = classroomVisualFetchUrls("asset://source/original.pptx", "abc", "pptx");
-    expect(urls[0]).toBe("/api/classroom-studio/presentations/abc/assets/source/original.pptx");
-    expect(toClassroomApiAssetUrl("/uploads/classroom-studio/abc/source.pptx")).toBe(
-      "/api/classroom-studio/presentations/abc/assets/source.pptx",
-    );
+    expect(urls).toEqual([canonicalClassroomApiAsset("abc", "source", "original.pptx")]);
   });
 
-  it("rejects non-SVG payloads", () => {
+  it("validates SVG and PPTX payloads / content types", () => {
     expect(isSvgMarkup("<svg xmlns='http://www.w3.org/2000/svg'></svg>")).toBe(true);
     expect(isSvgMarkup('{"success":false}')).toBe(false);
-    expect(isSvgMarkup("PK\u0003\u0004")).toBe(false);
+    expect(isCompatibleSvgContentType("image/svg+xml; charset=utf-8")).toBe(true);
+    expect(isCompatibleSvgContentType("application/json")).toBe(false);
+    expect(isCompatiblePptxContentType("application/vnd.openxmlformats-officedocument.presentationml.presentation")).toBe(true);
+    expect(isCompatiblePptxContentType("text/html")).toBe(false);
+    expect(isCompatibleSvgContentType("application/json")).toBe(false);
+    expect(isCompatiblePptxContentType("application/json")).toBe(false);
+  });
+
+  it("requests a stable API URL after refresh-style metadata reload", () => {
+    const urls = classroomVisualFetchUrls(
+      "/uploads/classroom/cmsy6g8sr00b7owbuj0gvy1rb/renders/slide-002.svg",
+      "cmsy6g8sr00b7owbuj0gvy1rb",
+      "svg",
+    );
+    expect(urls).toEqual([
+      "/api/classroom-studio/presentations/cmsy6g8sr00b7owbuj0gvy1rb/assets/renders/slide-002.svg",
+    ]);
   });
 
   it("cleans Office auto-generated alt text", () => {

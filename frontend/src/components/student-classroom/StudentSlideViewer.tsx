@@ -116,11 +116,7 @@ export function StudentSlideViewer({
       {/* Slide area — always visible so students follow the instructor */}
       <div className="flex-1 relative bg-[radial-gradient(ellipse_at_center,_#1e2a4a_0%,_#080d1b_70%)] overflow-hidden min-h-0">
         {currentSlide ? (
-          <div className="absolute inset-0 flex items-center justify-center p-4 md:p-8">
-            <div
-              className="w-full max-w-5xl bg-white rounded-xl shadow-2xl relative overflow-hidden"
-              style={{ aspectRatio: '16/9', maxHeight: '100%' }}
-            >
+          <div className="absolute inset-0 flex items-center justify-center p-3 md:p-4">
               <SlideRenderer
                 content={currentSlide.content}
                 title={currentSlide.title}
@@ -129,7 +125,6 @@ export function StudentSlideViewer({
                 pointer={pointer}
                 className="w-full h-full"
               />
-            </div>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">

@@ -259,7 +259,7 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
 export function streamLocalUpload(
   res: Response,
   filePath: string,
-  options?: { range?: string; method?: string; mimeType?: string; origin?: string }
+  options?: { range?: string; method?: string; mimeType?: string; origin?: string; cacheControl?: string }
 ): boolean {
   if (!fs.existsSync(filePath)) return false;
   const stat = fs.statSync(filePath);
@@ -269,6 +269,7 @@ export function streamLocalUpload(
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", mime);
   res.setHeader("X-Content-Type-Options", "nosniff");
+  if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
   if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
 
   mediaLog("MEDIA_RESOLVE", {
@@ -335,7 +336,7 @@ function uploadRelativesToTry(relativePath: string): string[] {
 export async function serveStoredUpload(
   res: Response,
   relativePath: string,
-  options?: { range?: string; asVideo?: boolean; method?: string; origin?: string }
+  options?: { range?: string; asVideo?: boolean; method?: string; origin?: string; mimeType?: string; cacheControl?: string }
 ): Promise<boolean> {
   const relatives = uploadRelativesToTry(relativePath);
   for (const relative of relatives) {
@@ -345,6 +346,8 @@ export async function serveStoredUpload(
         range: options?.range,
         method: options?.method,
         origin: options?.origin,
+        mimeType: options?.mimeType,
+        cacheControl: options?.cacheControl,
       });
     }
   }
@@ -374,14 +377,16 @@ export async function serveStoredUpload(
 
   const size = meta.contentLength ?? 0;
   const mime =
-    meta.contentType && meta.contentType !== "application/octet-stream"
+    options?.mimeType ||
+    (meta.contentType && meta.contentType !== "application/octet-stream"
       ? meta.contentType
-      : mimeFromUploadPath(key, meta.contentType);
+      : mimeFromUploadPath(key, meta.contentType));
   const inspected = inspectByteRange(options?.range, size);
   applyUploadCorsHeaders(res, options?.origin);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", mime);
+  if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
   if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
 
   mediaLog("MEDIA_RESOLVE", {

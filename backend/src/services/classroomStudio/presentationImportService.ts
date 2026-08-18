@@ -22,6 +22,12 @@ import {
   formatFidelityReport,
   type PersistedSlideLike,
 } from './presentationFidelityValidator.js';
+import {
+  canonicalPublicPath,
+  canonicalSourceRelative,
+  PPTX_MIME,
+  SVG_MIME,
+} from './classroomAssetPath.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -272,10 +278,25 @@ async function persistImportedContent(
 
     for (const render of renderResult.renders) {
       const assetPath = render.path;
+      const relative = `classroom/${presentationId}/${assetPath}`;
+      const diskPath = path.join(assetRoot, assetPath);
       assetUrls.set(
         `asset://${assetPath}`,
         `/uploads/classroom/${presentationId}/${assetPath}`,
       );
+      if (!existsSync(diskPath)) {
+        console.warn('[Classroom import] Rendered SVG missing on disk', { presentationId, relative });
+        renderWarnings.push(`Rendered SVG missing before storage: ${assetPath}`);
+        continue;
+      }
+      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: true });
+      if (isB2Configured()) {
+        const stored = await headObject(`uploads/${relative}`);
+        if (!stored) {
+          renderWarnings.push(`Slide visual was not stored: ${relative}`);
+          continue;
+        }
+      }
       renderedByIndex.set(render.index, `asset://${assetPath}`);
     }
 
@@ -421,9 +442,11 @@ async function persistImportedContent(
     const diskPath = path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads', ...relative.split('/'));
     if (!existsSync(diskPath)) {
       console.warn('[Classroom import] Asset missing on disk before B2 persist', { presentationId, relative });
+      renderWarnings.push(`Asset missing before storage: ${relative}`);
       continue;
     }
-    await persistAtPublicRelative(diskPath, relative, undefined, { keepLocal: true });
+    const mime = relative.endsWith('.pptx') ? PPTX_MIME : relative.endsWith('.svg') ? SVG_MIME : undefined;
+    await persistAtPublicRelative(diskPath, relative, mime, { keepLocal: true });
   }
 
   console.info('[Classroom import] Slides saved', {
@@ -462,11 +485,30 @@ export async function importPresentation(
   try {
     const renderWarnings = await persistImportedContent(presentation.id, importResult, sourceFileBuffer);
     warnings.push(...renderWarnings);
+    const sourceRelative = canonicalSourceRelative(presentation.id);
+    if (sourceFileBuffer && isB2Configured()) {
+      const stored = await headObject(`uploads/${sourceRelative}`);
+      if (!stored) {
+        throw new AppError(500, 'PowerPoint source file was not stored', true, {
+          code: 'CLASSROOM_PPTX_NOT_FOUND',
+          stage: 'storage',
+        });
+      }
+    }
     await prisma.presentation.update({
       where: { id: presentation.id },
-      data: { status: 'ready' },
+      data: {
+        status: sourceFileBuffer ? 'ready' : 'draft',
+        ...(input.sourceType === 'powerpoint'
+          ? { sourceUrl: canonicalPublicPath(sourceRelative) }
+          : {}),
+      },
     });
-    console.info('[Classroom import] Presentation marked ready', { presentationId: presentation.id });
+    console.info('[Classroom import] Presentation marked ready', {
+      presentationId: presentation.id,
+      sourceRelative,
+      renderedVisuals: renderWarnings.some((w) => /missing|not stored|render/i.test(w)) ? 'partial' : 'ok',
+    });
   } catch (error) {
     await prisma.presentation.delete({ where: { id: presentation.id } });
     console.error('[Classroom import] Persistence failed', { presentationId: presentation.id, error });

@@ -12,9 +12,3 @@ export function classroomGridTemplate(focusMode: boolean, leftOpen: boolean, rig
 export function classroomPanelVisible(focusMode: boolean, panelOpen: boolean): boolean {
   return !focusMode && panelOpen;
 }
-
-export function classroomStageFrameClass(focusMode: boolean): string {
-  return focusMode
-    ? "relative mx-auto flex h-[92%] w-[95%] max-h-full max-w-none items-center justify-center overflow-hidden"
-    : "relative mx-auto flex h-full w-full max-w-6xl items-center justify-center overflow-hidden";
-}

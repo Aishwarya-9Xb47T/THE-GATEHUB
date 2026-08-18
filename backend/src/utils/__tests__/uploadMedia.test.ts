@@ -27,6 +27,10 @@ describe("video range helpers", () => {
     expect(mimeFromUploadPath("clip.m4v")).toBe("video/mp4");
     expect(mimeFromUploadPath("clip.ogg")).toBe("video/ogg");
     expect(mimeFromUploadPath("clip.ogv")).toBe("video/ogg");
+    expect(mimeFromUploadPath("renders/slide-002.svg")).toBe("image/svg+xml");
+    expect(mimeFromUploadPath("source/original.pptx")).toBe(
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    );
     expect(isVideoUploadPath("lesson.mp4")).toBe(true);
     expect(isVideoUploadPath("figure.png")).toBe(false);
   });

@@ -23,6 +23,11 @@ import {
   assertCanAccessClassroomPresentation,
   streamClassroomPresentationAsset,
 } from '../services/classroomStudio/classroomAssetService.js';
+import { parseClassroomAssetFilename } from '../services/classroomStudio/classroomAssetPath.js';
+import {
+  inspectPresentationVisuals,
+  regeneratePresentationVisuals as regeneratePresentationVisualsService,
+} from '../services/classroomStudio/presentationVisualRepairService.js';
 import { analyzeSlideContent as parseSlideInteraction } from '../services/classroomStudio/slideParserEngine.js';
 import { enrichInteractionSettings } from '../services/classroomStudio/slideContentParser.js';
 import { broadcastToSessionId, updateSessionRuntimeState } from '../ws/classroomStudioServer.js';
@@ -78,25 +83,60 @@ export async function getPresentation(req: Request, res: Response, next: NextFun
 
 export async function servePresentationAsset(req: Request, res: Response, next: NextFunction) {
   try {
-    const { id } = req.params;
-    const fromParams = String((req.params as Record<string, string>)[0] || "");
-    const fromPath = String(req.path || "").split("/assets/")[1] || "";
-    const rest = (fromParams || fromPath).replace(/^\/+/, "");
-    if (!id || !rest) {
-      throw new AppError(400, "Invalid presentation asset path");
+    const { id, kind, filename } = req.params;
+    const parsed = parseClassroomAssetFilename(kind, filename);
+    if (!id || !parsed) {
+      throw new AppError(400, "Invalid presentation asset path", true, {
+        code: "CLASSROOM_ASSET_PATH_INVALID",
+        stage: "routing",
+      });
     }
 
     const userId = getUserId(req);
     const role = (req as any).user?.role as string | undefined;
     await assertCanAccessClassroomPresentation(userId, role, id);
 
-    const streamed = await streamClassroomPresentationAsset(res, id, rest, {
+    const streamed = await streamClassroomPresentationAsset(res, id, parsed.rest, {
       method: req.method,
       origin: typeof req.headers.origin === "string" ? req.headers.origin : undefined,
       range: typeof req.headers.range === "string" ? req.headers.range : undefined,
     });
     if (streamed) return;
-    res.status(404).json({ success: false, error: "Presentation asset not found" });
+    res.status(404).json({
+      success: false,
+      error: {
+        code: "CLASSROOM_ASSET_NOT_FOUND",
+        message: "Presentation asset not found",
+        stage: "storage",
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getPresentationVisualHealth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const instructorId = getUserId(req);
+    await assertCanAccessClassroomPresentation(instructorId, (req as any).user?.role, id);
+    const health = await inspectPresentationVisuals(id);
+    res.json(health);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function regeneratePresentationVisuals(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const instructorId = getUserId(req);
+    const result = await regeneratePresentationVisualsService(
+      id,
+      instructorId,
+      (req as any).user?.role as string | undefined,
+    );
+    res.json(result);
   } catch (error) {
     next(error);
   }

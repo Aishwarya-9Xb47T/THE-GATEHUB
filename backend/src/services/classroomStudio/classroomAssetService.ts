@@ -1,11 +1,13 @@
 import type { Response } from "express";
 import { prisma } from "../../utils/prisma.js";
 import { AppError } from "../../middlewares/errorHandler.js";
-import { isAdminRole, type Role } from "../../utils/roles.js";
+import { type Role } from "../../utils/roles.js";
 import { listObjectKeys } from "../b2StorageService.js";
 import { serveStoredUpload } from "../../middlewares/persistUpload.js";
 import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
+import { classroomAssetAccessDecision } from "./classroomAssetAccess.js";
 import {
+  classroomAssetMime,
   classroomStorageRelatives,
   requestedAssetBasename,
   sanitizeClassroomAssetRest,
@@ -15,8 +17,6 @@ function classroomListPrefixes(presentationId: string): string[] {
   return [
     `uploads/classroom/${presentationId}/`,
     `uploads/classroom-studio/${presentationId}/`,
-    `classroom/${presentationId}/`,
-    `classroom-studio/${presentationId}/`,
   ];
 }
 
@@ -49,7 +49,14 @@ export async function assertCanAccessClassroomPresentation(
   if (!presentation) {
     throw new AppError(404, "Presentation not found");
   }
-  if (isAdminRole(role) || presentation.instructorId === userId) return;
+  if (classroomAssetAccessDecision({
+    userId,
+    role,
+    instructorId: presentation.instructorId,
+    isParticipant: false,
+  })) {
+    return;
+  }
 
   const participant = await prisma.classroomParticipant.findFirst({
     where: {
@@ -58,8 +65,16 @@ export async function assertCanAccessClassroomPresentation(
     },
     select: { id: true },
   });
-  if (!participant) {
-    throw new AppError(403, "Not authorized to access this presentation file");
+  if (!classroomAssetAccessDecision({
+    userId,
+    role,
+    instructorId: presentation.instructorId,
+    isParticipant: Boolean(participant),
+  })) {
+    throw new AppError(403, "Not authorized to access this presentation file", true, {
+      code: "CLASSROOM_ASSET_FORBIDDEN",
+      stage: "auth",
+    });
   }
 }
 
@@ -106,6 +121,8 @@ export async function streamClassroomPresentationAsset(
       method: options?.method,
       origin: options?.origin,
       range: options?.range,
+      mimeType: classroomAssetMime(safeRest),
+      cacheControl: "private, max-age=120",
     });
     if (streamed) {
       console.info("[CLASSROOM_ASSET] streamed", { presentationId, relative, status: 200 });
@@ -119,6 +136,8 @@ export async function streamClassroomPresentationAsset(
       method: options?.method,
       origin: options?.origin,
       range: options?.range,
+      mimeType: classroomAssetMime(safeRest),
+      cacheControl: "private, max-age=120",
     });
     if (streamed) return true;
   }

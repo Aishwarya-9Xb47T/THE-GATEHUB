@@ -1,6 +1,8 @@
 /**
- * Resolve Interactive Classroom slide media URLs for the browser.
- * Mirrors backend classroomAssetUrls — keep the two lists in sync.
+ * Canonical Interactive Classroom slide media URLs.
+ * Storage: /uploads/classroom/<presentationId>/source/original.pptx
+ *          /uploads/classroom/<presentationId>/renders/slide-NNN.svg
+ * Browser: /api/classroom-studio/presentations/<id>/assets/{source|renders}/<file>
  */
 
 const ASSET_PROTOCOL = "asset://";
@@ -30,72 +32,16 @@ export function rewriteClassroomAssetRef(value: string, presentationId?: string)
   return trimmed;
 }
 
-function swapClassroomPrefix(url: string): string | null {
-  if (url.includes("/uploads/classroom-studio/")) {
-    return url.replace("/uploads/classroom-studio/", "/uploads/classroom/");
-  }
-  if (url.includes("/uploads/classroom/")) {
-    return url.replace("/uploads/classroom/", "/uploads/classroom-studio/");
-  }
-  return null;
+function paddedSlideFile(slideNumber: number): string {
+  return `slide-${String(slideNumber).padStart(3, "0")}.svg`;
 }
 
-function withPaddedSlideName(url: string): string[] {
-  const match = url.match(/^(.*\/renders\/slide-)(\d+)(\.svg)$/i);
-  if (!match) return [];
-  const n = Number(match[2]);
-  if (!Number.isFinite(n)) return [];
-  return [
-    `${match[1]}${String(n).padStart(3, "0")}${match[3]}`,
-    `${match[1]}${n}${match[3]}`,
-  ];
-}
-
-export function toClassroomApiAssetUrl(url: string): string | null {
-  const cleaned = url.split("?")[0];
-  const apiMatch = cleaned.match(/\/api\/classroom-studio\/presentations\/([^/]+)\/assets\/(.+)$/);
-  if (apiMatch) return `/api/classroom-studio/presentations/${apiMatch[1]}/assets/${apiMatch[2]}`;
-  const uploadMatch = cleaned.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/(.+)$/);
-  if (!uploadMatch) return null;
-  return `/api/classroom-studio/presentations/${uploadMatch[1]}/assets/${uploadMatch[2]}`;
-}
-
-export function classroomVisualUrlCandidates(src: string | undefined, presentationId?: string): string[] {
-  if (!src?.trim()) return [];
-  const primary = rewriteClassroomAssetRef(src, presentationId);
-  const urls: string[] = [primary];
-
-  const swapped = swapClassroomPrefix(primary);
-  if (swapped) urls.push(swapped);
-
-  for (const current of [...urls]) {
-    for (const padded of withPaddedSlideName(current)) {
-      if (!urls.includes(padded)) urls.push(padded);
-    }
-  }
-
-  if (/\.pptx($|\?)/i.test(primary)) {
-    const withPptxName = (url: string, nextName: string): string | null => {
-      if (/\/source\/original\.pptx$/i.test(url)) return url.replace(/\/source\/original\.pptx$/i, `/${nextName}`);
-      if (/\/source\.pptx$/i.test(url)) return url.replace(/\/source\.pptx$/i, `/source/original.pptx`);
-      return null;
-    };
-    for (const current of [...urls]) {
-      const alt = withPptxName(current, "source.pptx");
-      if (alt && !urls.includes(alt)) urls.push(alt);
-    }
-    if (presentationId) {
-      for (const extra of [
-        `/uploads/classroom/${presentationId}/source/original.pptx`,
-        `/uploads/classroom-studio/${presentationId}/source/original.pptx`,
-        `/uploads/classroom/${presentationId}/source.pptx`,
-      ]) {
-        if (!urls.includes(extra)) urls.push(extra);
-      }
-    }
-  }
-
-  return urls;
+export function canonicalClassroomApiAsset(
+  presentationId: string,
+  kind: "source" | "renders",
+  filename: string,
+): string {
+  return `/api/classroom-studio/presentations/${presentationId}/assets/${kind}/${filename}`;
 }
 
 export function classroomVisualFetchUrls(
@@ -103,37 +49,62 @@ export function classroomVisualFetchUrls(
   presentationId?: string,
   kind: "svg" | "pptx" | "any" = "any",
 ): string[] {
-  const storage = classroomVisualUrlCandidates(src, presentationId);
-  const filtered = storage.filter((url) => {
-    if (kind === "svg") return /\.svg($|\?)/i.test(url);
-    if (kind === "pptx") return /\.pptx($|\?)/i.test(url);
-    return true;
-  });
-
-  if (kind === "pptx" && presentationId) {
-    for (const extra of [
-      `/uploads/classroom/${presentationId}/source/original.pptx`,
-      `/uploads/classroom-studio/${presentationId}/source/original.pptx`,
-      `/uploads/classroom/${presentationId}/source.pptx`,
-    ]) {
-      if (!filtered.includes(extra)) filtered.push(extra);
-    }
+  if (kind === "pptx") {
+    if (!presentationId) return [];
+    return [canonicalClassroomApiAsset(presentationId, "source", "original.pptx")];
   }
 
-  const out: string[] = [];
-  for (const url of filtered) {
-    const api = toClassroomApiAssetUrl(url);
-    if (api && !out.includes(api)) out.push(api);
+  if (kind === "svg") {
+    const rewritten = rewriteClassroomAssetRef(src || "", presentationId);
+    const match = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/renders\/slide-(\d+)\.svg$/i);
+    const id = match?.[1] || presentationId;
+    const n = match ? Number(match[2]) : NaN;
+    if (!id || !Number.isFinite(n) || n < 1) return [];
+    return [canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n))];
   }
-  for (const url of filtered) {
-    if (!out.includes(url)) out.push(url);
+
+  const rewritten = rewriteClassroomAssetRef(src || "", presentationId);
+  const uploadMatch = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/(source|renders)\/([^/]+)$/i);
+  if (uploadMatch) {
+    const kindPart = uploadMatch[2].toLowerCase() === "source" ? "source" : "renders";
+    return [canonicalClassroomApiAsset(uploadMatch[1], kindPart, uploadMatch[3])];
   }
-  return out;
+  return rewritten ? [rewritten] : [];
 }
 
 export function isSvgMarkup(text: string): boolean {
   const trimmed = text.trimStart().toLowerCase();
   return trimmed.startsWith("<svg") || (trimmed.startsWith("<?xml") && trimmed.includes("<svg"));
+}
+
+export function isCompatibleSvgContentType(contentType: string | null): boolean {
+  const type = (contentType || "").toLowerCase();
+  if (!type) return true;
+  if (type.includes("json") || type.includes("html") || type.includes("text/plain")) return false;
+  return type.includes("image/svg") || type.includes("xml") || type.includes("octet-stream");
+}
+
+export function isCompatiblePptxContentType(contentType: string | null): boolean {
+  const type = (contentType || "").toLowerCase();
+  if (!type) return true;
+  if (type.includes("json") || type.includes("html")) return false;
+  return (
+    type.includes("presentationml") ||
+    type.includes("pptx") ||
+    type.includes("octet-stream") ||
+    type.includes("zip")
+  );
+}
+
+export function classroomAssetErrorFromBody(body: unknown): { code: string; message: string } | null {
+  if (!body || typeof body !== "object") return null;
+  const error = (body as { error?: unknown }).error;
+  if (typeof error === "string") return { code: "CLASSROOM_ASSET_ERROR", message: error };
+  if (error && typeof error === "object" && "code" in error) {
+    const rec = error as { code?: string; message?: string };
+    return { code: String(rec.code || "CLASSROOM_ASSET_ERROR"), message: String(rec.message || "Presentation asset unavailable") };
+  }
+  return null;
 }
 
 export function decodeSlideAltText(text: string): string {

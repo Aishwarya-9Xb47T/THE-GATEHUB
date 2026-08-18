@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.js';
 import * as classroomStudioController from '../controllers/classroomStudioController.js';
 
@@ -27,6 +28,14 @@ const handleUploadMiddleware = (req: any, res: any, next: any) => {
 
 const router = Router();
 
+const regenerateVisualsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { code: 'CLASSROOM_ASSET_RATE_LIMITED', message: 'Too many regenerate requests. Please wait.' } },
+});
+
 // All routes require authentication
 router.use(authenticate);
 
@@ -34,7 +43,10 @@ router.use(authenticate);
 router.post('/presentations', classroomStudioController.createPresentation);
 router.get('/presentations', classroomStudioController.getPresentations);
 router.get('/presentations/stats', classroomStudioController.getPresentationStats);
-router.get('/presentations/:id/assets/*', classroomStudioController.servePresentationAsset);
+router.get('/presentations/:id/assets/source/:filename', classroomStudioController.servePresentationAsset);
+router.get('/presentations/:id/assets/renders/:filename', classroomStudioController.servePresentationAsset);
+router.get('/presentations/:id/visual-health', classroomStudioController.getPresentationVisualHealth);
+router.post('/presentations/:id/regenerate-visuals', regenerateVisualsLimiter, classroomStudioController.regeneratePresentationVisuals);
 router.get('/presentations/:id', classroomStudioController.getPresentation);
 router.put('/presentations/:id', classroomStudioController.updatePresentation);
 router.delete('/presentations/:id', classroomStudioController.deletePresentation);

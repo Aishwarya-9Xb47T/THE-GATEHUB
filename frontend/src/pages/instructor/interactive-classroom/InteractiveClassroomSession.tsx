@@ -124,6 +124,7 @@ export function InteractiveClassroomSession() {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
+  const [repairingVisuals, setRepairingVisuals] = useState(false);
   const panelSnapshotRef = useRef({ left: true, right: true });
   const [showAnnouncementDialog, setShowAnnouncementDialog] = useState(false);
   const [announcementText, setAnnouncementText] = useState("");
@@ -249,6 +250,29 @@ export function InteractiveClassroomSession() {
       console.error("Failed to fetch session:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const repairVisuals = async () => {
+    if (!session?.presentation.id) return;
+    setRepairingVisuals(true);
+    try {
+      const response = await fetch(
+        apiUrl(`/api/classroom-studio/presentations/${session.presentation.id}/regenerate-visuals`),
+        { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message = body?.error?.message || body?.error || "Could not regenerate slide visuals";
+        toast({ title: "Regenerate failed", description: String(message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Slide visuals regenerated", description: "Reloading the presentation." });
+      await fetchSession();
+    } catch {
+      toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });
+    } finally {
+      setRepairingVisuals(false);
     }
   };
 
@@ -1124,6 +1148,9 @@ export function InteractiveClassroomSession() {
                   onPointerMove={broadcastPointer}
                   pointer={pointer}
                   className="w-full h-full max-h-full rounded-lg"
+                  canRepair
+                  repairing={repairingVisuals}
+                  onRepair={() => void repairVisuals()}
                 />
             ) : (
               <div className="text-center">

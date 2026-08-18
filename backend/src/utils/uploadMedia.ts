@@ -13,6 +13,13 @@ const VIDEO_MIME: Record<string, string> = {
   ".avi": "video/x-msvideo",
 };
 
+const FILE_MIME: Record<string, string> = {
+  ...VIDEO_MIME,
+  ".svg": "image/svg+xml",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".pdf": "application/pdf",
+};
+
 export type InspectedByteRange =
   | { type: "none" }
   | { type: "unsatisfiable" }
@@ -20,7 +27,7 @@ export type InspectedByteRange =
 
 export function mimeFromUploadPath(filePath: string, fallback = "application/octet-stream"): string {
   const ext = path.extname(filePath.split("?")[0]).toLowerCase();
-  if (VIDEO_MIME[ext]) return VIDEO_MIME[ext];
+  if (FILE_MIME[ext]) return FILE_MIME[ext];
   return fallback;
 }
 

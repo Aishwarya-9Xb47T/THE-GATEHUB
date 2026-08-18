@@ -20,6 +20,7 @@ import {
   PanelLeftClose,
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,6 +116,7 @@ export function InteractiveClassroomEditor() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [repairingVisuals, setRepairingVisuals] = useState(false);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [loadingSession, setLoadingSession] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
@@ -196,6 +198,29 @@ export function InteractiveClassroomEditor() {
     } catch {
       setSaveState("error");
       toast({ title: "Save failed", description: "Could not save. Please retry.", variant: "destructive" });
+    }
+  };
+
+  const handleRegenerateVisuals = async () => {
+    if (!presentationId) return;
+    setRepairingVisuals(true);
+    try {
+      const response = await fetch(
+        apiUrl(`/api/classroom-studio/presentations/${presentationId}/regenerate-visuals`),
+        { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message = body?.error?.message || body?.error || "Could not regenerate slide visuals";
+        toast({ title: "Regenerate failed", description: String(message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Slide visuals regenerated", description: "Reloading the presentation." });
+      await fetchPresentation();
+    } catch {
+      toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });
+    } finally {
+      setRepairingVisuals(false);
     }
   };
 
@@ -555,6 +580,18 @@ export function InteractiveClassroomEditor() {
           </Button>
 
           <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={() => void handleRegenerateVisuals()}
+            disabled={repairingVisuals}
+            aria-label="Regenerate slide visuals"
+          >
+            <RefreshCw className={`w-4 h-4 sm:mr-1.5 ${repairingVisuals ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{repairingVisuals ? "Repairing…" : "Regenerate visuals"}</span>
+          </Button>
+
+          <Button
             variant={saveState === "error" ? "destructive" : saveState === "unsaved" ? "secondary" : "outline"}
             size="sm"
             className="h-9 min-w-[5.5rem]"
@@ -773,6 +810,9 @@ export function InteractiveClassroomEditor() {
                   presentationId={presentationId}
                   slideId={selectedSlide.id}
                   className="w-full h-full max-h-full"
+                  canRepair
+                  repairing={repairingVisuals}
+                  onRepair={() => void handleRegenerateVisuals()}
                 />
               </div>
             </>
