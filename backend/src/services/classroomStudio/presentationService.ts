@@ -5,6 +5,7 @@
 
 import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
+import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
 import type {
   Presentation,
   CreatePresentationInput,
@@ -79,7 +80,13 @@ export async function getPresentationById(
     throw new AppError(403, 'You do not have access to this presentation');
   }
 
-  return presentation as any;
+  return {
+    ...presentation,
+    slides: presentation.slides.map((slide) => ({
+      ...slide,
+      content: rewriteClassroomAssetTree(slide.content, presentation.id),
+    })),
+  } as any;
 }
 
 export async function getPresentationsByInstructor(

@@ -23,6 +23,7 @@ import {
   isVideoUploadPath,
   mimeFromUploadPath as mimeFromExt,
 } from "../utils/uploadMedia.js";
+import { classroomAssetLookupRelatives } from "../services/classroomStudio/classroomAssetUrls.js";
 
 export type { B2Prefix };
 export { isVideoUploadPath };
@@ -168,7 +169,8 @@ export async function persistGeneratedFile(params: {
 export async function persistAtPublicRelative(
   localPath: string,
   relativeUnderUploads: string,
-  contentType?: string
+  contentType?: string,
+  options?: { keepLocal?: boolean }
 ): Promise<string> {
   const cleaned = relativeUnderUploads
     .replace(/\\/g, "/")
@@ -186,7 +188,9 @@ export async function persistAtPublicRelative(
   });
   const meta = await headObject(key);
   if (!meta) throw new Error("B2 upload verification failed");
-  await unlinkQuietly(localPath);
+  if (!options?.keepLocal) {
+    await unlinkQuietly(localPath);
+  }
   return publicPath;
 }
 
@@ -227,23 +231,29 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
   const existing = localPathIfExists(stored);
   if (existing) return existing;
   if (!isB2Configured()) return null;
-  const key = b2KeyFromPublicPath(stored);
-  if (!key) return null;
-  const relative = key.replace(/^uploads\//, "");
-  const dest = resolveSafeUploadPath(relative);
-  if (!dest) return null;
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  try {
-    await downloadObjectToFile(key, dest);
-    return dest;
-  } catch (err) {
-    await unlinkQuietly(dest);
-    if (isMissingObjectError(err)) {
-      console.warn("[storage] B2 object missing during hydrate:", key);
-      return null;
-    }
-    throw err;
+  const primaryKey = b2KeyFromPublicPath(stored);
+  if (!primaryKey) return null;
+  const relatives = uploadRelativesToTry(primaryKey.replace(/^uploads\//, ""));
+  for (const relative of relatives) {
+    const localHit = resolveSafeUploadPath(relative);
+    if (localHit && fs.existsSync(localHit)) return localHit;
   }
+  for (const relative of relatives) {
+    const key = `uploads/${normalizeUploadRelativePath(relative)}`;
+    const dest = resolveSafeUploadPath(relative);
+    if (!dest) continue;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    try {
+      await downloadObjectToFile(key, dest);
+      return dest;
+    } catch (err) {
+      await unlinkQuietly(dest);
+      if (isMissingObjectError(err)) continue;
+      throw err;
+    }
+  }
+  console.warn("[storage] B2 object missing during hydrate:", primaryKey);
+  return null;
 }
 
 export function streamLocalUpload(
@@ -317,23 +327,41 @@ export function streamLocalUpload(
   return true;
 }
 
+function uploadRelativesToTry(relativePath: string): string[] {
+  const primary = normalizeUploadRelativePath(relativePath);
+  return [...new Set([primary, ...classroomAssetLookupRelatives(primary)])];
+}
+
 export async function serveStoredUpload(
   res: Response,
   relativePath: string,
   options?: { range?: string; asVideo?: boolean; method?: string; origin?: string }
 ): Promise<boolean> {
-  const local = resolveSafeUploadPath(relativePath);
-  if (local && fs.existsSync(local)) {
-    return streamLocalUpload(res, local, {
-      range: options?.range,
-      method: options?.method,
-      origin: options?.origin,
-    });
+  const relatives = uploadRelativesToTry(relativePath);
+  for (const relative of relatives) {
+    const local = resolveSafeUploadPath(relative);
+    if (local && fs.existsSync(local)) {
+      return streamLocalUpload(res, local, {
+        range: options?.range,
+        method: options?.method,
+        origin: options?.origin,
+      });
+    }
   }
 
   if (!isB2Configured()) return false;
-  const key = `uploads/${normalizeUploadRelativePath(relativePath)}`;
-  const meta = await headObject(key);
+
+  let key = "";
+  let meta: Awaited<ReturnType<typeof headObject>> = null;
+  for (const relative of relatives) {
+    const candidateKey = `uploads/${normalizeUploadRelativePath(relative)}`;
+    const candidateMeta = await headObject(candidateKey);
+    if (candidateMeta) {
+      key = candidateKey;
+      meta = candidateMeta;
+      break;
+    }
+  }
   if (!meta) {
     mediaLog("MEDIA_B2", { key, found: 0 });
     return false;

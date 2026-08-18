@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
+import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
 import type {
   ClassroomSession,
   CreateSessionInput,
@@ -23,6 +24,24 @@ function generateRoomCode(): string {
     code += ROOM_CODE_CHARS[bytes[i]! % ROOM_CODE_CHARS.length];
   }
   return code;
+}
+
+function withRewrittenSlideAssets<T extends {
+  presentation?: { id: string; slides?: Array<{ content?: unknown }> };
+}>(session: T): T {
+  const presentationId = session.presentation?.id;
+  const slides = session.presentation?.slides;
+  if (!presentationId || !slides) return session;
+  return {
+    ...session,
+    presentation: {
+      ...session.presentation,
+      slides: slides.map((slide) => ({
+        ...slide,
+        content: rewriteClassroomAssetTree(slide.content, presentationId),
+      })),
+    },
+  };
 }
 
 async function uniqueRoomCode(): Promise<string> {
@@ -104,7 +123,7 @@ export async function createSession(
   });
 
   console.log('[SessionService] Session analytics initialized', { sessionId: session.id });
-  return session as any;
+  return withRewrittenSlideAssets(session) as any;
 }
 
 export async function getSessionById(id: string): Promise<ClassroomSession> {
@@ -151,7 +170,7 @@ export async function getSessionById(id: string): Promise<ClassroomSession> {
     throw new AppError(404, 'Session not found');
   }
 
-  return session as any;
+  return withRewrittenSlideAssets(session) as any;
 }
 
 export async function getSessionByRoomCode(roomCode: string): Promise<ClassroomSession> {
@@ -198,7 +217,7 @@ export async function getSessionByRoomCode(roomCode: string): Promise<ClassroomS
     throw new AppError(404, 'Session not found');
   }
 
-  return session as any;
+  return withRewrittenSlideAssets(session) as any;
 }
 
 export async function getSessionsByInstructor(

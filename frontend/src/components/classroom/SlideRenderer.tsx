@@ -20,6 +20,12 @@ import { PptxRenderer } from 'pptx-svg';
 import pptxWasmUrl from 'pptx-svg/wasm?url';
 import { fetchAuthenticatedUpload, withUploadAuth } from '@/lib/courseMediaUrls';
 import { stripPptxSvgDefaultTableGridLines } from '@/lib/pptxSvgPostProcess';
+import {
+  classroomVisualUrlCandidates,
+  decodeSlideAltText,
+  isOfficeGeneratedAlt,
+  rewriteClassroomAssetRef,
+} from '@/lib/classroom/classroomAssetUrls';
 import { resolveColor, buildGradient } from './engine/colorResolver';
 import {
   halfPointToPx, hundredthPtToPx,
@@ -815,19 +821,56 @@ function formatPptxVisualError(status: number | null, reason?: string): string {
   return reason ?? 'PowerPoint visual could not be loaded.';
 }
 
-function resolveSlideAssetUrl(src: string | undefined): string | undefined {
+function resolveSlideAssetUrl(src: string | undefined, presentationId?: string): string | undefined {
   if (!src || /^(data:|blob:)/i.test(src)) return src;
-  if (src.startsWith('/uploads/') || src.includes('/uploads/')) return withUploadAuth(src);
-  return src;
+  const rewritten = rewriteClassroomAssetRef(src, presentationId);
+  if (rewritten.startsWith('/uploads/') || rewritten.includes('/uploads/')) return withUploadAuth(rewritten);
+  return rewritten;
+}
+
+const pptxBufferCache = new Map<string, ArrayBuffer>();
+
+async function fetchFirstSuccessfulUpload(urls: string[]): Promise<{ response: Response; url: string } | null> {
+  for (const url of urls) {
+    try {
+      const response = await fetchAuthenticatedUpload(url);
+      if (response.ok) return { response, url };
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(formatPptxVisualError(response.status));
+      }
+    } catch (error) {
+      if (error instanceof Error && /HTTP 40[13]/.test(error.message)) throw error;
+    }
+  }
+  return null;
+}
+
+async function loadCachedPptxBuffer(urls: string[]): Promise<ArrayBuffer> {
+  for (const url of urls) {
+    const cached = pptxBufferCache.get(url);
+    if (cached) return cached;
+  }
+  const found = await fetchFirstSuccessfulUpload(urls);
+  if (!found) {
+    throw new Error(formatPptxVisualError(404));
+  }
+  const buffer = await found.response.arrayBuffer();
+  const header = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
+  if (buffer.byteLength < 4 || header[0] !== 0x50 || header[1] !== 0x4b) {
+    throw new Error('PowerPoint source file is empty or invalid.');
+  }
+  pptxBufferCache.set(found.url, buffer);
+  return buffer;
 }
 
 function ImageElement({ element, theme: _theme }: { element: NormalizedElement; theme?: ThemeColors }) {
   const { src: rawSrc, alt, crop, transform } = element;
   const src = resolveSlideAssetUrl(rawSrc);
   const { flipH, flipV, rotation } = transform;
+  const altLabel = alt ? decodeSlideAltText(alt) : '';
+  const showAlt = Boolean(altLabel) && !isOfficeGeneratedAlt(altLabel);
 
-  // No src — show a placeholder instead of rendering nothing.
-  // This makes broken/unresolved images visible for debugging.
+  // No src — keep layout without dumping Office alt markup onto the slide.
   if (!src) {
     return (
       <div
@@ -847,8 +890,12 @@ function ImageElement({ element, theme: _theme }: { element: NormalizedElement; 
         }}
       >
         <span style={{ fontSize: 20 }}>🖼</span>
-        <span>Image</span>
-        {alt && <span style={{ maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alt}</span>}
+        <span>Image unavailable</span>
+        {showAlt && (
+          <span style={{ maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {altLabel}
+          </span>
+        )}
       </div>
     );
   }
@@ -868,7 +915,7 @@ function ImageElement({ element, theme: _theme }: { element: NormalizedElement; 
     return (
       <img
         src={src}
-        alt={alt ?? ''}
+        alt={showAlt ? altLabel : ''}
         draggable={false}
         style={{
           position: 'absolute', inset: 0,
@@ -897,7 +944,7 @@ function ImageElement({ element, theme: _theme }: { element: NormalizedElement; 
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
       <img
         src={src}
-        alt={alt ?? ''}
+        alt={showAlt ? altLabel : ''}
         draggable={false}
         style={{
           position: 'absolute',
@@ -1539,116 +1586,10 @@ export function SlideRenderer({
       }
 
       try {
-        // Pre-rendered SVG from import pipeline — highest fidelity, no client WASM.
-        if (visual.type === 'svg') {
-          const response = await fetchAuthenticatedUpload(visual.src!, { cache: 'no-store' });
-          if (!response.ok) {
-            throw new Error(formatPptxVisualError(response.status));
-          }
-          const svg = await response.text();
-          if (!svg?.trim() || svg.startsWith('ERROR:')) {
-            throw new Error(`Pre-rendered slide visual is empty or invalid for slide ${slideIndex + 1}.`);
-          }
-          if (!cancelled) {
-            setNativeSvg(stripPptxSvgDefaultTableGridLines(svg));
-            setNativeVisualError(null);
-            if (import.meta.env.DEV) {
-              console.info('[PPTX NATIVE] SUCCESS', { slideIndex, svgLength: svg.length, mode: 'pre-rendered-svg' });
-            }
-            logRenderDiagnostic({
-              presentationId,
-              slideId,
-              slideIndex,
-              format,
-              hasVisual: true,
-              visualType: visual.type,
-              visualSrc: visual.src,
-              nativeRendererAttempted: true,
-              nativeRendererSucceeded: true,
-              structuredRendererUsed: false,
-              structuredElementCount,
-              nativeSvgLength: svg.length,
-              activeRenderer: 'pre-rendered-svg',
-            });
-          }
-          return;
-        }
-
-        // Pre-rendered raster image fallback
-        if (visual.type === 'image') {
-          const url = resolveSlideAssetUrl(visual.src);
-          if (!url) throw new Error('Slide image visual is missing a source URL.');
-          const response = await fetchAuthenticatedUpload(url, { cache: 'no-store' });
-          if (!response.ok) {
-            throw new Error(formatPptxVisualError(response.status));
-          }
-          const blob = await response.blob();
-          const objectUrl = URL.createObjectURL(blob);
-          const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><image href="${objectUrl}" width="100" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`;
-          if (!cancelled) {
-            setNativeSvg(svg);
-            setNativeVisualError(null);
-            if (import.meta.env.DEV) {
-              console.info('[PPTX NATIVE] SUCCESS', { slideIndex, svgLength: svg.length, mode: 'raster-image' });
-            }
-            logRenderDiagnostic({
-              presentationId,
-              slideId,
-              slideIndex,
-              format,
-              hasVisual: true,
-              visualType: visual.type,
-              visualSrc: visual.src,
-              nativeRendererAttempted: true,
-              nativeRendererSucceeded: true,
-              structuredRendererUsed: false,
-              structuredElementCount,
-              nativeSvgLength: svg.length,
-              activeRenderer: 'raster-image',
-            });
-          }
-          return;
-        }
-
-        // Client-side PPTX WASM render (legacy imports without pre-rendered SVG)
-        const renderer = new PptxRenderer();
-        await renderer.init(pptxWasmUrl);
-
-        const pptxSrc = visual.type === 'pptx'
-          ? visual.src!
-          : (visual as any).source?.src;
-        if (!pptxSrc) {
-          throw new Error('PowerPoint source reference is missing for this slide.');
-        }
-
-        const response = await fetchAuthenticatedUpload(pptxSrc, { cache: 'no-store' });
-        if (!response.ok) {
-          throw new Error(formatPptxVisualError(response.status));
-        }
-
-        const buffer = await response.arrayBuffer();
-        const header = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
-        if (buffer.byteLength < 4 || header[0] !== 0x50 || header[1] !== 0x4b) {
-          throw new Error('PowerPoint source file is empty or invalid.');
-        }
-
-        await renderer.loadPptx(buffer);
-        const svg = renderer.renderSlideSvg(slideIndex);
-        if (!svg?.trim() || svg.startsWith('ERROR:')) {
-          throw new Error(`PowerPoint renderer returned no SVG for slide index ${slideIndex}.`);
-        }
-
-        if (!cancelled) {
+        const applySvg = (svg: string, mode: RenderDiagnostic['activeRenderer'], visualSrc: string) => {
+          if (cancelled) return;
           setNativeSvg(stripPptxSvgDefaultTableGridLines(svg));
           setNativeVisualError(null);
-          if (import.meta.env.DEV) {
-            console.info('[PPTX NATIVE] SUCCESS', {
-              slideIndex,
-              bytes: buffer.byteLength,
-              svgLength: svg.length,
-              mode: 'client-pptx-wasm',
-            });
-          }
           logRenderDiagnostic({
             presentationId,
             slideId,
@@ -1656,15 +1597,64 @@ export function SlideRenderer({
             format,
             hasVisual: true,
             visualType: visual.type,
-            visualSrc: pptxSrc,
+            visualSrc,
             nativeRendererAttempted: true,
             nativeRendererSucceeded: true,
             structuredRendererUsed: false,
             structuredElementCount,
             nativeSvgLength: svg.length,
-            activeRenderer: 'client-pptx-wasm',
+            activeRenderer: mode,
           });
+        };
+
+        const renderPptxWasm = async (pptxSrcHint?: string) => {
+          const pptxSrc = pptxSrcHint
+            || (visual.type === 'pptx' ? visual.src : undefined)
+            || (typeof visual.source === 'object' && visual.source && 'src' in visual.source
+              ? String((visual.source as { src?: string }).src || '')
+              : '');
+          const urls = classroomVisualUrlCandidates(pptxSrc || undefined, presentationId);
+          const buffer = await loadCachedPptxBuffer(urls);
+          const renderer = new PptxRenderer();
+          await renderer.init(pptxWasmUrl);
+          await renderer.loadPptx(buffer);
+          const svg = renderer.renderSlideSvg(slideIndex);
+          if (!svg?.trim() || svg.startsWith('ERROR:')) {
+            throw new Error(`PowerPoint renderer returned no SVG for slide index ${slideIndex}.`);
+          }
+          applySvg(svg, 'client-pptx-wasm', urls[0] || pptxSrc);
+        };
+
+        if (visual.type === 'svg') {
+          const svgUrls = classroomVisualUrlCandidates(visual.src, presentationId);
+          const found = await fetchFirstSuccessfulUpload(svgUrls);
+          if (found) {
+            const svg = await found.response.text();
+            if (svg?.trim() && !svg.startsWith('ERROR:')) {
+              applySvg(svg, 'pre-rendered-svg', found.url);
+              return;
+            }
+          }
+          await renderPptxWasm(
+            typeof visual.source === 'object' && visual.source && 'src' in visual.source
+              ? String((visual.source as { src?: string }).src || '')
+              : undefined,
+          );
+          return;
         }
+
+        if (visual.type === 'image') {
+          const imageUrls = classroomVisualUrlCandidates(visual.src, presentationId);
+          const found = await fetchFirstSuccessfulUpload(imageUrls);
+          if (!found) throw new Error(formatPptxVisualError(404));
+          const blob = await found.response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><image href="${objectUrl}" width="100" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`;
+          applySvg(svg, 'raster-image', found.url);
+          return;
+        }
+
+        await renderPptxWasm();
       } catch (error) {
         const message = error instanceof Error ? error.message : formatPptxVisualError(null, 'Unknown visual render error');
         if (import.meta.env.DEV) {
@@ -1688,10 +1678,10 @@ export function SlideRenderer({
             visualSrc: visual.src,
             nativeRendererAttempted: true,
             nativeRendererSucceeded: false,
-            structuredRendererUsed: structuredElementCount > 0,
+            structuredRendererUsed: false,
             structuredElementCount,
             nativeSvgLength: 0,
-            activeRenderer: 'structured-fallback',
+            activeRenderer: 'none',
             fallbackReason: message,
           });
         }
@@ -1831,6 +1821,26 @@ export function SlideRenderer({
               }}
               className="[&_svg]:block [&_svg]:h-full [&_svg]:w-full [&_svg]:max-w-none"
             />
+          ) : nativeVisualError ? (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'grid',
+                placeItems: 'center',
+                padding: 40,
+                textAlign: 'center',
+                background: '#f8fafc',
+                color: '#334155',
+              }}
+            >
+              <div>
+                <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>Slide visual unavailable</p>
+                <p style={{ fontSize: 14, margin: 0, color: '#64748b', maxWidth: 420 }}>
+                  The PowerPoint slide could not be loaded. Try refreshing. If this continues, re-upload the presentation so slide visuals can be regenerated.
+                </p>
+              </div>
+            </div>
           ) : (
             slide.elements.map((el, idx) => (
               <ElementRenderer
@@ -1886,9 +1896,9 @@ export function SlideRenderer({
             </div>
           )}
 
-          {nativeVisualError && !nativeSvg && (
+          {nativeVisualError && nativeSvg && (
             <div style={{ position: 'absolute', top: 8, left: 8, right: 8, padding: '6px 10px', background: 'rgba(254, 226, 226, 0.95)', color: '#991b1b', fontSize: 11, zIndex: 9998, borderRadius: 4, pointerEvents: 'none' }}>
-              Native visual failed — structured fallback active: {nativeVisualError}
+              {nativeVisualError}
             </div>
           )}
         </div>

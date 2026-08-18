@@ -401,9 +401,11 @@ async function persistImportedContent(
   for (const publicUrl of uniquePublicUrls) {
     const relative = publicUrl.replace(/^\/uploads\//, '');
     const diskPath = path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads', ...relative.split('/'));
-    if (existsSync(diskPath)) {
-      await persistAtPublicRelative(diskPath, relative);
+    if (!existsSync(diskPath)) {
+      console.warn('[Classroom import] Asset missing on disk before B2 persist', { presentationId, relative });
+      continue;
     }
+    await persistAtPublicRelative(diskPath, relative, undefined, { keepLocal: true });
   }
 
   console.info('[Classroom import] Slides saved', {

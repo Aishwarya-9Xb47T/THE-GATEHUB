@@ -122,6 +122,8 @@ export function InteractiveClassroomSession() {
   const [participantSearch, setParticipantSearch] = useState("");
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
+  const panelSnapshotRef = useRef({ left: true, right: true });
   const [showAnnouncementDialog, setShowAnnouncementDialog] = useState(false);
   const [announcementText, setAnnouncementText] = useState("");
   const [isPaused, setIsPaused] = useState(false);
@@ -141,6 +143,18 @@ export function InteractiveClassroomSession() {
 
   // Keep sessionRef current for use in WS callbacks without stale closure
   useEffect(() => { sessionRef.current = session; }, [session]);
+
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        exitFocusMode();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusMode]);
 
   useEffect(() => {
     if (!session?.activeInteractionId || pollRemaining == null) return;
@@ -541,12 +555,30 @@ export function InteractiveClassroomSession() {
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
+      document.documentElement.requestFullscreen().catch(() => undefined);
       setIsFullscreen(true);
     } else {
-      document.exitFullscreen();
+      document.exitFullscreen().catch(() => undefined);
       setIsFullscreen(false);
     }
+  };
+
+  const enterFocusMode = () => {
+    panelSnapshotRef.current = { left: leftPanelOpen, right: rightPanelOpen };
+    setFocusMode(true);
+    setLeftPanelOpen(false);
+    setRightPanelOpen(false);
+  };
+
+  const exitFocusMode = () => {
+    setFocusMode(false);
+    setLeftPanelOpen(panelSnapshotRef.current.left);
+    setRightPanelOpen(panelSnapshotRef.current.right);
+  };
+
+  const toggleFocusMode = () => {
+    if (focusMode) exitFocusMode();
+    else enterFocusMode();
   };
 
   const updateNavigation = async (next: typeof navigation) => {
@@ -938,6 +970,16 @@ export function InteractiveClassroomSession() {
             </div>
             <div className="flex items-center gap-2">
               <Button
+                variant={focusMode ? "default" : "outline"}
+                size="sm"
+                onClick={toggleFocusMode}
+                className={focusMode ? "bg-violet-600 text-white hover:bg-violet-500" : "border-white/15 bg-white/5 text-white hover:bg-white/10"}
+                title={focusMode ? "Exit focus mode (Esc)" : "Focus on the presentation"}
+              >
+                {focusMode ? <Minimize2 className="w-4 h-4 mr-1.5" /> : <Maximize2 className="w-4 h-4 mr-1.5" />}
+                <span className="hidden sm:inline">{focusMode ? "Exit Focus" : "Focus"}</span>
+              </Button>
+              <Button
                 variant="outline"
                 size="icon"
                 onClick={() => setLeftPanelOpen((v) => !v)}
@@ -1054,9 +1096,9 @@ export function InteractiveClassroomSession() {
 
         {/* Center - Slide View */}
         <div className="flex flex-col min-w-0 min-h-0 overflow-hidden relative z-0">
-          <div className="flex-1 min-h-0 p-3 md:p-5 flex items-center justify-center bg-[radial-gradient(circle_at_center,_#27365d,_#080d1b_65%)] overflow-hidden">
+          <div className={`flex-1 min-h-0 flex items-center justify-center bg-[radial-gradient(circle_at_center,_#27365d,_#080d1b_65%)] overflow-hidden ${focusMode ? "p-2 md:p-3" : "p-3 md:p-5"}`}>
             {currentSlide ? (
-              <div className="relative w-full h-full max-w-6xl mx-auto flex items-center justify-center overflow-hidden">
+              <div className={`relative w-full h-full mx-auto flex items-center justify-center overflow-hidden ${focusMode ? "max-w-none" : "max-w-6xl"}`}>
                 <SlideRenderer
                   content={currentSlide.content}
                   title={currentSlide.title}
@@ -1075,20 +1117,61 @@ export function InteractiveClassroomSession() {
             )}
           </div>
 
-          {activeInteraction && (
+          {(!rightPanelOpen || focusMode || activeInteraction) && (
             <div className="shrink-0 border-t border-violet-500/30 bg-violet-950/40 px-3 py-2 flex items-center justify-between gap-2 overflow-hidden">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span className="h-2 w-2 rounded-full bg-violet-400 animate-pulse shrink-0" />
-                <Badge variant="secondary" className="text-[10px] uppercase shrink-0 hidden sm:inline-flex">
-                  {activeInteraction.type.replace(/_/g, ' ')}
-                </Badge>
-                <span className="text-xs sm:text-sm text-violet-100 truncate">
-                  {interactionContent?.question || currentSlide?.title || 'Live interaction'}
-                </span>
+                {activeInteraction ? (
+                  <>
+                    <Badge variant="secondary" className="text-[10px] uppercase shrink-0 hidden sm:inline-flex">
+                      {activeInteraction.type.replace(/_/g, " ")}
+                    </Badge>
+                    <span className="text-xs sm:text-sm text-violet-100 truncate">
+                      {interactionContent?.question || currentSlide?.title || "Live poll"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs sm:text-sm text-violet-100 truncate">Polls remain available while the presentation is focused</span>
+                )}
               </div>
-              <span className="text-xs text-violet-200 shrink-0 tabular-nums whitespace-nowrap">
-                {summary?.totalResponses ?? 0}/{session.participants.length}
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                {activeInteraction && (
+                  <span className="text-xs text-violet-200 shrink-0 tabular-nums whitespace-nowrap">
+                    {summary?.totalResponses ?? 0}/{session.participants.length}
+                  </span>
+                )}
+                {session.activeInteractionId ? (
+                  <Button variant="destructive" size="sm" onClick={closeActivePoll} className="h-7 text-xs">
+                    Close Poll
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setEditingPoll(null);
+                      setEditingPollId(null);
+                      setCreatePollOpen(true);
+                    }}
+                    disabled={!session.currentSlideId}
+                    className="h-7 text-xs bg-violet-600 hover:bg-violet-500 text-white"
+                  >
+                    Create Poll
+                  </Button>
+                )}
+                {(!rightPanelOpen || focusMode) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (focusMode) exitFocusMode();
+                      setRightPanelOpen(true);
+                    }}
+                    className="h-7 text-xs border-white/20 bg-white/5 text-white"
+                  >
+                    Live Pulse
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 
@@ -1104,7 +1187,10 @@ export function InteractiveClassroomSession() {
                 <ChevronLeft className="w-5 h-5" />
               </Button>
 
-              <div className="flex items-center gap-2 overflow-x-auto">
+              <div className="flex items-center gap-3 text-sm text-slate-300 tabular-nums">
+                <span>
+                  {currentSlide ? visibleSlideIndex + 1 : 0}/{visibleSlides.length}
+                </span>
                 {currentSlide?.interactions.map((interaction) => (
                   <Button
                     key={interaction.id}
