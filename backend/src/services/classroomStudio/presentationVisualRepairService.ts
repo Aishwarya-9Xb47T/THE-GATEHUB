@@ -17,6 +17,7 @@ import {
   downloadPresentationPptx,
   persistPptxBuffer,
   resolvePresentationSource,
+  sha256OfBuffer,
 } from "./classroomSourceResolver.js";
 import {
   SVG_MIME,
@@ -194,14 +195,23 @@ export async function regeneratePresentationVisuals(
 
   const { started, job } = startExclusiveVisualRender(presentationId, async () => {
     const pptxBuffer = await downloadPresentationPptx(resolved);
+    const downloadedSha = sha256OfBuffer(pptxBuffer);
+    console.info("[CLASSROOM_SOURCE]", {
+      presentationId,
+      origin: resolved.origin,
+      key: resolved.key,
+      bytes: pptxBuffer.length,
+      sha256: downloadedSha,
+    });
     const persistedSource =
       resolved.relative === canonicalRelative
-        ? { relative: resolved.relative, bytes: resolved.bytes }
+        ? { relative: resolved.relative, bytes: resolved.bytes, sha256: downloadedSha }
         : await persistPptxBuffer(presentationId, pptxBuffer);
     return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
       skipExisting: true,
       sourceRelative: persistedSource.relative,
       sourceBytes: persistedSource.bytes,
+      sourceSha256: persistedSource.sha256 ?? downloadedSha,
     });
   });
 
@@ -244,6 +254,7 @@ export async function renderAndPersistPresentationVisuals(
     skipExisting?: boolean;
     sourceRelative?: string;
     sourceBytes?: number;
+    sourceSha256?: string;
     pdfBuffer?: Buffer;
   },
 ) {
@@ -257,6 +268,27 @@ export async function renderAndPersistPresentationVisuals(
 
   const expected = presentation.slides.length;
   const sourceRelative = options?.sourceRelative ?? canonicalSourceRelative(presentationId);
+  const inputSha256 = sha256OfBuffer(pptxBuffer);
+  console.info("[CLASSROOM_SOURCE]", {
+    presentationId,
+    bytes: pptxBuffer.length,
+    sha256: inputSha256,
+  });
+  console.info("[CLASSROOM_RENDER]", {
+    presentationId,
+    inputBytes: pptxBuffer.length,
+    inputSha256,
+    sourceBytes: options?.sourceBytes,
+    sourceSha256: options?.sourceSha256,
+  });
+  if (options?.sourceSha256 && options.sourceSha256 !== inputSha256) {
+    throw new AppError(500, "Render input SHA-256 does not match the stored PowerPoint source", true, {
+      code: "CLASSROOM_RENDER_SOURCE_FAILED",
+      stage: "render",
+      reason: "SHA256_MISMATCH",
+      presentationId,
+    });
+  }
   const alreadyRendered = new Set<number>();
   if (options?.skipExisting) {
     for (const slide of presentation.slides) {
@@ -353,6 +385,7 @@ export async function renderAndPersistPresentationVisuals(
       onSlideRendered: persistOne,
       presentationId,
       pdfBuffer: options?.pdfBuffer,
+      sourceSha256: options?.sourceSha256 ?? inputSha256,
     });
 
   try {
@@ -418,6 +451,15 @@ export async function renderAndPersistPresentationVisuals(
         failedSlideNumbers,
         sourceKey: `uploads/${sourceRelative}`,
         method: renderResult.method,
+        reason: firstError?.includes("LIBREOFFICE_UNAVAILABLE")
+          ? "LIBREOFFICE_UNAVAILABLE"
+          : firstError?.includes("LIBREOFFICE_CONVERSION_FAILED")
+            ? "LIBREOFFICE_CONVERSION_FAILED"
+            : firstError?.includes("PDF_RENDER_FAILED")
+              ? "PDF_RENDER_FAILED"
+              : firstError?.includes("B2_UPLOAD_FAILED")
+                ? "B2_UPLOAD_FAILED"
+                : "CLASSROOM_RENDER_FAILED",
         rendererErrors: renderResult.errors.slice(0, 12),
       });
     }

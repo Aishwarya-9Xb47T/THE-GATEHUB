@@ -39,6 +39,23 @@ g++ --version | head -n 1 | sed 's/^/[entrypoint] /'
 java -version 2>&1 | head -n 1 | sed 's/^/[entrypoint] /'
 javac -version 2>&1 | sed 's/^/[entrypoint] /'
 
+if command -v soffice >/dev/null 2>&1 || test -x /usr/lib/libreoffice/program/soffice; then
+  SOFFICE_BIN="$(command -v soffice 2>/dev/null || echo /usr/lib/libreoffice/program/soffice)"
+  echo "[entrypoint] soffice=${SOFFICE_BIN}"
+  "${SOFFICE_BIN}" --headless --version 2>&1 | head -n 2 | sed 's/^/[entrypoint] /' || echo "[entrypoint] WARN: soffice --version failed"
+else
+  echo "[entrypoint] WARN: LibreOffice soffice is not on PATH"
+fi
+if test -x /usr/lib/libreoffice/program/javaldx; then
+  echo "[entrypoint] javaldx=/usr/lib/libreoffice/program/javaldx"
+else
+  echo "[entrypoint] WARN: javaldx not found (PPTX to PDF still proceeds with Java disabled in the job profile)"
+fi
+echo "[entrypoint] JAVA_HOME=${JAVA_HOME:-unset}"
+echo "[entrypoint] HOME=${HOME:-unset}"
+echo "[entrypoint] SAL_DISABLE_JAVA=${SAL_DISABLE_JAVA:-unset}"
+echo "[entrypoint] SAL_USE_VCLPLUGIN=${SAL_USE_VCLPLUGIN:-unset}"
+
 echo "[entrypoint] Applying Prisma migrations (prisma migrate deploy)..."
 npx prisma migrate deploy
 

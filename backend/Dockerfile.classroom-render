@@ -1,22 +1,33 @@
-# Slim Bookworm image matching the production converter binaries (soffice + poppler).
-# Used to prove PPTX → PDF → SVG in the same OS/packages Render will have.
-#   docker build -f backend/Dockerfile.classroom-render -t gatehub-classroom-render backend
+# Slim Bookworm image matching production LibreOffice conversion packages.
+# Keep LibreOffice / Java / poppler packages in sync with backend/Dockerfile.
+#   docker build -f backend/Dockerfile.classroom-render -t gatehub-classroom-render .
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/tmp
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+ENV SAL_DISABLE_JAVA=1
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     libreoffice-impress \
+    libreoffice-java-common \
+    default-jre-headless \
+    fontconfig \
     poppler-utils \
     fonts-liberation \
     fonts-dejavu-core \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
+  && (test -f /etc/machine-id || (cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id) || true) \
   && (test -x /usr/bin/soffice || test -x /usr/lib/libreoffice/program/soffice) \
   && command -v pdftocairo \
   && command -v pdftoppm \
-  && command -v pdfinfo
+  && command -v pdfinfo \
+  && command -v pdftotext \
+  && command -v java \
+  && test -d /usr/lib/jvm/default-java
 
 WORKDIR /work

@@ -73,8 +73,12 @@ RUN apt-get update \
     libreoffice-impress \
     libreoffice-math \
     libreoffice-draw \
+    libreoffice-java-common \
+    fontconfig \
+    libdbus-1-3 \
     poppler-utils \
   && rm -rf /var/lib/apt/lists/* \
+  && (test -f /etc/machine-id || (cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id) || true) \
   && test -x /usr/bin/pdflatex \
   && command -v pdflatex \
   && pdflatex --version \
@@ -87,6 +91,8 @@ RUN apt-get update \
   && command -v gcc \
   && command -v g++ \
   && command -v javac \
+  && (test -x /usr/lib/libreoffice/program/javaldx || echo "[docker] WARN: javaldx helper not found; PPTX conversion disables Java") \
+  && test -d /usr/lib/jvm/default-java \
   && chmod +x /docker-entrypoint.sh \
   && mkdir -p uploads uploads/latex uploads/latex/pdfs data \
   && DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build" npx prisma generate
@@ -95,6 +101,11 @@ ENV NODE_ENV=production
 ENV PORT=5000
 ENV UPLOAD_DIR=/app/uploads
 ENV PATH="/usr/bin:${PATH}"
+ENV HOME=/tmp
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+ENV SAL_DISABLE_JAVA=1
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 ENV LATEX_PDFLATEX_PATH=/usr/bin/pdflatex
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_DOWNLOAD=true

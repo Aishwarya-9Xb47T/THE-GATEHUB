@@ -11,6 +11,7 @@ export class AppError extends Error {
       code: string;
       stage?: string;
       retryable?: boolean;
+      reason?: string;
       keysChecked?: string[];
       presentationId?: string;
       slidesSucceeded?: number;
@@ -18,6 +19,7 @@ export class AppError extends Error {
       failedSlideNumbers?: number[];
       sourceKey?: string;
       method?: string;
+      rendererErrors?: string[];
     }
   ) {
     super(message);
@@ -55,6 +57,8 @@ export function errorHandler(
           ...(err.details.failedSlideNumbers ? { failedSlideNumbers: err.details.failedSlideNumbers } : {}),
           ...(err.details.sourceKey ? { sourceKey: err.details.sourceKey } : {}),
           ...(err.details.method ? { method: err.details.method } : {}),
+          ...(err.details.reason ? { reason: err.details.reason } : {}),
+          ...(err.details.rendererErrors ? { rendererErrors: err.details.rendererErrors } : {}),
         },
       });
     }

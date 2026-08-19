@@ -35,6 +35,7 @@ import {
   persistPptxBuffer,
   requireDurableClassroomStorage,
   isValidPptxBuffer,
+  sha256OfBuffer,
 } from './classroomSourceResolver.js';
 import { renderAndPersistPresentationVisuals, startExclusiveVisualRender } from './presentationVisualRepairService.js';
 import type {
@@ -555,8 +556,7 @@ export async function importPresentation(
           stage: 'validation',
         });
       }
-      const crypto = await import('node:crypto');
-      const sha256 = crypto.createHash('sha256').update(sourceFileBuffer).digest('hex');
+      const sha256 = sha256OfBuffer(sourceFileBuffer);
       console.info('[CLASSROOM_SOURCE]', {
         sourceType: 'pptx-upload',
         originalBytes: sourceFileBuffer.length,
@@ -653,6 +653,7 @@ export async function importPresentation(
             skipExisting: true,
             sourceRelative: canonicalSourceRelative(presentationId),
             sourceBytes: buffer.length,
+            sourceSha256: sha256OfBuffer(buffer),
             pdfBuffer: pdfBuf,
           }),
         );

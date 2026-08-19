@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, writeFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -80,7 +81,11 @@ export function requireDurableClassroomStorage(): void {
   }
 }
 
-export async function persistPptxBuffer(presentationId: string, buffer: Buffer): Promise<{ relative: string; bytes: number }> {
+export function sha256OfBuffer(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+export async function persistPptxBuffer(presentationId: string, buffer: Buffer): Promise<{ relative: string; bytes: number; sha256: string }> {
   if (!isValidPptxBuffer(buffer)) {
     throw new AppError(422, "PowerPoint source file is not a valid PPTX", true, {
       code: "CLASSROOM_PPTX_INVALID",
@@ -89,16 +94,27 @@ export async function persistPptxBuffer(presentationId: string, buffer: Buffer):
   }
   requireDurableClassroomStorage();
   const relative = canonicalSourceRelative(presentationId);
+  const sha256 = sha256OfBuffer(buffer);
+  console.info("[CLASSROOM_SOURCE]", {
+    presentationId,
+    bytes: buffer.length,
+    sha256,
+  });
   if (isB2Configured()) {
     for (const key of [`uploads/${relative}`, relative]) {
       const existing = await headObject(key);
-      if (existing?.contentLength && existing.contentLength > 32 && isCompatiblePptxContentType(existing.contentType ?? null)) {
+      if (
+        existing?.contentLength
+        && existing.contentLength === buffer.length
+        && isCompatiblePptxContentType(existing.contentType ?? null)
+      ) {
         console.info("[CLASSROOM_SOURCE] reuse_existing", {
           presentationId,
           key,
           bytes: existing.contentLength,
+          sha256,
         });
-        return { relative, bytes: existing.contentLength };
+        return { relative, bytes: existing.contentLength, sha256 };
       }
     }
   }
@@ -112,7 +128,7 @@ export async function persistPptxBuffer(presentationId: string, buffer: Buffer):
     }
     await mkdir(path.dirname(dest), { recursive: true });
     await writeFile(dest, buffer);
-    return { relative, bytes: buffer.length };
+    return { relative, bytes: buffer.length, sha256 };
   }
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-"));
   const tmpPath = path.join(tmpDir, "original.pptx");
@@ -132,9 +148,15 @@ export async function persistPptxBuffer(presentationId: string, buffer: Buffer):
         contentType: meta.contentType,
       });
     }
-    return { relative, bytes: meta.contentLength };
+    if (meta.contentLength !== buffer.length) {
+      throw new AppError(500, "PowerPoint source SHA/size mismatch after B2 upload", true, {
+        code: "CLASSROOM_SOURCE_UPLOAD_FAILED",
+        stage: "source-upload",
+      });
+    }
+    return { relative, bytes: meta.contentLength, sha256 };
   }
-  return { relative, bytes: buffer.length };
+  return { relative, bytes: buffer.length, sha256 };
 }
 
 export async function resolvePresentationSource(presentationId: string): Promise<ResolvedPresentationSource | MissingPresentationSource> {

@@ -100,6 +100,8 @@ export interface PresentationRenderResult {
   warnings: string[];
   errors: string[];
   method: 'puppeteer-pptx-svg' | 'libreoffice-pdf';
+  pdfBytes?: number;
+  pdfText?: string;
 }
 
 type ClassroomPageApi = {
@@ -575,6 +577,9 @@ export function describeClassroomRenderer(): {
   soffice: string | null;
   pdftocairo: string | null;
   pdftoppm: string | null;
+  java: string | null;
+  javaldx: string | null;
+  javaHome: string | null;
 } {
   const chrome = chromeExecutablePath() ?? null;
   const pptxSvg = pptxSvgDistDir();
@@ -589,6 +594,18 @@ export function describeClassroomRenderer(): {
   ].find((candidate) => candidate && existsSync(candidate)) ?? null;
   const pdftocairo = ['/usr/bin/pdftocairo', '/usr/local/bin/pdftocairo'].find((candidate) => existsSync(candidate)) ?? null;
   const pdftoppm = ['/usr/bin/pdftoppm', '/usr/local/bin/pdftoppm'].find((candidate) => existsSync(candidate)) ?? null;
+  const javaHome = [
+    process.env.JAVA_HOME?.trim(),
+    '/usr/lib/jvm/default-java',
+  ].find((candidate) => candidate && existsSync(candidate)) ?? null;
+  const java = [
+    javaHome ? path.join(javaHome, process.platform === 'win32' ? 'bin\\java.exe' : 'bin/java') : '',
+    '/usr/bin/java',
+  ].find((candidate) => candidate && existsSync(candidate)) ?? null;
+  const javaldx = [
+    '/usr/lib/libreoffice/program/javaldx',
+    soffice ? path.join(path.dirname(soffice), 'javaldx') : '',
+  ].find((candidate) => candidate && existsSync(candidate)) ?? null;
   return {
     renderer: soffice && (pdftocairo || pdftoppm) ? 'libreoffice-pdf' : 'puppeteer-pptx-svg',
     browserAvailable: Boolean(chrome),
@@ -600,6 +617,9 @@ export function describeClassroomRenderer(): {
     soffice,
     pdftocairo,
     pdftoppm,
+    java,
+    javaldx,
+    javaHome,
   };
 }
 
@@ -612,7 +632,7 @@ function errorCodeOf(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export function logClassroomRendererStartup(): void {
+export async function logClassroomRendererStartup(): Promise<void> {
   const env = describeClassroomRenderer();
   console.info('[CLASSROOM_RENDER] Startup configuration:', {
     renderer: env.renderer,
@@ -622,8 +642,18 @@ export function logClassroomRendererStartup(): void {
     soffice: env.soffice,
     pdftocairo: env.pdftocairo,
     pdftoppm: env.pdftoppm,
+    java: env.java,
+    javaldx: env.javaldx,
+    javaHome: env.javaHome,
     chrome: env.chrome,
   });
+  try {
+    const { describeLibreOfficeRuntime } = await import('./presentationLibreOfficeRender.js');
+    const runtime = await describeLibreOfficeRuntime();
+    console.info('[CLASSROOM_RENDER] LibreOffice runtime:', runtime);
+  } catch (error) {
+    console.warn('[CLASSROOM_RENDER] LibreOffice runtime probe failed', error instanceof Error ? error.message : error);
+  }
 }
 
 export async function renderPresentationSlides(
@@ -639,6 +669,7 @@ export async function renderPresentationSlides(
     maxSlides?: number;
     engine?: 'libreoffice' | 'pptx-svg';
     pdfBuffer?: Buffer;
+    sourceSha256?: string;
   },
 ): Promise<PresentationRenderResult> {
   const env = describeClassroomRenderer();
@@ -652,6 +683,7 @@ export async function renderPresentationSlides(
     chrome: env.chrome,
     pptxBytes: pptxBuffer.length,
     directPdf: Boolean(options?.pdfBuffer),
+    sourceSha256: options?.sourceSha256,
   });
   const forcePptxSvg = options?.engine === 'pptx-svg' || Boolean(options?.hangSlide);
   if (!forcePptxSvg && (options?.pdfBuffer || (env.soffice && (env.pdftocairo || env.pdftoppm)))) {

@@ -371,12 +371,24 @@ app.get("/api/health", async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     const storage = await pingB2Storage();
     const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");
+    const { describeClassroomRenderer } = await import("./services/classroomStudio/presentationRenderService.js");
     const pdflatexPath = ensureLatexBinOnPath();
+    const classroom = describeClassroomRenderer();
     res.json({
       status: "ok",
       database: "connected",
       storage,
       latex: pdflatexPath ? "available" : "missing",
+      classroomRenderer: {
+        renderer: classroom.renderer,
+        soffice: classroom.soffice,
+        pdftocairo: classroom.pdftocairo,
+        pdftoppm: classroom.pdftoppm,
+        java: classroom.java,
+        javaldx: classroom.javaldx,
+        javaHome: classroom.javaHome,
+        ready: classroom.renderer === "libreoffice-pdf",
+      },
       timestamp: new Date().toISOString(),
     });
   } catch {
@@ -411,7 +423,7 @@ async function initializeBackgroundServices() {
     await ensureDocIndexLoaded();
     logBannerStudioStartupStatus();
     const { logClassroomRendererStartup } = await import("./services/classroomStudio/presentationRenderService.js");
-    logClassroomRendererStartup();
+    await logClassroomRendererStartup();
     const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");
     const pdflatexPath = ensureLatexBinOnPath();
     console.log(`[LATEX] pdflatex: ${pdflatexPath || "MISSING"}`);
