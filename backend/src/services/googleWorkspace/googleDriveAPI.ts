@@ -277,6 +277,24 @@ export async function exportSlidesToPptxBuffer(
 }
 
 /**
+ * Export Google Slides directly as high-fidelity vector PDF Buffer
+ */
+export async function exportSlidesToPdfBuffer(
+  tokens: GoogleOAuthTokens,
+  fileId: string,
+): Promise<Buffer> {
+  const drive = createDriveClient(tokens);
+  const response = await drive.files.export(
+    {
+      fileId,
+      mimeType: 'application/pdf',
+    },
+    { responseType: 'arraybuffer' },
+  );
+  return Buffer.from(response.data as ArrayBuffer);
+}
+
+/**
  * Google Workspace MIME types
  */
 export const GOOGLE_MIME_TYPES = {

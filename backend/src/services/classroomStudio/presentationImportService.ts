@@ -73,6 +73,7 @@ export interface ImportPresentationInput {
   sourceType: PresentationSourceType;
   sourceUrl?: string;
   file?: Buffer;
+  pdfFile?: Buffer;
   options?: PowerPointImportOptions | GoogleSlidesImportOptions;
   onProgress?: (event: ImportProgressEvent) => void | Promise<void>;
 }
@@ -162,9 +163,10 @@ function collectImportWarnings(importResult: ImportResult): string[] {
 
 async function resolveImportFromInput(
   input: ImportPresentationInput,
-): Promise<{ importResult: ImportResult; sourceFileBuffer?: Buffer }> {
+): Promise<{ importResult: ImportResult; sourceFileBuffer?: Buffer; pdfFileBuffer?: Buffer }> {
   let importResult: ImportResult;
   let sourceFileBuffer = input.file;
+  let pdfFileBuffer = input.pdfFile;
 
   switch (input.sourceType) {
     case 'powerpoint':
@@ -198,6 +200,7 @@ async function resolveImportFromInput(
           throw new AppError(400, exportResult.error);
         }
         sourceFileBuffer = exportResult.fileBuffer;
+        pdfFileBuffer = exportResult.pdfBuffer;
         importResult = await powerPointParser.parsePowerPoint(
           sourceFileBuffer,
           DEFAULT_PPTX_OPTIONS,
@@ -205,6 +208,7 @@ async function resolveImportFromInput(
         console.info('[Classroom import] Google Slides OAuth PPTX export parsed', {
           slides: importResult.slides?.length ?? 0,
           assets: importResult.assets?.length ?? 0,
+          hasDirectPdf: Boolean(pdfFileBuffer),
         });
       } else {
         throw new AppError(400, 'Source URL or exported file is required for Google Slides import');
@@ -215,6 +219,7 @@ async function resolveImportFromInput(
       if (!sourceFileBuffer) {
         throw new AppError(400, 'File is required for PDF import');
       }
+      pdfFileBuffer = sourceFileBuffer;
       importResult = await parsePDFPresentation(sourceFileBuffer);
       console.info('[Classroom import] PDF Parser completed', {
         slides: importResult.slides?.length ?? 0,
@@ -237,7 +242,7 @@ async function resolveImportFromInput(
     });
   }
 
-  return { importResult, sourceFileBuffer };
+  return { importResult, sourceFileBuffer, pdfFileBuffer };
 }
 
 type PersistOutcome = {
@@ -258,6 +263,7 @@ async function persistImportedContent(
     isPptxPipeline: boolean;
     sourceAlreadyStored?: boolean;
     deferRender?: boolean;
+    pdfFileBuffer?: Buffer;
     onProgress?: (event: ImportProgressEvent) => void | Promise<void>;
   },
 ): Promise<PersistOutcome> {
@@ -334,6 +340,7 @@ async function persistImportedContent(
     const renderDir = path.join(assetRoot, 'renders');
     const renderResult = await renderPresentationSlides(sourceFileBuffer, renderDir, {
       presentationId,
+      pdfBuffer: options.pdfFileBuffer,
       onProgress: async ({ slide, total }) => {
         const percent = 45 + Math.round((slide / Math.max(1, total)) * 50);
         await options.onProgress?.({
@@ -597,7 +604,13 @@ export async function importPresentation(
       presentation.id,
       importResult,
       sourceFileBuffer,
-      { isPptxPipeline, sourceAlreadyStored: sourceStored, deferRender: isPptxPipeline, onProgress },
+      {
+        isPptxPipeline,
+        sourceAlreadyStored: sourceStored,
+        deferRender: isPptxPipeline,
+        pdfFileBuffer: resolved.pdfFileBuffer,
+        onProgress,
+      },
     );
 
     const overallStatus = overallStatusFromPipeline({
@@ -618,11 +631,13 @@ export async function importPresentation(
 
     if (isPptxPipeline && persistResult.visualRenderStatus === 'pending' && sourceFileBuffer) {
       const buffer = sourceFileBuffer;
+      const pdfBuf = resolved.pdfFileBuffer;
       const presentationId = presentation.id;
       setImmediate(() => {
         console.info('[CLASSROOM_RENDER] background_start', {
           presentationId,
           bytes: buffer.length,
+          hasDirectPdf: Boolean(pdfBuf),
           slides: persistResult.expectedCount,
         });
         const { job } = startExclusiveVisualRender(presentationId, () =>
@@ -630,6 +645,7 @@ export async function importPresentation(
             skipExisting: true,
             sourceRelative: canonicalSourceRelative(presentationId),
             sourceBytes: buffer.length,
+            pdfBuffer: pdfBuf,
           }),
         );
         job.catch(async (error) => {

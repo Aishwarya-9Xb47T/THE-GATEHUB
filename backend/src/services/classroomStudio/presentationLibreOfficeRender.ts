@@ -223,6 +223,7 @@ export async function renderPresentationSlidesLibreOffice(
     onSlideRendered?: (render: SlideRenderResult) => void | Promise<void>;
     presentationId?: string;
     maxSlides?: number;
+    pdfBuffer?: Buffer;
   },
 ): Promise<PresentationRenderResult> {
   const warnings: string[] = [];
@@ -234,19 +235,19 @@ export async function renderPresentationSlidesLibreOffice(
   const log = (fields: Record<string, string | number | boolean | undefined | null>) =>
     classroomRenderLog({ presentation: presentationId, method, ...fields });
 
-  log({ stage: 'RENDER_START', status: 'start', pptxBytes: pptxBuffer.length });
-  if (!tools.soffice) {
-    const error = 'CLASSROOM_RENDER_FAILED LibreOffice (soffice) is not installed in this image';
-    log({ stage: 'RENDER_START', status: 'failure', errorCode: 'CLASSROOM_RENDER_FAILED', errorMessage: error });
+  log({ stage: 'RENDER_START', status: 'start', pptxBytes: pptxBuffer.length, directPdf: Boolean(options?.pdfBuffer) });
+  if (!options?.pdfBuffer && !tools.soffice) {
+    const error = 'CLASSROOM_OFFICE_RENDERER_UNAVAILABLE LibreOffice (soffice) is not installed in this image';
+    log({ stage: 'RENDER_START', status: 'failure', errorCode: 'CLASSROOM_OFFICE_RENDERER_UNAVAILABLE', errorMessage: error });
     return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
   }
   if (!tools.pdftocairo && !tools.pdftoppm) {
-    const error = 'CLASSROOM_RENDER_FAILED poppler-utils (pdftocairo/pdftoppm) is not installed in this image';
-    log({ stage: 'RENDER_START', status: 'failure', errorCode: 'CLASSROOM_RENDER_FAILED', errorMessage: error });
+    const error = 'CLASSROOM_OFFICE_RENDERER_UNAVAILABLE poppler-utils (pdftocairo/pdftoppm) is not installed in this image';
+    log({ stage: 'RENDER_START', status: 'failure', errorCode: 'CLASSROOM_OFFICE_RENDERER_UNAVAILABLE', errorMessage: error });
     return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
   }
 
-  if (pptxBuffer.length < 4 || pptxBuffer[0] !== 0x50 || pptxBuffer[1] !== 0x4b) {
+  if (!options?.pdfBuffer && (pptxBuffer.length < 4 || pptxBuffer[0] !== 0x50 || pptxBuffer[1] !== 0x4b)) {
     log({ stage: 'PPTX_VALIDATED', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', errorMessage: 'Invalid PPTX buffer (missing ZIP signature)' });
     return {
       success: false,
@@ -261,13 +262,19 @@ export async function renderPresentationSlidesLibreOffice(
   await mkdir(outputDir, { recursive: true });
   const workDir = path.join(os.tmpdir(), `classroom-lo-${presentationId || 'anon'}-${Date.now()}`);
   await mkdir(workDir, { recursive: true });
-  const pptxPath = path.join(workDir, 'source.pptx');
-  await writeFile(pptxPath, pptxBuffer);
-  log({ stage: 'PPTX_SOURCE_LOADED', status: 'success', bytes: pptxBuffer.length, soffice: tools.soffice });
-  log({ stage: 'PPTX_VALIDATED', status: 'success', bytes: pptxBuffer.length });
+  let pdfPath = path.join(workDir, 'source.pdf');
 
-  const convertStarted = Date.now();
-  log({ stage: 'LIBREOFFICE_CONVERT_START', status: 'start' });
+  if (options?.pdfBuffer && options.pdfBuffer.length > 100 && options.pdfBuffer.subarray(0, 4).equals(Buffer.from('%PDF'))) {
+    await writeFile(pdfPath, options.pdfBuffer);
+    log({ stage: 'DIRECT_PDF_LOADED', status: 'success', bytes: options.pdfBuffer.length });
+  } else {
+    const pptxPath = path.join(workDir, 'source.pptx');
+    await writeFile(pptxPath, pptxBuffer);
+    log({ stage: 'PPTX_SOURCE_LOADED', status: 'success', bytes: pptxBuffer.length, soffice: tools.soffice });
+    log({ stage: 'PPTX_VALIDATED', status: 'success', bytes: pptxBuffer.length });
+
+    const convertStarted = Date.now();
+    log({ stage: 'LIBREOFFICE_CONVERT_START', status: 'start' });
   const convertArgs = (filter: string) => [
     '--headless',
     '--norestore',
@@ -335,23 +342,24 @@ export async function renderPresentationSlidesLibreOffice(
       }
     }
   }
-  if (convert.exitCode !== 0 || !existsSync(pdfPath)) {
-    const message = `LibreOffice PDF export failed exit=${convert.exitCode} ${convert.stderr.slice(0, 180)}`;
+    if (convert.exitCode !== 0 || !existsSync(pdfPath)) {
+      const message = `LibreOffice PDF export failed exit=${convert.exitCode} ${convert.stderr.slice(0, 180)}`;
+      log({
+        stage: 'LIBREOFFICE_CONVERT',
+        status: 'failure',
+        errorCode: 'CLASSROOM_RENDER_FAILED',
+        errorMessage: message,
+        durationMs: Date.now() - convertStarted,
+      });
+      return { success: false, slideCount: 0, renders: [], warnings, errors: [message], method };
+    }
     log({
       stage: 'LIBREOFFICE_CONVERT',
-      status: 'failure',
-      errorCode: 'CLASSROOM_RENDER_FAILED',
-      errorMessage: message,
+      status: 'success',
       durationMs: Date.now() - convertStarted,
+      pdfBytes: (await readFile(pdfPath)).length,
     });
-    return { success: false, slideCount: 0, renders: [], warnings, errors: [message], method };
   }
-  log({
-    stage: 'LIBREOFFICE_CONVERT',
-    status: 'success',
-    durationMs: Date.now() - convertStarted,
-    pdfBytes: (await readFile(pdfPath)).length,
-  });
 
   let pageCount = 0;
   if (tools.pdfinfo) {

@@ -410,6 +410,8 @@ async function initializeBackgroundServices() {
     await bootstrapAiProviders();
     await ensureDocIndexLoaded();
     logBannerStudioStartupStatus();
+    const { logClassroomRendererStartup } = await import("./services/classroomStudio/presentationRenderService.js");
+    logClassroomRendererStartup();
     const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");
     const pdflatexPath = ensureLatexBinOnPath();
     console.log(`[LATEX] pdflatex: ${pdflatexPath || "MISSING"}`);

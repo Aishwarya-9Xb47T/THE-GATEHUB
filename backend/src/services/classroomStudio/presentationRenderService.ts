@@ -612,6 +612,20 @@ function errorCodeOf(error: unknown, fallback: string): string {
   return fallback;
 }
 
+export function logClassroomRendererStartup(): void {
+  const env = describeClassroomRenderer();
+  console.info('[CLASSROOM_RENDER] Startup configuration:', {
+    renderer: env.renderer,
+    libreofficeAvailable: Boolean(env.soffice),
+    libreofficeVersion: env.soffice ? 'available' : 'missing',
+    pdfRendererAvailable: Boolean(env.pdftocairo || env.pdftoppm),
+    soffice: env.soffice,
+    pdftocairo: env.pdftocairo,
+    pdftoppm: env.pdftoppm,
+    chrome: env.chrome,
+  });
+}
+
 export async function renderPresentationSlides(
   pptxBuffer: Buffer,
   outputDir: string,
@@ -624,6 +638,7 @@ export async function renderPresentationSlides(
     presentationId?: string;
     maxSlides?: number;
     engine?: 'libreoffice' | 'pptx-svg';
+    pdfBuffer?: Buffer;
   },
 ): Promise<PresentationRenderResult> {
   const env = describeClassroomRenderer();
@@ -636,11 +651,23 @@ export async function renderPresentationSlides(
     pptxSvgVersion: env.pptxSvgVersion,
     chrome: env.chrome,
     pptxBytes: pptxBuffer.length,
+    directPdf: Boolean(options?.pdfBuffer),
   });
   const forcePptxSvg = options?.engine === 'pptx-svg' || Boolean(options?.hangSlide);
-  if (!forcePptxSvg && env.soffice && (env.pdftocairo || env.pdftoppm)) {
+  if (!forcePptxSvg && (options?.pdfBuffer || (env.soffice && (env.pdftocairo || env.pdftoppm)))) {
     const { renderPresentationSlidesLibreOffice } = await import('./presentationLibreOfficeRender.js');
     return renderPresentationSlidesLibreOffice(pptxBuffer, outputDir, options);
+  }
+  if (!forcePptxSvg && process.env.NODE_ENV === 'production') {
+    const error = 'CLASSROOM_OFFICE_RENDERER_UNAVAILABLE: LibreOffice / poppler-utils is required for faithful slide visual rendering';
+    return {
+      success: false,
+      slideCount: 0,
+      renders: [],
+      warnings: [],
+      errors: [error],
+      method: 'libreoffice-pdf',
+    };
   }
   return renderPresentationSlidesPptxSvg(pptxBuffer, outputDir, options);
 }

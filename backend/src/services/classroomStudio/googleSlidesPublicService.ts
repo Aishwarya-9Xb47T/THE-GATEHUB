@@ -102,6 +102,31 @@ export async function downloadPublicGoogleSlidesPptx(
   return { fileBuffer };
 }
 
+export async function downloadPublicGoogleSlidesPdf(
+  presentationId: string,
+): Promise<Buffer | null> {
+  const exportUrl = `https://docs.google.com/presentation/d/${presentationId}/export/pdf`;
+  try {
+    const response = await fetch(exportUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      redirect: 'follow',
+    });
+    if (!response.ok) return null;
+    const arrayBuf = await response.arrayBuffer();
+    const pdfBuf = Buffer.from(arrayBuf);
+    if (pdfBuf.length > 100 && pdfBuf.subarray(0, 4).equals(Buffer.from('%PDF'))) {
+      console.info('[Public Google Slides Import] Downloaded native PDF buffer', { bytes: pdfBuf.length });
+      return pdfBuf;
+    }
+  } catch (err) {
+    console.warn('[Public Google Slides Import] Direct PDF fetch failed, fallback to PPTX conversion', err);
+  }
+  return null;
+}
+
 export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesInput): Promise<PublicImportResult> {
   const validation = validateAndExtractGoogleSlidesId(input.url);
   if (!validation.valid || !validation.presentationId) {
@@ -126,6 +151,8 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
       return { success: false, error: download.error };
     }
 
+    const pdfBuffer = await downloadPublicGoogleSlidesPdf(validation.presentationId).catch(() => null);
+
     const result = await presentationImportService.importPresentation({
       instructorId: input.instructorId,
       title: input.title?.trim() || 'Google Slides Presentation',
@@ -133,6 +160,7 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
       sourceType: 'google_slides',
       sourceUrl: input.url.trim(),
       file: download.fileBuffer,
+      pdfFile: pdfBuffer ?? undefined,
       options: {
         extractNotes: true,
         generateThumbnails: false,

@@ -5,7 +5,7 @@
 
 import { google } from 'googleapis';
 import { getValidAccessToken } from '../googleWorkspace/googleOAuth.js';
-import { exportSlidesToPptxBuffer } from '../googleWorkspace/googleDriveAPI.js';
+import { exportSlidesToPptxBuffer, exportSlidesToPdfBuffer } from '../googleWorkspace/googleDriveAPI.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import type { ImportResult, GoogleSlidesImportOptions } from './types.js';
 
@@ -623,7 +623,7 @@ async function getGoogleTokensForUser(userId: string) {
 export async function exportGoogleSlidesToPptxForUser(
   presentationId: string,
   userId: string,
-): Promise<{ fileBuffer: Buffer } | { error: string }> {
+): Promise<{ fileBuffer: Buffer; pdfBuffer?: Buffer } | { error: string }> {
   try {
     const tokens = await getGoogleTokensForUser(userId);
     if (!tokens) {
@@ -635,11 +635,22 @@ export async function exportGoogleSlidesToPptxForUser(
       return { error: 'Google Slides export did not return a valid PPTX file.' };
     }
 
-    console.info('[Google Slides export] Authenticated PPTX downloaded', {
+    let pdfBuffer: Buffer | undefined;
+    try {
+      pdfBuffer = await exportSlidesToPdfBuffer(tokens, presentationId);
+      if (pdfBuffer.length < 100 || !pdfBuffer.subarray(0, 4).equals(Buffer.from('%PDF'))) {
+        pdfBuffer = undefined;
+      }
+    } catch (pdfErr) {
+      console.warn('[Google Slides export] Direct PDF export not available, will use LibreOffice conversion', pdfErr);
+    }
+
+    console.info('[Google Slides export] Authenticated presentation downloaded', {
       presentationId,
-      bytes: fileBuffer.length,
+      pptxBytes: fileBuffer.length,
+      pdfBytes: pdfBuffer?.length,
     });
-    return { fileBuffer };
+    return { fileBuffer, pdfBuffer };
   } catch (error) {
     console.error('[Google Slides export] Failed:', error);
     return {

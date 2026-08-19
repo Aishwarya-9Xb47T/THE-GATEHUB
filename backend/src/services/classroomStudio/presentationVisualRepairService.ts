@@ -244,6 +244,7 @@ export async function renderAndPersistPresentationVisuals(
     skipExisting?: boolean;
     sourceRelative?: string;
     sourceBytes?: number;
+    pdfBuffer?: Buffer;
   },
 ) {
   const presentation = await prisma.presentation.findUnique({
@@ -351,6 +352,7 @@ export async function renderAndPersistPresentationVisuals(
       skipIndexes: alreadyRendered,
       onSlideRendered: persistOne,
       presentationId,
+      pdfBuffer: options?.pdfBuffer,
     });
 
   try {
