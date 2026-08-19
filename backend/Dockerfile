@@ -63,11 +63,16 @@ RUN apt-get update \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto-core \
+    libreoffice-impress \
+    poppler-utils \
   && rm -rf /var/lib/apt/lists/* \
   && test -x /usr/bin/pdflatex \
   && command -v pdflatex \
   && pdflatex --version \
   && (test -x /usr/bin/chromium || test -x /usr/bin/chromium-browser) \
+  && (test -x /usr/bin/soffice || test -x /usr/lib/libreoffice/program/soffice) \
+  && command -v pdftocairo \
+  && command -v pdftoppm \
   && test -x /usr/bin/python3 \
   && ln -sf /usr/bin/python3 /usr/bin/python \
   && command -v gcc \

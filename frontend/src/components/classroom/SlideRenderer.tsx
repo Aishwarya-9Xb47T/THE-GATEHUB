@@ -1683,7 +1683,10 @@ export function SlideRenderer({
           );
         }
         if (pipelineStatus === 'render_failed') {
-          throw Object.assign(new Error('Slide visual rendering failed. Retry rendering.'), {
+          const detail = typeof visual.errorMessage === 'string' && visual.errorMessage.trim()
+            ? visual.errorMessage
+            : 'Slide visual rendering failed. Retry rendering.';
+          throw Object.assign(new Error(detail), {
             code: 'CLASSROOM_RENDER_FAILED',
           });
         }

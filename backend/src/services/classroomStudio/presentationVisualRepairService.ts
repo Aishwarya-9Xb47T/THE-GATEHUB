@@ -318,6 +318,7 @@ export async function renderAndPersistPresentationVisuals(
         (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
         throw error;
       }
+      classroomRenderLogPersist(presentationId, render.index + 1, "B2_HEAD_VERIFIED", relative);
       classroomRenderPersistLog(presentationId, render.index + 1, relative, stored.contentLength);
     } else {
       classroomRenderPersistLog(presentationId, render.index + 1, relative, render.svgLength);
@@ -341,7 +342,7 @@ export async function renderAndPersistPresentationVisuals(
     .map((slide) => slide.order - 1)
     .filter((index) => !alreadyRendered.has(index));
   const renderResult = missingIndexes.length === 0
-    ? { success: true, slideCount: expected, renders: [], warnings: [], errors: [], method: "puppeteer-pptx-svg" as const }
+    ? { success: true, slideCount: expected, renders: [], warnings: [], errors: [], method: describeClassroomRenderer().renderer }
     : await renderPresentationSlides(pptxBuffer, outputDir, {
       skipIndexes: alreadyRendered,
       onSlideRendered: persistOne,
@@ -362,13 +363,14 @@ export async function renderAndPersistPresentationVisuals(
       }
     }
 
+    const firstError = renderResult.errors[0]?.slice(0, 220);
     for (const slide of presentation.slides) {
       const hasSvg = persistedIndexes.has(slide.order - 1);
       const failure = hasSvg
         ? undefined
         : {
-            code: "CLASSROOM_RENDER_SLIDE_FAILED",
-            message: "Slide visual could not be rendered from the PowerPoint source",
+            code: persistedIndexes.size === 0 ? "CLASSROOM_RENDER_FAILED" : "CLASSROOM_RENDER_SLIDE_FAILED",
+            message: firstError || "Slide visual could not be rendered from the PowerPoint source",
           };
       await prisma.slide.update({
         where: { id: slide.id },

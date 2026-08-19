@@ -85,11 +85,20 @@ export async function getPresentationById(
     ...slide,
     content: rewriteClassroomAssetTree(slide.content, presentation.id),
   }));
+  const renderProgress = computeClassroomRenderProgress(slides);
+  const failedSlide = slides.find((slide) => {
+    const visual = (slide.content as { visual?: { availability?: string; errorCode?: string; errorMessage?: string } } | null)?.visual;
+    return visual?.availability === 'failed' || visual?.errorCode;
+  });
+  const failedVisual = (failedSlide?.content as { visual?: { errorCode?: string; errorMessage?: string } } | null)?.visual;
   return {
     ...presentation,
     slides,
-    renderProgress: computeClassroomRenderProgress(slides),
-    renderedVisuals: computeClassroomRenderProgress(slides).rendered,
+    renderProgress,
+    renderedVisuals: renderProgress.rendered,
+    lastRenderError: failedVisual?.errorCode
+      ? { code: failedVisual.errorCode, message: failedVisual.errorMessage || null, slide: failedSlide?.order ?? null }
+      : null,
   } as any;
 }
 

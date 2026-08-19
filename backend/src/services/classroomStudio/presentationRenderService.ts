@@ -99,7 +99,7 @@ export interface PresentationRenderResult {
   renders: SlideRenderResult[];
   warnings: string[];
   errors: string[];
-  method: 'puppeteer-pptx-svg';
+  method: 'puppeteer-pptx-svg' | 'libreoffice-pdf';
 }
 
 type ClassroomPageApi = {
@@ -565,24 +565,41 @@ async function startRenderServer(args: {
 }
 
 export function describeClassroomRenderer(): {
-  renderer: 'puppeteer-pptx-svg';
+  renderer: 'libreoffice-pdf' | 'puppeteer-pptx-svg';
   browserAvailable: boolean;
   chrome: string | null;
   pptxSvg: string | null;
   node: string;
   pptxSvgVersion: string | null;
   pptxSvgApi: string;
+  soffice: string | null;
+  pdftocairo: string | null;
+  pdftoppm: string | null;
 } {
   const chrome = chromeExecutablePath() ?? null;
   const pptxSvg = pptxSvgDistDir();
+  const soffice = [
+    process.env.LIBREOFFICE_PATH?.trim(),
+    process.env.SOFFICE_PATH?.trim(),
+    '/usr/bin/soffice',
+    '/usr/lib/libreoffice/program/soffice',
+    '/usr/bin/libreoffice',
+    'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+    'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+  ].find((candidate) => candidate && existsSync(candidate)) ?? null;
+  const pdftocairo = ['/usr/bin/pdftocairo', '/usr/local/bin/pdftocairo'].find((candidate) => existsSync(candidate)) ?? null;
+  const pdftoppm = ['/usr/bin/pdftoppm', '/usr/local/bin/pdftoppm'].find((candidate) => existsSync(candidate)) ?? null;
   return {
-    renderer: 'puppeteer-pptx-svg',
+    renderer: soffice && (pdftocairo || pdftoppm) ? 'libreoffice-pdf' : 'puppeteer-pptx-svg',
     browserAvailable: Boolean(chrome),
     chrome,
     pptxSvg,
     node: process.version,
     pptxSvgVersion: pptxSvgPackageVersion(pptxSvg),
     pptxSvgApi: 'PptxRenderer.init + loadPptx + renderSlideSvg (pptx-svg 0.4.x)',
+    soffice,
+    pdftocairo,
+    pdftoppm,
   };
 }
 
@@ -596,6 +613,39 @@ function errorCodeOf(error: unknown, fallback: string): string {
 }
 
 export async function renderPresentationSlides(
+  pptxBuffer: Buffer,
+  outputDir: string,
+  options?: {
+    skipIndexes?: Iterable<number>;
+    onProgress?: (event: PresentationRenderProgress) => void | Promise<void>;
+    onSlideRendered?: (render: SlideRenderResult) => void | Promise<void>;
+    slideTimeoutMs?: number;
+    hangSlide?: number;
+    presentationId?: string;
+    maxSlides?: number;
+    engine?: 'libreoffice' | 'pptx-svg';
+  },
+): Promise<PresentationRenderResult> {
+  const env = describeClassroomRenderer();
+  classroomRenderLog({
+    presentation: options?.presentationId,
+    renderer: env.renderer,
+    soffice: env.soffice,
+    pdftocairo: env.pdftocairo,
+    pdftoppm: env.pdftoppm,
+    pptxSvgVersion: env.pptxSvgVersion,
+    chrome: env.chrome,
+    pptxBytes: pptxBuffer.length,
+  });
+  const forcePptxSvg = options?.engine === 'pptx-svg' || Boolean(options?.hangSlide);
+  if (!forcePptxSvg && env.soffice && (env.pdftocairo || env.pdftoppm)) {
+    const { renderPresentationSlidesLibreOffice } = await import('./presentationLibreOfficeRender.js');
+    return renderPresentationSlidesLibreOffice(pptxBuffer, outputDir, options);
+  }
+  return renderPresentationSlidesPptxSvg(pptxBuffer, outputDir, options);
+}
+
+async function renderPresentationSlidesPptxSvg(
   pptxBuffer: Buffer,
   outputDir: string,
   options?: {

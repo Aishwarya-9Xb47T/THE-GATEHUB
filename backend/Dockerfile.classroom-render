@@ -1,0 +1,22 @@
+# Slim Bookworm image matching the production converter binaries (soffice + poppler).
+# Used to prove PPTX → PDF → SVG in the same OS/packages Render will have.
+#   docker build -f backend/Dockerfile.classroom-render -t gatehub-classroom-render backend
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOME=/tmp
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    libreoffice-impress \
+    poppler-utils \
+    fonts-liberation \
+    fonts-dejavu-core \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && (test -x /usr/bin/soffice || test -x /usr/lib/libreoffice/program/soffice) \
+  && command -v pdftocairo \
+  && command -v pdftoppm \
+  && command -v pdfinfo
+
+WORKDIR /work
