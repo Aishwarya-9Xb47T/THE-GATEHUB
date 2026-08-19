@@ -72,6 +72,11 @@ export async function getPresentation(req: Request, res: Response, next: NextFun
   try {
     const { id } = req.params;
     const instructorId = getUserId(req);
+    console.info('[CLASSROOM_PRESENTATION_GET] controller', {
+      'req.params': req.params,
+      requestedId: id,
+      authenticatedUserId: instructorId || 'none',
+    });
 
     const presentation = await presentationService.getPresentationById(id, instructorId);
 
@@ -998,6 +1003,7 @@ export async function importPresentation(req: Request, res: Response, next: Next
     const sourceType = String(rawSourceType || "").trim();
     const file = req.file;
     console.info('[Classroom import] Upload received', { sourceType, title, fileName: file?.originalname, bytes: file?.size });
+    console.info('[CLASSROOM_IMPORT] stage=create-request', { sourceType, title, bytes: file?.size, instructorId });
 
     if (sourceType === 'powerpoint') {
       if (!file) {
@@ -1046,6 +1052,13 @@ export async function importPresentation(req: Request, res: Response, next: Next
         : undefined,
     });
 
+    console.info('[CLASSROOM_IMPORT] stage=create-success', {
+      presentationId: result.presentationId,
+      sourceType,
+      status: result.overallStatus,
+      slideCount: result.slideCount,
+      code: result.code,
+    });
     console.info('[Classroom import] Returning success response', {
       presentationId: result.presentationId,
       overallStatus: result.overallStatus,

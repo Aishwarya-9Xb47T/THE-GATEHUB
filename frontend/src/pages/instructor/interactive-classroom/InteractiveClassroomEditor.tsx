@@ -32,6 +32,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToastStore } from "@/store/toastStore";
 import { classroomAssetErrorFromBody } from "@/lib/classroom/classroomAssetUrls";
 import { apiUrl, getToken } from "@/lib/api";
+import { unwrapClassroomPresentation } from "@/lib/classroom/parseClassroomImportResponse";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
 import { SessionQrPanel } from "@/components/classroom/SessionQrPanel";
 
@@ -140,39 +141,87 @@ export function InteractiveClassroomEditor() {
   }, []);
 
   const fetchPresentation = useCallback(async (options?: { silent?: boolean }) => {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 20_000);
-    try {
-      const response = await fetch(apiUrl(`/api/classroom-studio/presentations/${presentationId}`), {
-        headers: { Authorization: `Bearer ${getToken()}` },
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("Failed to load presentation");
-      const data = await response.json();
-      setPresentation(data);
-      setSelectedSlideId((prev) => {
-        if (prev && data.slides.some((s: Slide) => s.id === prev)) return prev;
-        return data.slides[0]?.id ?? null;
-      });
-      const snapshot = JSON.stringify({ title: data.title, description: data.description });
-      lastSavedSnapshot.current = snapshot;
-      setSaveState("saved");
-    } catch (error: any) {
-      if (options?.silent) return;
+    if (!presentationId) {
+      if (!options?.silent) setLoading(false);
+      return;
+    }
+    const url = apiUrl(`/api/classroom-studio/presentations/${presentationId}`);
+    console.info("[CLASSROOM_FRONTEND] presentation-fetch", { url, presentationId });
+    const delays = [0, 500, 1000];
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < delays.length; attempt += 1) {
+      if (delays[attempt] > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, delays[attempt]));
+      }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 20_000);
+      try {
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          signal: controller.signal,
+        });
+        const raw = await response.json().catch(() => null);
+        if (response.status === 401 || response.status === 403) {
+          lastError = new Error(
+            typeof raw?.error === "string"
+              ? raw.error
+              : raw?.error?.message || "You do not have access to this presentation",
+          );
+          break;
+        }
+        if (!response.ok) {
+          lastError = new Error(
+            typeof raw?.error === "string"
+              ? raw.error
+              : raw?.error?.message || `Failed to load presentation (HTTP ${response.status})`,
+          );
+          console.warn("[CLASSROOM_FRONTEND] presentation-fetch-miss", {
+            presentationId,
+            status: response.status,
+            attempt: attempt + 1,
+          });
+          if (response.status !== 404 || attempt === delays.length - 1) {
+            throw lastError;
+          }
+          continue;
+        }
+        const data = unwrapClassroomPresentation(raw);
+        if (!data) {
+          lastError = new Error("Presentation payload was missing slides");
+          if (attempt === delays.length - 1) throw lastError;
+          continue;
+        }
+        setPresentation(data as unknown as Presentation);
+        setSelectedSlideId((prev) => {
+          const slides = data.slides as Slide[];
+          if (prev && slides.some((s) => s.id === prev)) return prev;
+          return slides[0]?.id ?? null;
+        });
+        const snapshot = JSON.stringify({ title: data.title, description: data.description });
+        lastSavedSnapshot.current = snapshot;
+        setSaveState("saved");
+        lastError = null;
+        break;
+      } catch (error: unknown) {
+        lastError =
+          error instanceof DOMException && error.name === "AbortError"
+            ? new Error("Loading the editor timed out. Please retry.")
+            : error instanceof Error
+              ? error
+              : new Error("Failed to load presentation");
+        if (attempt === delays.length - 1) break;
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+    if (lastError && !options?.silent) {
       toast({
         title: "Error",
-        description:
-          error instanceof DOMException && error.name === "AbortError"
-            ? "Loading the editor timed out. Please retry."
-            : error instanceof Error
-              ? error.message
-              : "Failed to load presentation",
+        description: lastError.message,
         variant: "destructive",
       });
-    } finally {
-      window.clearTimeout(timeout);
-      if (!options?.silent) setLoading(false);
     }
+    if (!options?.silent) setLoading(false);
   }, [presentationId, toast]);
 
   useEffect(() => {

@@ -10,6 +10,7 @@ import path from 'node:path';
 import { persistAtPublicRelative } from '../../middlewares/persistUpload.js';
 import { headObject, isB2Configured } from '../b2StorageService.js';
 import { AppError } from '../../middlewares/errorHandler.js';
+import { failedImportStatus } from './presentationAccess.js';
 import * as powerPointParser from './powerPointParser.js';
 import * as googleSlidesAdapter from './googleSlidesAdapter.js';
 import { parsePDFPresentation } from './pdfImporter.js';
@@ -540,6 +541,10 @@ function overallStatusFromPipeline(args: {
 export async function importPresentation(
   input: ImportPresentationInput,
 ): Promise<ImportPresentationResult> {
+  console.info('[CLASSROOM_IMPORT] stage=create-request', {
+    sourceType: input.sourceType,
+    instructorId: input.instructorId,
+  });
   console.info('[Classroom import] Service started', {
     sourceType: input.sourceType,
     instructorId: input.instructorId,
@@ -767,42 +772,60 @@ export async function importPresentation(
       });
     }
 
+    const committed = await prisma.presentation.findUnique({
+      where: { id: presentation.id },
+      include: { _count: { select: { slides: true } } },
+    });
+    if (!committed) {
+      console.error('[CLASSROOM_IMPORT] stage=db-verification presentationId=' + presentation.id + ' exists=false');
+      throw new AppError(500, 'Presentation record was not committed', true, {
+        code: 'CLASSROOM_PRESENTATION_COMMIT_FAILED',
+        stage: 'commit',
+        presentationId: presentation.id,
+      });
+    }
+    console.info('[CLASSROOM_IMPORT] stage=db-verification', {
+      presentationId: committed.id,
+      exists: true,
+      status: committed.status,
+      sourceType: committed.sourceType,
+      slideCount: committed._count.slides,
+    });
+    console.info('[CLASSROOM_IMPORT] stage=create-success', {
+      presentationId: committed.id,
+      sourceType: committed.sourceType,
+      status: committed.status,
+      slideCount: committed._count.slides,
+    });
+
     return result;
   } catch (error) {
-    if (!sourceStored) {
-      await prisma.presentation.delete({ where: { id: presentation.id } }).catch(() => undefined);
+    const code = error instanceof AppError ? error.details?.code : undefined;
+    const failedStatus = failedImportStatus({ sourceStored, code });
+    await prisma.presentation.update({
+      where: { id: presentation.id },
+      data: { status: failedStatus },
+    }).catch(() => undefined);
+    console.error('[CLASSROOM_IMPORT] stage=create-failed', {
+      presentationId: presentation.id,
+      sourceStored,
+      status: failedStatus,
+      code,
+      deleted: false,
+    });
+    if (error instanceof AppError) {
+      error.details = {
+        ...(error.details || { code: 'CLASSROOM_IMPORT_FAILED' }),
+        code: error.details?.code || 'CLASSROOM_IMPORT_FAILED',
+        presentationId: presentation.id,
+      };
     } else {
-      const code = error instanceof AppError ? error.details?.code : undefined;
-      const failedStatus =
-        code === 'CLASSROOM_SOURCE_UPLOAD_FAILED'
-        || code === 'CLASSROOM_STORAGE_NOT_CONFIGURED'
-        || code === 'CLASSROOM_B2_NOT_CONFIGURED'
-        || code === 'CLASSROOM_B2_UPLOAD_FAILED'
-        || code === 'CLASSROOM_B2_VERIFY_FAILED'
-        || code === 'CLASSROOM_B2_SIZE_LIMIT'
-          ? 'source_failed'
-          : code === 'CLASSROOM_RENDER_FAILED'
-            ? 'render_failed'
-            : 'extraction_failed';
-      await prisma.presentation.update({
-        where: { id: presentation.id },
-        data: { status: failedStatus },
-      }).catch(() => undefined);
-      if (error instanceof AppError) {
-        error.details = {
-          ...(error.details || { code: 'CLASSROOM_IMPORT_FAILED' }),
-          code: error.details?.code || 'CLASSROOM_IMPORT_FAILED',
-          presentationId: presentation.id,
-        };
-      } else {
-        const wrapped = new AppError(
-          500,
-          error instanceof Error ? error.message : 'Failed to import presentation',
-          true,
-          { code: 'CLASSROOM_IMPORT_FAILED', stage: 'import', presentationId: presentation.id },
-        );
-        throw wrapped;
-      }
+      throw new AppError(
+        500,
+        error instanceof Error ? error.message : 'Failed to import presentation',
+        true,
+        { code: 'CLASSROOM_IMPORT_FAILED', stage: 'import', presentationId: presentation.id },
+      );
     }
     console.error('[Classroom import] Persistence failed', { presentationId: presentation.id, error });
     throw error;

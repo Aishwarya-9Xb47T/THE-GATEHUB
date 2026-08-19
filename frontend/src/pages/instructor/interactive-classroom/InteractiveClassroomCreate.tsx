@@ -9,6 +9,11 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { useToastStore } from "@/store/toastStore";
 import { apiUrl, getToken } from "@/lib/api";
+import {
+  classroomImportErrorMessage,
+  classroomImportPresentationId,
+  parseClassroomImportNdjson,
+} from "@/lib/classroom/parseClassroomImportResponse";
 
 interface GoogleAuthStatus {
   configured: boolean;
@@ -126,7 +131,15 @@ export function InteractiveClassroomCreate() {
             }),
           });
           const authData = await authResponse.json();
+          console.info("[CLASSROOM_FRONTEND] create response", {
+            presentationId: authData?.presentation?.id,
+            topLevelId: authData?.id,
+            presentationIdField: authData?.presentationId,
+            success: authData?.success,
+          });
           if (authResponse.ok && authData.success && authData.presentationId) {
+            console.info("[CLASSROOM_FRONTEND] create-response-presentation-id=" + authData.presentationId);
+            console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + authData.presentationId);
             const warnCount = authData.warnings?.length ?? 0;
             toast({
               title: "Success",
@@ -205,6 +218,10 @@ export function InteractiveClassroomCreate() {
             setUploadProgress(pct);
             setPipelineLabel("Uploading PowerPoint…");
           };
+          request.upload.onload = () => {
+            setPipelineLabel("Importing presentation…");
+            setUploadProgress((current) => Math.max(current ?? 0, 12));
+          };
           request.timeout = 600_000;
           request.onerror = () => reject(new Error("Upload failed. Check your network connection and try again."));
           request.ontimeout = () => reject(new Error("Import timed out. Slide rendering took longer than 10 minutes."));
@@ -229,23 +246,7 @@ export function InteractiveClassroomCreate() {
             try {
               applyProgressFromBody();
               const text = request.responseText || "{}";
-              const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-              let data: any = {};
-              for (const line of lines) {
-                try {
-                  const parsed = JSON.parse(line);
-                  if (parsed?.type === "result" || parsed?.presentationId || parsed?.success === false) {
-                    data = parsed.type === "result" ? parsed : parsed;
-                  } else if (!parsed?.type) {
-                    data = parsed;
-                  }
-                } catch {
-                  /* ignore */
-                }
-              }
-              if (!data || Object.keys(data).length === 0) {
-                data = JSON.parse(lines[lines.length - 1] || "{}");
-              }
+              const data = parseClassroomImportNdjson(text);
               resolve({ status: request.status, ok: request.status >= 200 && request.status < 300, data });
             } catch {
               reject(new Error(`Server returned status ${request.status} with non-JSON content.`));
@@ -255,35 +256,33 @@ export function InteractiveClassroomCreate() {
         });
 
         const payload = result.data || {};
-        const id = payload.presentationId ?? payload.id ?? payload.error?.presentationId;
-        const rawError =
-          typeof payload.error === "string"
-            ? payload.error
-            : payload.error?.message || payload.error?.reason || payload.error?.code;
-        const errorMessage =
-          (payload.error?.code && rawError && !String(rawError).includes(payload.error.code)
-            ? `${payload.error.code}: ${rawError}`
-            : rawError) ||
-          (result.status === 413 || payload.code === "CLASSROOM_PPTX_TOO_LARGE"
-            ? "This PowerPoint is too large. Use a .pptx smaller than 100 MB."
-            : result.status === 502 || result.status === 504 || result.status === 524
-              ? "The server timed out while importing. Try again; if the file is large, compress images first."
-              : result.status >= 400
-                ? `Import failed (HTTP ${result.status}).`
-                : "Failed to import PowerPoint file");
+        console.info("[CLASSROOM_FRONTEND] create response", {
+          presentationId: payload?.presentation?.id,
+          topLevelId: payload?.id,
+          presentationIdField: payload?.presentationId,
+          success: payload?.success,
+          code: payload?.code,
+          overallStatus: payload?.overallStatus,
+        });
+        const id = classroomImportPresentationId(payload);
+        console.info("[CLASSROOM_FRONTEND] create-response-presentation-id=" + (id || "none"));
+        const errorMessage = classroomImportErrorMessage(payload, result.status);
+        const errorObj = payload.error && typeof payload.error === "object" ? payload.error : null;
         const renderFailed =
           payload.code === "CLASSROOM_RENDER_FAILED" ||
           payload.overallStatus === "render_failed" ||
-          payload.error?.code === "CLASSROOM_RENDER_FAILED";
+          errorObj?.code === "CLASSROOM_RENDER_FAILED";
         const extractionCount = payload.extractionWarnings?.length ?? 0;
         const warnCount = payload.warnings?.length ?? 0;
 
-        if (id) {
+        if (id && payload.success === true) {
+          setPipelineLabel("Opening editor…");
+          setUploadProgress(100);
           if (renderFailed) {
             toast({
               title: "PowerPoint imported, but slide visuals could not be generated.",
-              description: payload.error?.code
-                ? `Code: ${payload.error.code}${payload.error.method ? ` • ${payload.error.method}` : ""}`
+              description: errorObj?.code
+                ? `Code: ${errorObj.code}${errorObj.method ? ` • ${errorObj.method}` : ""}`
                 : "Use Regenerate slide visuals in the editor.",
               variant: "destructive",
             });
@@ -309,6 +308,7 @@ export function InteractiveClassroomCreate() {
               description: "PowerPoint imported successfully",
             });
           }
+          console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + id);
           navigate(`/instructor/interactive-classroom/presentations/${id}/editor`);
           return;
         }

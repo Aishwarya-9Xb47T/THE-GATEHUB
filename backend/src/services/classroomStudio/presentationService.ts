@@ -7,6 +7,7 @@ import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
 import { computeClassroomRenderProgress } from './classroomAssetPath.js';
+import { presentationOwnershipAllowed } from './presentationAccess.js';
 import type {
   Presentation,
   CreatePresentationInput,
@@ -53,6 +54,7 @@ export async function getPresentationById(
   id: string,
   instructorId?: string
 ): Promise<Presentation> {
+  console.info('[CLASSROOM_PRESENTATION_GET] stage=request requestedId=' + id + ' req.params.id=' + id + ' authenticatedUserId=' + (instructorId || 'none'));
   const presentation = await prisma.presentation.findUnique({
     where: { id },
     include: {
@@ -73,12 +75,42 @@ export async function getPresentationById(
   });
 
   if (!presentation) {
-    throw new AppError(404, 'Presentation not found');
+    console.warn('[CLASSROOM_PRESENTATION_GET] stage=db-result requestedId=' + id + ' found=false authenticatedUserId=' + (instructorId || 'none'));
+    throw new AppError(404, 'Presentation not found', true, {
+      code: 'CLASSROOM_PRESENTATION_NOT_FOUND',
+      stage: 'get',
+      presentationId: id,
+    });
   }
 
-  // Check access if instructorId is provided
-  if (instructorId && presentation.instructorId !== instructorId) {
-    throw new AppError(403, 'You do not have access to this presentation');
+  console.info('[CLASSROOM_PRESENTATION_GET] stage=db-result', {
+    requestedId: id,
+    found: true,
+    presentationId: presentation.id,
+    title: presentation.title,
+    status: presentation.status,
+    sourceType: presentation.sourceType,
+    slideCount: presentation.slides.length,
+    presentationOwnerId: presentation.instructorId,
+    authenticatedUserId: instructorId || 'none',
+  });
+
+  const access = presentationOwnershipAllowed({
+    presentationOwnerId: presentation.instructorId,
+    requesterId: instructorId,
+  });
+  if (!access.allowed) {
+    console.warn('[CLASSROOM_PRESENTATION_GET] ownership-denied', {
+      requestedId: id,
+      presentationOwnerId: presentation.instructorId,
+      authenticatedUserId: instructorId || 'none',
+      reason: access.reason,
+    });
+    throw new AppError(403, 'You do not have access to this presentation', true, {
+      code: 'CLASSROOM_PRESENTATION_FORBIDDEN',
+      stage: 'get',
+      presentationId: id,
+    });
   }
 
   const slides = presentation.slides.map((slide) => ({
