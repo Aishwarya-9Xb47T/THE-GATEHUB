@@ -40,6 +40,8 @@ pids/
 # Temporary & Cache Directories
 tmp/
 temp/
+.tmp/
+.npm-cache/
 latex-temp/
 .tinytex/
 **/.tinytex/
