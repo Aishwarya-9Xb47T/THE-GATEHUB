@@ -179,6 +179,7 @@ describe('SlideRenderer', () => {
         presentationId="demo"
         pipelineStatus="rendering"
         slideCount={20}
+        renderProgressSlide={2}
       />,
     );
 

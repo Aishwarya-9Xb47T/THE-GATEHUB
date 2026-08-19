@@ -7,9 +7,11 @@ import { isAdminRole } from "../../utils/roles.js";
 import { persistAtPublicRelative } from "../../middlewares/persistUpload.js";
 import { headObject, isB2Configured } from "../b2StorageService.js";
 import {
+  B2_UPLOAD_TIMEOUT_MS,
   describeClassroomRenderer,
   isValidRenderedSvg,
   renderPresentationSlides,
+  withDeadline,
 } from "./presentationRenderService.js";
 import {
   downloadPresentationPptx,
@@ -35,6 +37,17 @@ function classroomRenderPersistLog(
   );
 }
 
+function classroomRenderLogPersist(
+  presentationId: string,
+  slide: number,
+  stage: string,
+  relative: string,
+) {
+  console.info(
+    `[CLASSROOM_RENDER] stage=${stage} presentationId=${presentationId} slide=${slide} key=uploads/${relative}`,
+  );
+}
+
 function withVisual(
   content: unknown,
   presentationId: string,
@@ -47,6 +60,21 @@ function withVisual(
       : {};
   base.visual = buildSlideVisual(presentationId, slideIndex, hasSvg);
   return base;
+}
+
+const inflightVisualRenders = new Map<string, Promise<unknown>>();
+
+export function startExclusiveVisualRender(
+  presentationId: string,
+  work: () => Promise<unknown>,
+): { started: boolean; job: Promise<unknown> } {
+  const existing = inflightVisualRenders.get(presentationId);
+  if (existing) return { started: false, job: existing };
+  const job = work().finally(() => {
+    inflightVisualRenders.delete(presentationId);
+  });
+  inflightVisualRenders.set(presentationId, job);
+  return { started: true, job };
 }
 
 async function headFirst(relative: string) {
@@ -145,7 +173,6 @@ export async function regeneratePresentationVisuals(
   });
   console.info("[CLASSROOM_RENDER]", describeClassroomRenderer());
 
-  const pptxBuffer = await downloadPresentationPptx(resolved);
   const expected = presentation.slides.length;
   const canonicalRelative = canonicalSourceRelative(presentationId);
   console.info("[CLASSROOM_RENDER]", {
@@ -155,16 +182,54 @@ export async function regeneratePresentationVisuals(
     sourceBytes: resolved.bytes,
     reuseSource: resolved.relative === canonicalRelative,
   });
-  const persistedSource =
-    resolved.relative === canonicalRelative
-      ? { relative: resolved.relative, bytes: resolved.bytes }
-      : await persistPptxBuffer(presentationId, pptxBuffer);
-
-  return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
-    skipExisting: true,
-    sourceRelative: persistedSource.relative,
-    sourceBytes: persistedSource.bytes,
+  await prisma.presentation.update({
+    where: { id: presentationId },
+    data: { status: "rendering" },
   });
+
+  const { started, job } = startExclusiveVisualRender(presentationId, async () => {
+    const pptxBuffer = await downloadPresentationPptx(resolved);
+    const persistedSource =
+      resolved.relative === canonicalRelative
+        ? { relative: resolved.relative, bytes: resolved.bytes }
+        : await persistPptxBuffer(presentationId, pptxBuffer);
+    return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
+      skipExisting: true,
+      sourceRelative: persistedSource.relative,
+      sourceBytes: persistedSource.bytes,
+    });
+  });
+
+  if (!started) {
+    console.info("[CLASSROOM_RENDER] already_running", { presentationId });
+  } else {
+    job.catch(async (error) => {
+      console.error("[CLASSROOM_RENDER] background_failed", {
+        presentationId,
+        error: error instanceof Error ? error.message : String(error),
+        details: error instanceof AppError ? error.details : undefined,
+      });
+      const current = await prisma.presentation.findUnique({
+        where: { id: presentationId },
+        select: { status: true },
+      });
+      if (current?.status === "rendering") {
+        await prisma.presentation.update({
+          where: { id: presentationId },
+          data: { status: "render_failed" },
+        }).catch(() => undefined);
+      }
+    });
+  }
+
+  return {
+    presentationId,
+    slideCount: expected,
+    sourceKey: resolved.key,
+    sourceBytes: resolved.bytes,
+    code: "CLASSROOM_RENDERING",
+    alreadyRunning: !started,
+  };
 }
 
 export async function renderAndPersistPresentationVisuals(
@@ -205,42 +270,86 @@ export async function renderAndPersistPresentationVisuals(
   });
 
   const outputDir = path.join(os.tmpdir(), `classroom-render-${presentationId}`);
+  const persistedIndexes = new Set<number>(alreadyRendered);
+  const persistOne = async (render: { index: number; path: string; svgLength: number }) => {
+    if (persistedIndexes.has(render.index)) return;
+    const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
+    const diskPath = path.join(outputDir, path.basename(render.path));
+    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-start", relative);
+    let svgText: string;
+    try {
+      svgText = await readFile(diskPath, "utf8");
+    } catch {
+      const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1} reason=missing on disk`);
+      (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
+      throw error;
+    }
+    if (!isValidRenderedSvg(svgText)) {
+      const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1}`);
+      (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
+      throw error;
+    }
+    try {
+      await withDeadline(
+        persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() }),
+        B2_UPLOAD_TIMEOUT_MS,
+        "CLASSROOM_RENDER_B2_UPLOAD_FAILED",
+        `CLASSROOM_RENDER_B2_UPLOAD_FAILED slide=${render.index + 1}`,
+      );
+    } catch (error) {
+      const wrapped = error instanceof Error ? error : new Error(String(error));
+      (wrapped as Error & { code?: string }).code =
+        (wrapped as Error & { code?: string }).code || "CLASSROOM_RENDER_B2_UPLOAD_FAILED";
+      throw wrapped;
+    }
+    if (isB2Configured()) {
+      const stored = await headObject(`uploads/${relative}`);
+      if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
+        const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1}`);
+        (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
+        throw error;
+      }
+      classroomRenderPersistLog(presentationId, render.index + 1, relative, stored.contentLength);
+    } else {
+      classroomRenderPersistLog(presentationId, render.index + 1, relative, render.svgLength);
+    }
+    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-complete", relative);
+    const slide = presentation.slides.find((item) => item.order === render.index + 1);
+    if (slide) {
+      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-start", relative);
+      await prisma.slide.update({
+        where: { id: slide.id },
+        data: {
+          content: withVisual(slide.content, presentationId, render.index, true) as object,
+        },
+      });
+      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-complete", relative);
+    }
+    persistedIndexes.add(render.index);
+  };
+
   const missingIndexes = presentation.slides
     .map((slide) => slide.order - 1)
     .filter((index) => !alreadyRendered.has(index));
   const renderResult = missingIndexes.length === 0
     ? { success: true, slideCount: expected, renders: [], warnings: [], errors: [], method: "puppeteer-pptx-svg" as const }
-    : await renderPresentationSlides(pptxBuffer, outputDir, { skipIndexes: alreadyRendered });
-  const persistedIndexes = new Set<number>(alreadyRendered);
+    : await renderPresentationSlides(pptxBuffer, outputDir, {
+      skipIndexes: alreadyRendered,
+      onSlideRendered: persistOne,
+    });
 
   try {
     for (const render of renderResult.renders) {
       if (persistedIndexes.has(render.index)) continue;
-      const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
-      const diskPath = path.join(outputDir, path.basename(render.path));
-      let svgText: string;
       try {
-        svgText = await readFile(diskPath, "utf8");
-      } catch {
-        console.warn("[CLASSROOM_REPAIR] svg_missing_on_disk", { presentationId, relative, stage: "svg-validate" });
-        continue;
+        await persistOne(render);
+      } catch (error) {
+        console.warn("[CLASSROOM_REPAIR] persist_failed", {
+          presentationId,
+          slide: render.index + 1,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
-      if (!isValidRenderedSvg(svgText)) {
-        console.warn("[CLASSROOM_REPAIR] svg_invalid", { presentationId, relative, stage: "svg-validate", bytes: svgText.length });
-        continue;
-      }
-      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() });
-      if (isB2Configured()) {
-        const stored = await headObject(`uploads/${relative}`);
-        if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
-          console.warn("[CLASSROOM_REPAIR] svg_not_stored", { presentationId, relative, stage: "svg-upload" });
-          continue;
-        }
-        classroomRenderPersistLog(presentationId, render.index + 1, relative, stored.contentLength);
-      } else {
-        classroomRenderPersistLog(presentationId, render.index + 1, relative, render.svgLength);
-      }
-      persistedIndexes.add(render.index);
     }
 
     for (const slide of presentation.slides) {

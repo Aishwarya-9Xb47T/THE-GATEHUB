@@ -277,6 +277,13 @@ export function InteractiveClassroomSession() {
         return;
       }
       const result = await response.json().catch(() => null);
+      if (result?.code === "CLASSROOM_RENDERING") {
+        toast({
+          title: "Generating slide visuals",
+          description: "Rendering continues in the background.",
+        });
+        return;
+      }
       if (result?.code === "CLASSROOM_RENDER_PARTIAL") {
         toast({
           title: "Some slide visuals could not be generated",

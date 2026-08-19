@@ -10,7 +10,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
-import { renderPresentationSlides } from "../services/classroomStudio/presentationRenderService.js";
+import { renderPresentationSlides, slideTimeoutForPptx } from "../services/classroomStudio/presentationRenderService.js";
 import { isValidPptxBuffer } from "../services/classroomStudio/classroomSourceResolver.js";
 
 function slideXml(title: string): string {
@@ -81,6 +81,9 @@ async function main() {
   const twentySlide = await buildPptx(20);
   assert.equal(isValidPptxBuffer(twoSlide), true);
   assert.equal(isValidPptxBuffer(twentySlide), true);
+  assert.equal(slideTimeoutForPptx(1_000_000), 90_000);
+  assert.equal(slideTimeoutForPptx(17_605_178), 240_000);
+  assert.equal(slideTimeoutForPptx(17_605_178, 1500), 1500);
   console.info("ok  generated PPTX buffers", { twoSlideBytes: twoSlide.length, twentySlideBytes: twentySlide.length });
 
   const outputDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-pipeline-"));
@@ -108,6 +111,11 @@ async function main() {
       assert.ok(svg.length > 32, `${render.path} is empty`);
     }
 
+    const invalid = await renderPresentationSlides(Buffer.from("not-a-pptx"), outputDir);
+    assert.equal(invalid.success, false);
+    assert.ok(invalid.errors.some((error) => /CLASSROOM_RENDER_SOURCE_FAILED|Invalid PPTX/i.test(error)));
+    console.info("ok  invalid source fails cleanly");
+
     const skipDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-skip-"));
     try {
       await writeFile(path.join(skipDir, "slide-001.svg"), "<svg xmlns='http://www.w3.org/2000/svg'></svg>");
@@ -116,6 +124,48 @@ async function main() {
       console.info("ok  skip already-rendered slide 1", { rendered: skipped.renders.map((r) => r.index) });
     } finally {
       await rm(skipDir, { recursive: true, force: true });
+    }
+
+    const retryDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-retry-"));
+    try {
+      const retried = await renderPresentationSlides(await buildPptx(3), retryDir, { skipIndexes: [0, 2] });
+      assert.equal(retried.renders.some((render) => render.index === 0), false);
+      assert.equal(retried.renders.some((render) => render.index === 2), false);
+      assert.ok(retried.renders.some((render) => render.index === 1));
+      console.info("ok  retry missing slide 2 only", { rendered: retried.renders.map((r) => r.index) });
+    } finally {
+      await rm(retryDir, { recursive: true, force: true });
+    }
+
+    const timeoutDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-timeout-"));
+    try {
+      const hung = await renderPresentationSlides(twoSlide, timeoutDir, {
+        hangSlide: 2,
+        slideTimeoutMs: 1500,
+      });
+      assert.ok(hung.errors.some((error) => /CLASSROOM_RENDER_TIMEOUT/.test(error)));
+      assert.ok(hung.renders.some((render) => render.index === 0), "slide 1 should still render before the timeout");
+      console.info("ok  slide timeout", { rendered: hung.renders.map((r) => r.index), errors: hung.errors.slice(0, 2) });
+    } finally {
+      await rm(timeoutDir, { recursive: true, force: true });
+    }
+
+    const uploadFailDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-b2fail-"));
+    try {
+      const failedUpload = await renderPresentationSlides(twoSlide, uploadFailDir, {
+        onSlideRendered: async (render) => {
+          if (render.index === 0) {
+            const error = new Error("CLASSROOM_RENDER_B2_UPLOAD_FAILED slide=1");
+            (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_UPLOAD_FAILED";
+            throw error;
+          }
+        },
+      });
+      assert.ok(failedUpload.errors.some((error) => /CLASSROOM_RENDER_B2_UPLOAD_FAILED/.test(error)));
+      assert.ok(failedUpload.renders.some((render) => render.index === 1));
+      console.info("ok  B2 upload failure is distinguishable", { errors: failedUpload.errors.slice(0, 2) });
+    } finally {
+      await rm(uploadFailDir, { recursive: true, force: true });
     }
 
     const twentyDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-20-"));
@@ -131,6 +181,7 @@ async function main() {
         const first = await readFile(path.join(twentyDir, path.basename(twenty.renders[0].path)), "utf8");
         assert.equal(isSvg(first), true);
       }
+      assert.equal(twenty.renders.length, 20, "expected 20/20 rendered SVGs");
     } finally {
       await rm(twentyDir, { recursive: true, force: true });
     }

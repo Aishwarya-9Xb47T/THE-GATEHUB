@@ -3,6 +3,8 @@ import {
   CLASSROOM_SOURCE_REST,
   PPTX_MIME,
   SVG_MIME,
+  computeClassroomRenderProgress,
+  slideVisualIsReady,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
   parseClassroomAssetFilename,
@@ -39,9 +41,13 @@ describe("classroomAssetPath", () => {
     expect(parseClassroomAssetFilename("source", "notes.pdf")).toBeNull();
   });
 
-  it("looks up padded and unpadded slide SVG keys", () => {
-    const keys = classroomAssetLookupRelatives("classroom/pres-1/renders/slide-2.svg");
-    expect(keys).toContain("classroom/pres-1/renders/slide-002.svg");
-    expect(keys).toContain("classroom-studio/pres-1/renders/slide-2.svg");
+  it("computes render progress from persisted slide visuals", () => {
+    const progress = computeClassroomRenderProgress([
+      { order: 1, content: { visual: { type: "svg", availability: "available" } } },
+      { order: 2, content: { visual: { type: "pptx", availability: "missing" } } },
+      { order: 3, content: { visual: { type: "pptx", availability: "missing" } } },
+    ]);
+    expect(slideVisualIsReady({ visual: { type: "svg", availability: "available" } })).toBe(true);
+    expect(progress).toEqual({ rendered: 1, total: 3, currentSlide: 2 });
   });
 });

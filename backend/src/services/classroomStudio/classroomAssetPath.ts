@@ -66,6 +66,27 @@ export function buildSlideVisual(
   };
 }
 
+export function slideVisualIsReady(content: unknown): boolean {
+  if (!content || typeof content !== "object" || Array.isArray(content)) return false;
+  const visual = (content as { visual?: { type?: string; availability?: string } }).visual;
+  if (!visual || typeof visual !== "object") return false;
+  if (visual.availability === "available") return true;
+  return visual.type === "svg" && visual.availability !== "missing";
+}
+
+export function computeClassroomRenderProgress(
+  slides: Array<{ order: number; content?: unknown }>,
+): { rendered: number; total: number; currentSlide: number } {
+  const ordered = [...slides].sort((a, b) => a.order - b.order);
+  const rendered = ordered.filter((slide) => slideVisualIsReady(slide.content)).length;
+  const firstMissing = ordered.find((slide) => !slideVisualIsReady(slide.content));
+  return {
+    rendered,
+    total: ordered.length,
+    currentSlide: firstMissing?.order ?? Math.max(ordered.length, 0),
+  };
+}
+
 export function sanitizeClassroomAssetRest(raw: string): string | null {
   const cleaned = String(raw || "")
     .replace(/\\/g, "/")

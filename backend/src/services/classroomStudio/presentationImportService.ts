@@ -36,7 +36,7 @@ import {
   requireDurableClassroomStorage,
   isValidPptxBuffer,
 } from './classroomSourceResolver.js';
-import { renderAndPersistPresentationVisuals } from './presentationVisualRepairService.js';
+import { renderAndPersistPresentationVisuals, startExclusiveVisualRender } from './presentationVisualRepairService.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -580,7 +580,7 @@ export async function importPresentation(
         where: { id: presentation.id },
         data: {
           status: 'source_stored',
-          sourceUrl: canonicalPublicPath(stored.relative),
+          ...(input.sourceType === 'google_slides' ? {} : { sourceUrl: canonicalPublicPath(stored.relative) }),
         },
       });
     }
@@ -609,7 +609,9 @@ export async function importPresentation(
       where: { id: presentation.id },
       data: {
         status: overallStatus,
-        ...(isPptxPipeline ? { sourceUrl: canonicalPublicPath(sourceRelative) } : {}),
+        ...(isPptxPipeline && input.sourceType !== 'google_slides'
+          ? { sourceUrl: canonicalPublicPath(sourceRelative) }
+          : {}),
       },
     });
 
@@ -622,11 +624,14 @@ export async function importPresentation(
           bytes: buffer.length,
           slides: persistResult.expectedCount,
         });
-        renderAndPersistPresentationVisuals(presentationId, buffer, {
-          skipExisting: true,
-          sourceRelative: canonicalSourceRelative(presentationId),
-          sourceBytes: buffer.length,
-        }).catch(async (error) => {
+        const { job } = startExclusiveVisualRender(presentationId, () =>
+          renderAndPersistPresentationVisuals(presentationId, buffer, {
+            skipExisting: true,
+            sourceRelative: canonicalSourceRelative(presentationId),
+            sourceBytes: buffer.length,
+          }),
+        );
+        job.catch(async (error) => {
           console.error('[Classroom import] Background slide render failed', {
             presentationId,
             error: error instanceof Error ? error.message : String(error),
@@ -763,12 +768,18 @@ export async function updatePresentationFromSource(
 
   const warnings = collectImportWarnings(importResult);
 
+  requireDurableClassroomStorage();
+  const stored = await persistPptxBuffer(presentationId, exportResult.fileBuffer);
   await prisma.slide.deleteMany({ where: { presentationId } });
+  await prisma.presentation.update({
+    where: { id: presentationId },
+    data: { status: 'rendering' },
+  });
   const persistResult = await persistImportedContent(
     presentationId,
     importResult,
     exportResult.fileBuffer,
-    { isPptxPipeline: true, sourceAlreadyStored: false },
+    { isPptxPipeline: true, sourceAlreadyStored: true, deferRender: true },
   );
   warnings.push(...persistResult.renderWarnings, ...persistResult.renderErrors);
   const overallStatus = overallStatusFromPipeline({
@@ -780,6 +791,32 @@ export async function updatePresentationFromSource(
     where: { id: presentationId },
     data: { status: overallStatus },
   });
+
+  if (persistResult.visualRenderStatus === 'pending') {
+    const { job } = startExclusiveVisualRender(presentationId, () =>
+      renderAndPersistPresentationVisuals(presentationId, exportResult.fileBuffer, {
+        skipExisting: false,
+        sourceRelative: stored.relative,
+        sourceBytes: stored.bytes,
+      }),
+    );
+    job.catch(async (error) => {
+      console.error('[Classroom import] Google Slides sync render failed', {
+        presentationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const current = await prisma.presentation.findUnique({
+        where: { id: presentationId },
+        select: { status: true },
+      });
+      if (current?.status === 'rendering') {
+        await prisma.presentation.update({
+          where: { id: presentationId },
+          data: { status: 'render_failed' },
+        }).catch(() => undefined);
+      }
+    });
+  }
 
   if (warnings.length) {
     console.warn('[Classroom import] Sync warnings', { presentationId, warnings });

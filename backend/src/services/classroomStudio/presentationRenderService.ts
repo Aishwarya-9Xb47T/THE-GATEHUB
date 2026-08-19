@@ -16,7 +16,41 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer';
 import { stripPptxSvgDefaultTableGridLines } from './pptxSvgPostProcess.js';
 
-const RENDER_TIMEOUT_MS = 8 * 60 * 1000;
+export const SLIDE_RENDER_TIMEOUT_MS = 90_000;
+export const SLIDE_RENDER_TIMEOUT_MAX_MS = 240_000;
+export const B2_UPLOAD_TIMEOUT_MS = 60_000;
+
+/** Larger decks (images, 17MB+ PPTX) need more than 90s per slide. Cap so a hang cannot last forever. */
+export function slideTimeoutForPptx(bytes: number, override?: number): number {
+  if (override && override > 0) return override;
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 12) return SLIDE_RENDER_TIMEOUT_MAX_MS;
+  if (mb >= 5) return 180_000;
+  return SLIDE_RENDER_TIMEOUT_MS;
+}
+
+export async function withDeadline<T>(
+  promise: Promise<T>,
+  ms: number,
+  code: string,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(message);
+          (error as Error & { code?: string }).code = code;
+          reject(error);
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export interface SlideRenderResult {
   index: number;
@@ -106,42 +140,44 @@ function harnessHtml(): string {
 <body>
 <script type="module">
   import { PptxRenderer } from '/pptx-svg/index.js';
-  window.__renderAllSlides = async (skipIndexes) => {
-    const skip = new Set(Array.isArray(skipIndexes) ? skipIndexes : []);
+  window.__hangSlide = 0;
+  window.__initClassroomRenderer = async () => {
     const response = await fetch('/source.pptx');
     if (!response.ok) throw new Error('Failed to read PowerPoint source for rendering');
     const buffer = await response.arrayBuffer();
     const renderer = new PptxRenderer({ logLevel: 'warn' });
     await renderer.init('/pptx-svg/main.wasm');
     const { slideCount } = await renderer.loadPptx(buffer);
-    const slides = [];
-    for (let i = 0; i < slideCount; i++) {
-      if (skip.has(i)) {
-        slides.push({ index: i, skipped: true, error: null, bytes: 0 });
-        continue;
-      }
-      await fetch('/start-slide/' + i + '?total=' + slideCount, { method: 'POST' });
-      const svg = renderer.renderSlideSvg(i);
-      const failed = !svg || svg.startsWith('ERROR:');
-      if (failed) {
-        const error = svg || 'Empty SVG output';
-        await fetch('/save-slide/' + i, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: 'ERROR:' + error,
-        });
-        slides.push({ index: i, skipped: false, error, bytes: 0 });
-        continue;
-      }
-      const saved = await fetch('/save-slide/' + i, {
-        method: 'POST',
-        headers: { 'Content-Type': 'image/svg+xml' },
-        body: svg,
-      });
-      if (!saved.ok) throw new Error('Failed to persist SVG for slide ' + (i + 1));
-      slides.push({ index: i, skipped: false, error: null, bytes: svg.length });
+    window.__classroomPptxRenderer = renderer;
+    window.__classroomSlideCount = slideCount;
+    return { slideCount };
+  };
+  window.__renderClassroomSlide = async (index) => {
+    const renderer = window.__classroomPptxRenderer;
+    const slideCount = Number(window.__classroomSlideCount || 0);
+    if (!renderer) throw new Error('PowerPoint renderer was not initialized');
+    if (Number(window.__hangSlide) === index + 1) {
+      await new Promise(() => {});
     }
-    return { slideCount, slides };
+    await fetch('/start-slide/' + index + '?total=' + slideCount, { method: 'POST' });
+    const svg = renderer.renderSlideSvg(index);
+    const failed = !svg || svg.startsWith('ERROR:');
+    if (failed) {
+      const error = svg || 'Empty SVG output';
+      await fetch('/save-slide/' + index, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'ERROR:' + error,
+      });
+      return { index, ok: false, error, bytes: 0 };
+    }
+    const saved = await fetch('/save-slide/' + index, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/svg+xml' },
+      body: svg,
+    });
+    if (!saved.ok) throw new Error('Failed to persist SVG for slide ' + (index + 1));
+    return { index, ok: true, error: null, bytes: svg.length };
   };
 </script>
 </body>
@@ -303,14 +339,25 @@ export function describeClassroomRenderer(): {
   browserAvailable: boolean;
   chrome: string | null;
   pptxSvg: string | null;
+  node: string;
+  pptxSvgVersion: string | null;
 } {
   const chrome = chromeExecutablePath() ?? null;
   const pptxSvg = pptxSvgDistDir();
+  let pptxSvgVersion: string | null = null;
+  try {
+    const require = createRequire(import.meta.url);
+    pptxSvgVersion = require('pptx-svg/package.json').version ?? null;
+  } catch {
+    pptxSvgVersion = null;
+  }
   return {
     renderer: 'puppeteer-pptx-svg',
     browserAvailable: Boolean(chrome),
     chrome,
     pptxSvg,
+    node: process.version,
+    pptxSvgVersion,
   };
 }
 
@@ -320,12 +367,16 @@ export async function renderPresentationSlides(
   options?: {
     skipIndexes?: Iterable<number>;
     onProgress?: (event: PresentationRenderProgress) => void | Promise<void>;
+    onSlideRendered?: (render: SlideRenderResult) => void | Promise<void>;
+    slideTimeoutMs?: number;
+    hangSlide?: number;
   },
 ): Promise<PresentationRenderResult> {
   const warnings: string[] = [];
   const errors: string[] = [];
   const method = 'puppeteer-pptx-svg' as const;
   const skipIndexes = new Set([...(options?.skipIndexes ?? [])]);
+  const slideTimeoutMs = slideTimeoutForPptx(pptxBuffer.length, options?.slideTimeoutMs);
   const env = describeClassroomRenderer();
 
   classroomRenderLog({
@@ -333,8 +384,11 @@ export async function renderPresentationSlides(
     browserAvailable: env.browserAvailable,
     chrome: env.chrome,
     pptxSvg: env.pptxSvg,
+    pptxSvgVersion: env.pptxSvgVersion,
+    node: env.node,
     pptxBytes: pptxBuffer.length,
     skip: skipIndexes.size,
+    slideTimeoutMs,
   });
 
   if (pptxBuffer.length < 4 || pptxBuffer[0] !== 0x50 || pptxBuffer[1] !== 0x4b) {
@@ -344,7 +398,7 @@ export async function renderPresentationSlides(
       slideCount: 0,
       renders: [],
       warnings,
-      errors: ['Invalid PPTX buffer (missing ZIP signature)'],
+      errors: ['CLASSROOM_RENDER_SOURCE_FAILED: Invalid PPTX buffer (missing ZIP signature)'],
       method,
     };
   }
@@ -397,7 +451,7 @@ export async function renderPresentationSlides(
       headless: true,
       executablePath: env.chrome,
       timeout: 120_000,
-      protocolTimeout: RENDER_TIMEOUT_MS,
+      protocolTimeout: Math.max(slideTimeoutMs + 15_000, 120_000),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -406,39 +460,160 @@ export async function renderPresentationSlides(
         '--disable-software-rasterizer',
       ],
     });
-    classroomRenderLog({ stage: 'browser', status: 'success' });
+    classroomRenderLog({
+      stage: 'browser',
+      status: 'success',
+      chromium: await browser.version().catch(() => 'unknown'),
+    });
 
-    const page = await browser.newPage();
-    page.setDefaultTimeout(RENDER_TIMEOUT_MS);
-    page.setDefaultNavigationTimeout(60_000);
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        const text = msg.text();
-        if (/favicon\.ico/i.test(text)) return;
-        classroomRenderLog({ stage: 'page', status: 'FAILED', reason: text.slice(0, 180) });
+    const setupPage = async () => {
+      const nextPage = await browser!.newPage();
+      nextPage.setDefaultTimeout(slideTimeoutMs + 15_000);
+      nextPage.setDefaultNavigationTimeout(60_000);
+      nextPage.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          const text = msg.text();
+          if (/favicon\.ico|status of 404/i.test(text)) return;
+          classroomRenderLog({ stage: 'page', status: 'FAILED', reason: text.slice(0, 180) });
+        }
+      });
+      nextPage.on('pageerror', (err) => {
+        classroomRenderLog({ stage: 'pageerror', status: 'FAILED', reason: err.message.slice(0, 180) });
+      });
+      await nextPage.goto(`${workspace!.origin}/harness.html`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await nextPage.waitForFunction(() => typeof (window as any).__initClassroomRenderer === 'function', {
+        timeout: 30_000,
+      });
+      if (options?.hangSlide) {
+        await nextPage.evaluate((slide: number) => {
+          (window as any).__hangSlide = slide;
+        }, options.hangSlide);
       }
-    });
-    page.on('pageerror', (err) => {
-      classroomRenderLog({ stage: 'pageerror', status: 'FAILED', reason: err.message.slice(0, 180) });
-    });
+      const init = await nextPage.evaluate(async () => {
+        return await (window as any).__initClassroomRenderer();
+      });
+      classroomRenderLog({ stage: 'harness', status: 'success', slides: Number(init?.slideCount ?? 0) });
+      return { page: nextPage, slideCount: Number(init?.slideCount ?? 0) };
+    };
 
-    await page.goto(`${workspace.origin}/harness.html`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await page.waitForFunction(() => typeof (window as any).__renderAllSlides === 'function', {
-      timeout: 30_000,
-    });
-    classroomRenderLog({ stage: 'harness', status: 'success' });
-
-    const result = await page.evaluate(async (skip: number[]) => {
-      return await (window as any).__renderAllSlides(skip);
-    }, [...skipIndexes]);
-
-    const slideCount = Number(result?.slideCount ?? 0);
-    classroomRenderLog({ slides: slideCount, requested: slideCount - skipIndexes.size });
-
+    let { page, slideCount } = await setupPage();
     if (slideCount === 0) {
       errors.push('Renderer reported zero slides');
       classroomRenderLog({ status: 'FAILED', reason: 'Renderer reported zero slides' });
       return { success: false, slideCount: 0, renders: workspace.renders, warnings, errors: [...errors, ...workspace.errors], method };
+    }
+
+    classroomRenderLog({ slides: slideCount, requested: slideCount - skipIndexes.size });
+
+    for (let index = 0; index < slideCount; index += 1) {
+      if (skipIndexes.has(index)) {
+        classroomRenderLog({ stage: 'slide-complete', slide: index + 1, total: slideCount, skipped: true });
+        continue;
+      }
+      const slide = index + 1;
+      const started = Date.now();
+      classroomRenderLog({ stage: 'slide-start', slide, total: slideCount });
+      classroomRenderLog({ stage: 'renderer-start', slide, total: slideCount });
+      const evaluateSlide = (timeoutMs: number) =>
+        withDeadline(
+          page.evaluate(async (i: number) => {
+            return await (window as any).__renderClassroomSlide(i);
+          }, index),
+          timeoutMs,
+          'CLASSROOM_RENDER_TIMEOUT',
+          `CLASSROOM_RENDER_TIMEOUT slide=${slide}`,
+        );
+      try {
+        let result: { ok?: boolean; error?: string; bytes?: number } | undefined;
+        try {
+          result = await evaluateSlide(slideTimeoutMs);
+        } catch (firstError) {
+          const firstCode =
+            firstError && typeof firstError === 'object' && 'code' in firstError
+              ? String((firstError as { code?: string }).code)
+              : 'CLASSROOM_RENDER_UNKNOWN';
+          classroomRenderLog({
+            stage: 'retry',
+            slide,
+            total: slideCount,
+            code: firstCode,
+            reason: (firstError instanceof Error ? firstError.message : String(firstError)).slice(0, 180),
+          });
+          await page.close().catch(() => undefined);
+          ({ page, slideCount } = await setupPage());
+          result = await evaluateSlide(Math.min(slideTimeoutMs * 2, 300_000));
+        }
+        const elapsedMs = Date.now() - started;
+        classroomRenderLog({
+          stage: 'renderer-complete',
+          slide,
+          total: slideCount,
+          elapsedMs,
+          ok: Boolean(result?.ok),
+        });
+        if (!result?.ok) {
+          const reason = String(result?.error || 'No SVG generated').slice(0, 180);
+          errors.push(`CLASSROOM_RENDER_INVALID_SVG slide=${slide} reason=${reason}`);
+          classroomRenderLog({ stage: 'FAILED', slide, total: slideCount, code: 'CLASSROOM_RENDER_INVALID_SVG', reason, elapsedMs });
+          continue;
+        }
+        const render = workspace.renders.find((item) => item.index === index);
+        if (!render) {
+          errors.push(`CLASSROOM_RENDER_INVALID_SVG slide=${slide} reason=SVG was not written`);
+          classroomRenderLog({ stage: 'FAILED', slide, code: 'CLASSROOM_RENDER_INVALID_SVG', reason: 'SVG was not written' });
+          continue;
+        }
+        classroomRenderLog({ stage: 'svg-generated', slide, total: slideCount, bytes: render.svgLength, elapsedMs });
+        classroomRenderLog({ stage: 'svg-validated', slide, total: slideCount, bytes: render.svgLength });
+        if (options?.onSlideRendered) {
+          try {
+            await options.onSlideRendered(render);
+          } catch (persistError) {
+            const persistCode =
+              persistError && typeof persistError === 'object' && 'code' in persistError
+                ? String((persistError as { code?: string }).code)
+                : 'CLASSROOM_RENDER_B2_UPLOAD_FAILED';
+            const persistMessage = persistError instanceof Error ? persistError.message : String(persistError);
+            errors.push(`${persistCode} slide=${slide} reason=${persistMessage.slice(0, 180)}`);
+            classroomRenderLog({
+              stage: 'FAILED',
+              slide,
+              total: slideCount,
+              code: persistCode,
+              reason: persistMessage.slice(0, 180),
+            });
+            continue;
+          }
+        }
+        classroomRenderLog({ stage: 'slide-complete', slide, total: slideCount, elapsedMs, bytes: render.svgLength });
+      } catch (slideError) {
+        const elapsedMs = Date.now() - started;
+        const code =
+          slideError && typeof slideError === 'object' && 'code' in slideError
+            ? String((slideError as { code?: string }).code)
+            : /timeout/i.test(slideError instanceof Error ? slideError.message : String(slideError))
+              ? 'CLASSROOM_RENDER_TIMEOUT'
+              : 'CLASSROOM_RENDER_UNKNOWN';
+        const reason = slideError instanceof Error ? slideError.message : String(slideError);
+        errors.push(`${code} slide=${slide} reason=${reason.slice(0, 180)}`);
+        classroomRenderLog({
+          stage: 'FAILED',
+          slide,
+          total: slideCount,
+          code,
+          reason: reason.slice(0, 180),
+          elapsedMs,
+        });
+        await page.close().catch(() => undefined);
+        try {
+          ({ page, slideCount } = await setupPage());
+        } catch (reinitError) {
+          const reinitReason = reinitError instanceof Error ? reinitError.message : String(reinitError);
+          errors.push(`CLASSROOM_RENDER_CHROMIUM_ERROR reason=${reinitReason.slice(0, 180)}`);
+          classroomRenderLog({ stage: 'FAILED', code: 'CLASSROOM_RENDER_CHROMIUM_ERROR', reason: reinitReason.slice(0, 180) });
+          break;
+        }
+      }
     }
 
     errors.push(...workspace.errors);
@@ -457,7 +632,7 @@ export async function renderPresentationSlides(
     });
 
     return {
-      success: workspace.renders.length > 0 && errors.length === 0,
+      success: workspace.renders.length === newlyExpected && errors.length === 0,
       slideCount,
       renders: workspace.renders,
       warnings,

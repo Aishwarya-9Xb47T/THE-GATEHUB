@@ -117,6 +117,7 @@ export type SlideRendererProps = {
   repairing?: boolean;
   pipelineStatus?: string;
   slideCount?: number;
+  renderProgressSlide?: number;
 };
 
 type RenderDiagnostic = {
@@ -1555,6 +1556,7 @@ export function SlideRenderer({
   repairing = false,
   pipelineStatus,
   slideCount,
+  renderProgressSlide,
 }: SlideRendererProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const slideCanvasRef = useRef<HTMLDivElement>(null);
@@ -1674,8 +1676,9 @@ export function SlideRenderer({
             }
           }
           const total = slideCount || n;
+          const progress = renderProgressSlide || n;
           throw Object.assign(
-            new Error(total ? `Rendering slide ${n} of ${total}…` : `Rendering slide ${n}…`),
+            new Error(total ? `Rendering slide ${progress} of ${total}…` : `Rendering slide ${progress}…`),
             { code: 'CLASSROOM_RENDERING' },
           );
         }
@@ -1783,7 +1786,7 @@ export function SlideRenderer({
     return () => {
       cancelled = true;
     };
-  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount]);
+  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount, renderProgressSlide]);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {

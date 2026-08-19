@@ -77,6 +77,8 @@ interface Presentation {
   sourceType: string;
   status: string;
   slides: Slide[];
+  renderProgress?: { rendered: number; total: number; currentSlide: number };
+  renderedVisuals?: number;
 }
 
 type SaveState = "saved" | "saving" | "unsaved" | "error";
@@ -234,6 +236,14 @@ export function InteractiveClassroomEditor() {
         return;
       }
       const result = await response.json().catch(() => null);
+      if (result?.code === "CLASSROOM_RENDERING") {
+        toast({
+          title: "Generating slide visuals",
+          description: "Rendering continues in the background. This page will update as each slide finishes.",
+        });
+        await fetchPresentation();
+        return;
+      }
       if (result?.code === "CLASSROOM_RENDER_PARTIAL") {
         toast({
           title: "Some slide visuals could not be generated",
@@ -844,6 +854,7 @@ export function InteractiveClassroomEditor() {
                   repairing={repairingVisuals}
                   pipelineStatus={presentation.status}
                   slideCount={slides.length}
+                  renderProgressSlide={presentation.renderProgress?.currentSlide}
                   onRepair={() => void handleRegenerateVisuals()}
                 />
               </div>
