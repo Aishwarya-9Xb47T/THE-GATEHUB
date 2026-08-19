@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { MulterError } from "multer";
 import { isDatabaseConnectionError as isDbError } from "../utils/waitForDatabase.js";
 import { ContentAnalysisError } from "../services/assessmentStudio/import/importErrors.js";
 
@@ -38,6 +39,17 @@ export function errorHandler(
       success: false,
       error: err.message,
       importError: err.toPayload(),
+    });
+  }
+
+  if (err instanceof MulterError) {
+    const tooLarge = err.code === "LIMIT_FILE_SIZE";
+    return res.status(tooLarge ? 413 : 400).json({
+      success: false,
+      stage: "validation",
+      error: tooLarge
+        ? "PowerPoint files must be 100 MB or smaller. Compress images in the deck, then upload the .pptx again."
+        : err.message || "The file could not be uploaded",
     });
   }
 

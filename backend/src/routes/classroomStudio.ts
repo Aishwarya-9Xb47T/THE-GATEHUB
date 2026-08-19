@@ -10,20 +10,40 @@ import { authenticate } from '../middlewares/auth.js';
 import * as classroomStudioController from '../controllers/classroomStudioController.js';
 
 // Configure multer for file uploads
+const CLASSROOM_PPTX_MAX_BYTES = 100 * 1024 * 1024;
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit
+    fileSize: CLASSROOM_PPTX_MAX_BYTES,
   },
 });
 
 /** Middleware wrapper: only invoke multer for multipart/form-data requests.
  *  This prevents multer from interfering with application/json bodies. */
 const handleUploadMiddleware = (req: any, res: any, next: any) => {
-  if (req.is('multipart/form-data')) {
-    return upload.single('file')(req, res, next);
+  if (!req.is('multipart/form-data')) {
+    next();
+    return;
   }
-  next();
+  upload.single('file')(req, res, (err: any) => {
+    if (!err) {
+      next();
+      return;
+    }
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        stage: 'validation',
+        error: 'PowerPoint files must be 100 MB or smaller. Compress images in the deck, then upload the .pptx again.',
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      stage: 'validation',
+      error: err.message || 'The PowerPoint file could not be uploaded',
+    });
+  });
 };
 
 const router = Router();

@@ -70,44 +70,42 @@ export async function inspectPptxArchive(buffer: Buffer): Promise<PptxArchiveIns
   };
   if (!zipValid) return empty;
 
-  let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(buffer);
+    const zip = await JSZip.loadAsync(buffer);
+    const names = Object.keys(zip.files);
+    const slideNames = names
+      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+      .sort((a, b) => {
+        const na = Number(a.match(/slide(\d+)/i)?.[1] || 0);
+        const nb = Number(b.match(/slide(\d+)/i)?.[1] || 0);
+        return na - nb;
+      });
+
+    const slides: PptxSlideInspection[] = [];
+    for (const name of slideNames.slice(0, 3)) {
+      const xml = await zip.file(name)?.async('string');
+      if (xml) slides.push(inspectSlideXml(name, xml));
+    }
+
+    return {
+      bytes,
+      sha256,
+      zipValid: true,
+      mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      slideCount: slideNames.length,
+      mediaCount: names.filter((name) => name.startsWith('ppt/media/')).length,
+      chartCount: names.filter((name) => name.startsWith('ppt/charts/')).length,
+      embeddingCount: names.filter((name) => name.startsWith('ppt/embeddings/')).length,
+      notesCount: names.filter((name) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/i.test(name)).length,
+      masterCount: names.filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/i.test(name)).length,
+      layoutCount: names.filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/i.test(name)).length,
+      hasTheme: names.some((name) => name.startsWith('ppt/theme/')),
+      hasContentTypes: names.includes('[Content_Types].xml'),
+      slides,
+    };
   } catch {
     return { ...empty, zipValid: false };
   }
-
-  const names = Object.keys(zip.files);
-  const slideNames = names
-    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
-    .sort((a, b) => {
-      const na = Number(a.match(/slide(\d+)/i)?.[1] || 0);
-      const nb = Number(b.match(/slide(\d+)/i)?.[1] || 0);
-      return na - nb;
-    });
-
-  const slides: PptxSlideInspection[] = [];
-  for (const name of slideNames) {
-    const xml = await zip.file(name)?.async('string');
-    if (xml) slides.push(inspectSlideXml(name, xml));
-  }
-
-  return {
-    bytes,
-    sha256,
-    zipValid: true,
-    mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    slideCount: slides.length,
-    mediaCount: names.filter((name) => name.startsWith('ppt/media/')).length,
-    chartCount: names.filter((name) => name.startsWith('ppt/charts/')).length,
-    embeddingCount: names.filter((name) => name.startsWith('ppt/embeddings/')).length,
-    notesCount: names.filter((name) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/i.test(name)).length,
-    masterCount: names.filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/i.test(name)).length,
-    layoutCount: names.filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/i.test(name)).length,
-    hasTheme: names.some((name) => name.startsWith('ppt/theme/')),
-    hasContentTypes: names.includes('[Content_Types].xml'),
-    slides,
-  };
 }
 
 export function formatPptxInspectionLog(label: string, inspection: PptxArchiveInspection): string {

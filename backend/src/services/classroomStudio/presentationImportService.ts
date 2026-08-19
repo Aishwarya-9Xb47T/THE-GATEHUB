@@ -314,17 +314,22 @@ async function persistImportedContent(
     return value;
   };
 
+  const jsonSafe = (value: unknown) =>
+    JSON.parse(JSON.stringify(value, (_key, item) => (item === undefined ? null : item)));
+
   await prisma.slide.createMany({
     data: importResult.slides!.map((slideData, index) => ({
       presentationId,
       order: index + 1,
       title: slideData.title || `Slide ${index + 1}`,
-      content: replaceAssets({
-        ...slideData.content,
-        ...(options.isPptxPipeline
-          ? { visual: buildSlideVisual(presentationId, index, false) }
-          : {}),
-      }),
+      content: jsonSafe(
+        replaceAssets({
+          ...slideData.content,
+          ...(options.isPptxPipeline
+            ? { visual: buildSlideVisual(presentationId, index, false) }
+            : {}),
+        }),
+      ),
       notes: slideData.notes,
     })),
   });
@@ -445,28 +450,35 @@ async function persistImportedContent(
     }),
   }));
 
-  const fidelityResult = validateDeckFidelity({
-    slides: persistedSlides,
-    assetRoot,
-    presentationId,
-    originalPptxPath: options.isPptxPipeline ? path.join(assetRoot, 'source/original.pptx') : undefined,
-    sourceSlideCount,
-  });
-
-  if (!fidelityResult.passed) {
-    console.warn('[Classroom import] Fidelity validation reported issues', {
+  try {
+    const fidelityResult = validateDeckFidelity({
+      slides: persistedSlides,
+      assetRoot,
       presentationId,
-      issueCount: fidelityResult.issues.length,
+      originalPptxPath: options.isPptxPipeline ? path.join(assetRoot, 'source/original.pptx') : undefined,
+      sourceSlideCount,
     });
-    renderWarnings.push(
-      ...fidelityResult.issues
-        .filter((i) => i.severity === 'error')
-        .map((i) => i.message),
-    );
-  }
 
-  if (process.env.LOG_FIDELITY_REPORT === '1') {
-    console.info(formatFidelityReport(fidelityResult));
+    if (!fidelityResult.passed) {
+      console.warn('[Classroom import] Fidelity validation reported issues', {
+        presentationId,
+        issueCount: fidelityResult.issues.length,
+      });
+      renderWarnings.push(
+        ...fidelityResult.issues
+          .filter((i) => i.severity === 'error')
+          .map((i) => i.message),
+      );
+    }
+
+    if (process.env.LOG_FIDELITY_REPORT === '1') {
+      console.info(formatFidelityReport(fidelityResult));
+    }
+  } catch (error) {
+    console.warn('[Classroom import] Fidelity validation skipped', {
+      presentationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   for (const [assetRef, publicUrl] of assetUrls.entries()) {
@@ -477,6 +489,7 @@ async function persistImportedContent(
       renderWarnings.push(`Asset missing before storage: ${relative}`);
       continue;
     }
+    if (options.deferRender) continue;
     const mime = relative.endsWith('.pptx') ? PPTX_MIME : relative.endsWith('.svg') ? SVG_MIME : undefined;
     await persistAtPublicRelative(diskPath, relative, mime, { keepLocal: true });
   }
@@ -559,15 +572,13 @@ export async function importPresentation(
         });
       }
       const sha256 = sha256OfBuffer(sourceFileBuffer);
-      const inspection = await inspectPptxArchive(sourceFileBuffer);
-      console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_A', inspection));
+      await onProgress({ stage: 'upload', percent: 8, message: 'Saving PowerPoint…' });
       console.info('[CLASSROOM_SOURCE]', {
         sourceType: 'pptx-upload',
         originalBytes: sourceFileBuffer.length,
         originalSha256: sha256,
         presentationId: presentation.id,
-        zipValid: inspection.zipValid,
-        slides: inspection.slideCount,
+        zipValid: isValidPptxBuffer(sourceFileBuffer),
       });
       await onProgress({ stage: 'source', percent: 12, message: 'Saving source…' });
       requireDurableClassroomStorage();
@@ -599,15 +610,17 @@ export async function importPresentation(
       const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
       sourceStored = true;
       if (input.sourceType === 'google_slides') {
-        const inspection = await inspectPptxArchive(sourceFileBuffer);
-        console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_B', inspection));
+        const inspection = await inspectPptxArchive(sourceFileBuffer).catch(() => null);
+        if (inspection) {
+          console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_B', inspection));
+        }
         console.info('[CLASSROOM_SOURCE]', {
           sourceType: 'google-slides',
           presentationId: presentation.id,
           pptxBytes: sourceFileBuffer.length,
           sha256: stored.sha256,
-          zipValid: inspection.zipValid,
-          slides: inspection.slideCount,
+          zipValid: inspection?.zipValid,
+          slides: inspection?.slideCount,
           hasDirectPdf: Boolean(resolved.pdfFileBuffer),
           pdfBytes: resolved.pdfFileBuffer?.length,
         });
@@ -770,12 +783,20 @@ export async function importPresentation(
         where: { id: presentation.id },
         data: { status: failedStatus },
       }).catch(() => undefined);
-      if (error instanceof AppError && !error.details?.presentationId) {
+      if (error instanceof AppError) {
         error.details = {
-          ...(error.details || { code: error.details?.code || 'CLASSROOM_IMPORT_FAILED' }),
+          ...(error.details || { code: 'CLASSROOM_IMPORT_FAILED' }),
           code: error.details?.code || 'CLASSROOM_IMPORT_FAILED',
           presentationId: presentation.id,
         };
+      } else {
+        const wrapped = new AppError(
+          500,
+          error instanceof Error ? error.message : 'Failed to import presentation',
+          true,
+          { code: 'CLASSROOM_IMPORT_FAILED', stage: 'import', presentationId: presentation.id },
+        );
+        throw wrapped;
       }
     }
     console.error('[Classroom import] Persistence failed', { presentationId: presentation.id, error });

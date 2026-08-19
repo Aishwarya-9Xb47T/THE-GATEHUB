@@ -252,10 +252,19 @@ export function InteractiveClassroomCreate() {
 
         const payload = result.data || {};
         const id = payload.presentationId ?? payload.id ?? payload.error?.presentationId;
-        const errorMessage =
+        const rawError =
           typeof payload.error === "string"
             ? payload.error
-            : payload.error?.message || (typeof payload.error === "object" && payload.error?.code) || "Failed to import PowerPoint file";
+            : payload.error?.message || payload.error?.code;
+        const errorMessage =
+          rawError ||
+          (result.status === 413
+            ? "This PowerPoint is too large. Use a .pptx smaller than 100 MB."
+            : result.status === 502 || result.status === 504 || result.status === 524
+              ? "The server timed out while importing. Try again; if the file is large, compress images first."
+              : result.status >= 400
+                ? `Import failed (HTTP ${result.status}).`
+                : "Failed to import PowerPoint file");
         const renderFailed =
           payload.code === "CLASSROOM_RENDER_FAILED" ||
           payload.overallStatus === "render_failed" ||
