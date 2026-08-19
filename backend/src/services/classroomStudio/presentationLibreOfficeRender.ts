@@ -136,15 +136,35 @@ async function renderPdfPageToSvg(args: {
   pdftocairo: string | null;
   pdftoppm: string | null;
 }): Promise<{ svg: string; via: 'pdftocairo' | 'pdftoppm-png' }> {
-    const prefix = path.join(args.outputDir, `page-${String(args.page).padStart(3, '0')}`);
-    if (args.pdftocairo) {
+  const prefix = path.join(args.outputDir, `page-${String(args.page).padStart(3, '0')}`);
+  if (args.pdftocairo) {
     const result = await runCommand(
       args.pdftocairo,
-      ['-svg', '-f', String(args.page), '-l', String(args.page), args.pdfPath, `${prefix}.svg`],
+      ['-svg', '-singlefile', '-f', String(args.page), '-l', String(args.page), args.pdfPath, prefix],
       PAGE_RENDER_TIMEOUT_MS,
     );
-    const svgPath = existsSync(`${prefix}.svg`) ? `${prefix}.svg` : prefix;
-    if (result.exitCode === 0 && existsSync(svgPath)) {
+    const candidates = [
+      `${prefix}.svg`,
+      `${prefix}.svg.svg`,
+      `${prefix}-1.svg`,
+      `${prefix}.svg-1.svg`,
+      `${prefix}-${args.page}.svg`,
+      prefix,
+    ];
+    let svgPath = candidates.find((c) => existsSync(c));
+    if (!svgPath) {
+      try {
+        const { readdir } = await import('node:fs/promises');
+        const files = await readdir(args.outputDir);
+        const match = files.find(
+          (f) => f.startsWith(`page-${String(args.page).padStart(3, '0')}`) && f.endsWith('.svg'),
+        );
+        if (match) svgPath = path.join(args.outputDir, match);
+      } catch {
+        /* ignore readdir failure */
+      }
+    }
+    if (result.exitCode === 0 && svgPath && existsSync(svgPath)) {
       const svg = await readFile(svgPath, 'utf8');
       if (isValidRenderedSvg(svg)) {
         return { svg, via: 'pdftocairo' };
@@ -157,15 +177,31 @@ async function renderPdfPageToSvg(args: {
   const pngPrefix = `${prefix}-png`;
   const pngResult = await runCommand(
     args.pdftoppm,
-    ['-png', '-r', '144', '-f', String(args.page), '-l', String(args.page), args.pdfPath, pngPrefix],
+    ['-png', '-singlefile', '-r', '144', '-f', String(args.page), '-l', String(args.page), args.pdfPath, pngPrefix],
     PAGE_RENDER_TIMEOUT_MS,
   );
-  const pngPath = existsSync(`${pngPrefix}-${args.page}.png`)
-    ? `${pngPrefix}-${args.page}.png`
-    : existsSync(`${pngPrefix}-1.png`)
-      ? `${pngPrefix}-1.png`
-      : `${pngPrefix}.png`;
-  if (pngResult.exitCode !== 0 || !existsSync(pngPath)) {
+  const pngCandidates = [
+    `${pngPrefix}.png`,
+    `${pngPrefix}-${args.page}.png`,
+    `${pngPrefix}-1.png`,
+    `${pngPrefix}-01.png`,
+    `${pngPrefix}-000001.png`,
+    pngPrefix,
+  ];
+  let pngPath = pngCandidates.find((c) => existsSync(c));
+  if (!pngPath) {
+    try {
+      const { readdir } = await import('node:fs/promises');
+      const files = await readdir(args.outputDir);
+      const match = files.find(
+        (f) => f.startsWith(`page-${String(args.page).padStart(3, '0')}`) && f.endsWith('.png'),
+      );
+      if (match) pngPath = path.join(args.outputDir, match);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (pngResult.exitCode !== 0 || !pngPath || !existsSync(pngPath)) {
     throw new Error(
       `CLASSROOM_RENDER_SLIDE_FAILED pdftoppm failed page=${args.page} exit=${pngResult.exitCode} ${pngResult.stderr.slice(0, 160)}`,
     );
@@ -267,7 +303,17 @@ export async function renderPresentationSlidesLibreOffice(
     });
     return { success: false, slideCount: 0, renders: [], warnings, errors: [message], method };
   }
-  const pdfPath = path.join(workDir, 'source.pdf');
+  let pdfPath = path.join(workDir, 'source.pdf');
+  if (!existsSync(pdfPath)) {
+    try {
+      const { readdir } = await import('node:fs/promises');
+      const files = await readdir(workDir);
+      const match = files.find((f) => f.endsWith('.pdf'));
+      if (match) pdfPath = path.join(workDir, match);
+    } catch {
+      /* ignore */
+    }
+  }
   if ((convert.exitCode !== 0 || !existsSync(pdfPath)) && existsSync(pptxPath)) {
     convert = await withDeadline(
       runCommand(tools.soffice, convertArgs('pdf'), PDF_CONVERT_TIMEOUT_MS, {
@@ -278,6 +324,16 @@ export async function renderPresentationSlidesLibreOffice(
       'CLASSROOM_RENDER_TIMEOUT',
       'CLASSROOM_RENDER_TIMEOUT stage=LIBREOFFICE_CONVERT',
     );
+    if (!existsSync(pdfPath)) {
+      try {
+        const { readdir } = await import('node:fs/promises');
+        const files = await readdir(workDir);
+        const match = files.find((f) => f.endsWith('.pdf'));
+        if (match) pdfPath = path.join(workDir, match);
+      } catch {
+        /* ignore */
+      }
+    }
   }
   if (convert.exitCode !== 0 || !existsSync(pdfPath)) {
     const message = `LibreOffice PDF export failed exit=${convert.exitCode} ${convert.stderr.slice(0, 180)}`;

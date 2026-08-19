@@ -91,8 +91,25 @@ export async function getPresentationById(
     return visual?.availability === 'failed' || visual?.errorCode;
   });
   const failedVisual = (failedSlide?.content as { visual?: { errorCode?: string; errorMessage?: string } } | null)?.visual;
+
+  let status = presentation.status;
+  if (status === 'rendering') {
+    const { isExclusiveVisualRenderRunning, regeneratePresentationVisuals } = await import('./presentationVisualRepairService.js');
+    if (renderProgress.rendered === slides.length && slides.length > 0) {
+      status = 'ready';
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: 'ready' },
+      }).catch(() => undefined);
+    } else if (!isExclusiveVisualRenderRunning(presentation.id)) {
+      // Background render is not actively running (e.g. server restarted or previous job died)
+      void regeneratePresentationVisuals(presentation.id, presentation.instructorId, 'INSTRUCTOR').catch(() => undefined);
+    }
+  }
+
   return {
     ...presentation,
+    status,
     slides,
     renderProgress,
     renderedVisuals: renderProgress.rendered,

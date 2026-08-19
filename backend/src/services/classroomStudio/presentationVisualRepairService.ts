@@ -65,6 +65,10 @@ function withVisual(
 
 const inflightVisualRenders = new Map<string, Promise<unknown>>();
 
+export function isExclusiveVisualRenderRunning(presentationId: string): boolean {
+  return inflightVisualRenders.has(presentationId);
+}
+
 export function startExclusiveVisualRender(
   presentationId: string,
   work: () => Promise<unknown>,
