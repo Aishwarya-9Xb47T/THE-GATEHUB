@@ -32,10 +32,18 @@ const handleUploadMiddleware = (req: any, res: any, next: any) => {
       return;
     }
     if (err.code === 'LIMIT_FILE_SIZE') {
+      const actualBytes = Number(req.headers['content-length'] || 0) || undefined;
+      console.warn('[CLASSROOM_SOURCE] fileBytes=' + (actualBytes ?? 'unknown') + ' maxBytes=' + CLASSROOM_PPTX_MAX_BYTES);
       return res.status(413).json({
         success: false,
         stage: 'validation',
-        error: 'PowerPoint files must be 100 MB or smaller. Compress images in the deck, then upload the .pptx again.',
+        code: 'CLASSROOM_PPTX_TOO_LARGE',
+        maxBytes: CLASSROOM_PPTX_MAX_BYTES,
+        actualBytes,
+        error: {
+          code: 'CLASSROOM_PPTX_TOO_LARGE',
+          message: `PowerPoint files must be 100 MB or smaller (maxBytes=${CLASSROOM_PPTX_MAX_BYTES}${actualBytes ? ` actualBytes=${actualBytes}` : ''}). Compress images in the deck, then upload the .pptx again.`,
+        },
       });
     }
     return res.status(400).json({

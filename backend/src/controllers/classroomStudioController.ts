@@ -1076,6 +1076,7 @@ export async function importPresentation(req: Request, res: Response, next: Next
             failedSlideNumbers: details.failedSlideNumbers,
             sourceKey: details.sourceKey,
             method: details.method,
+            reason: details.reason,
           }
         : error.message || 'Failed to import presentation',
       slideNumber: error.slideNumber,

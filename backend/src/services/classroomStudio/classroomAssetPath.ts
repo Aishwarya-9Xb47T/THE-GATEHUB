@@ -21,6 +21,11 @@ export function canonicalSourceRelative(presentationId: string): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_SOURCE_REST}`;
 }
 
+/** Canonical B2 object key for the uploaded original PPTX. */
+export function getClassroomSourceKey(presentationId: string): string {
+  return `uploads/${canonicalSourceRelative(presentationId)}`;
+}
+
 export function canonicalExportPdfRelative(presentationId: string): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_EXPORT_PDF_REST}`;
 }

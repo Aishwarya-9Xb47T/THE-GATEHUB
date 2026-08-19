@@ -178,7 +178,11 @@ export function InteractiveClassroomCreate() {
           return;
         }
 
-        throw new Error(data.error || "Failed to import Google Slides presentation");
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.message || data.error?.code || "Failed to import Google Slides presentation",
+        );
       }
 
       if (sourceType === "powerpoint" && file) {
@@ -255,10 +259,12 @@ export function InteractiveClassroomCreate() {
         const rawError =
           typeof payload.error === "string"
             ? payload.error
-            : payload.error?.message || payload.error?.code;
+            : payload.error?.message || payload.error?.reason || payload.error?.code;
         const errorMessage =
-          rawError ||
-          (result.status === 413
+          (payload.error?.code && rawError && !String(rawError).includes(payload.error.code)
+            ? `${payload.error.code}: ${rawError}`
+            : rawError) ||
+          (result.status === 413 || payload.code === "CLASSROOM_PPTX_TOO_LARGE"
             ? "This PowerPoint is too large. Use a .pptx smaller than 100 MB."
             : result.status === 502 || result.status === 504 || result.status === 524
               ? "The server timed out while importing. Try again; if the file is large, compress images first."

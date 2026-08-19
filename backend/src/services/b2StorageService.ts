@@ -2,7 +2,7 @@
  * Backblaze B2 via S3-compatible API.
  * Credentials come only from environment variables — never hard-code secrets.
  */
-import { createReadStream, createWriteStream } from "fs";
+import { createReadStream, createWriteStream, statSync } from "fs";
 import { unlink } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -53,6 +53,32 @@ export function isB2Configured(): boolean {
       process.env.B2_ENDPOINT?.trim() &&
       process.env.B2_REGION?.trim()
   );
+}
+
+/** Safe production log — never includes keys/secrets. */
+export function describeB2ConfigSafe(): {
+  configured: boolean;
+  bucket: string | null;
+  endpoint: string | null;
+  region: string | null;
+  prefix: string;
+} {
+  return {
+    configured: isB2Configured(),
+    bucket: process.env.B2_BUCKET_NAME?.trim() || null,
+    endpoint: process.env.B2_ENDPOINT?.trim() || null,
+    region: process.env.B2_REGION?.trim() || null,
+    prefix: "uploads/classroom/",
+  };
+}
+
+function httpStatusOf(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  return (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function requireBucket(): string {
@@ -177,12 +203,13 @@ export async function uploadFile(params: {
   filePath: string;
   key: string;
   contentType?: string;
-}): Promise<void> {
+}): Promise<{ etag?: string; bytes: number }> {
   const client = getClient();
   const bucket = requireBucket();
   const contentType = params.contentType || detectContentType(params.key);
+  const bytes = statSync(params.filePath).size;
   const body = createReadStream(params.filePath);
-  console.log("[MEDIA_B2] upload_start key=" + params.key);
+  console.log("[MEDIA_B2] upload_start key=" + params.key + " bytes=" + bytes + " mime=" + contentType);
   try {
     const upload = new Upload({
       client,
@@ -191,13 +218,61 @@ export async function uploadFile(params: {
         Key: params.key,
         Body: body,
         ContentType: contentType,
+        ContentLength: bytes,
       },
       queueSize: 3,
       partSize: MULTIPART_THRESHOLD_BYTES,
       leavePartsOnError: false,
     });
-    await upload.done();
-    console.log("[MEDIA_B2] upload_complete key=" + params.key);
+    const done = await upload.done();
+    console.log("[MEDIA_B2] upload_complete key=" + params.key + " bytes=" + bytes + " etag=" + (done.ETag || ""));
+    return { etag: done.ETag, bytes };
+  } catch (err) {
+    console.error("[MEDIA_B2] upload_failed key=" + params.key + " message=" + (err instanceof Error ? err.message : "unknown"));
+    throw err;
+  }
+}
+
+export async function uploadBuffer(params: {
+  body: Buffer;
+  key: string;
+  contentType?: string;
+}): Promise<{ etag?: string; bytes: number }> {
+  const client = getClient();
+  const bucket = requireBucket();
+  const contentType = params.contentType || detectContentType(params.key);
+  const bytes = params.body.length;
+  console.log("[MEDIA_B2] upload_start key=" + params.key + " bytes=" + bytes + " mime=" + contentType);
+  try {
+    if (bytes <= MULTIPART_THRESHOLD_BYTES) {
+      const out = await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: params.key,
+          Body: params.body,
+          ContentType: contentType,
+          ContentLength: bytes,
+        }),
+      );
+      console.log("[MEDIA_B2] upload_complete key=" + params.key + " bytes=" + bytes + " etag=" + (out.ETag || ""));
+      return { etag: out.ETag, bytes };
+    }
+    const upload = new Upload({
+      client,
+      params: {
+        Bucket: bucket,
+        Key: params.key,
+        Body: params.body,
+        ContentType: contentType,
+        ContentLength: bytes,
+      },
+      queueSize: 3,
+      partSize: MULTIPART_THRESHOLD_BYTES,
+      leavePartsOnError: false,
+    });
+    const done = await upload.done();
+    console.log("[MEDIA_B2] upload_complete key=" + params.key + " bytes=" + bytes + " etag=" + (done.ETag || ""));
+    return { etag: done.ETag, bytes };
   } catch (err) {
     console.error("[MEDIA_B2] upload_failed key=" + params.key + " message=" + (err instanceof Error ? err.message : "unknown"));
     throw err;
@@ -297,7 +372,7 @@ export async function deleteObject(key: string): Promise<void> {
   );
 }
 
-export async function headObject(key: string): Promise<{ contentType?: string; contentLength?: number } | null> {
+export async function headObject(key: string): Promise<{ contentType?: string; contentLength?: number; etag?: string } | null> {
   if (!isB2Configured()) return null;
   try {
     const out = await getClient().send(
@@ -306,10 +381,54 @@ export async function headObject(key: string): Promise<{ contentType?: string; c
         Key: key,
       })
     );
-    return { contentType: out.ContentType, contentLength: out.ContentLength };
-  } catch {
+    return { contentType: out.ContentType, contentLength: out.ContentLength, etag: out.ETag };
+  } catch (err) {
+    const status = httpStatusOf(err);
+    const message = err instanceof Error ? err.message : String(err);
+    if (status === 404 || isMissingObjectError(err)) {
+      return null;
+    }
+    console.error("[MEDIA_B2] head_error key=" + key + " status=" + (status ?? "unknown") + " message=" + message);
     return null;
   }
+}
+
+export async function headObjectWithRetry(
+  key: string,
+  attempts = 3,
+): Promise<{
+  meta: { contentType?: string; contentLength?: number; etag?: string } | null;
+  status?: number;
+  error?: string;
+}> {
+  let lastStatus: number | undefined;
+  let lastError: string | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const out = await getClient().send(
+        new HeadObjectCommand({
+          Bucket: requireBucket(),
+          Key: key,
+        }),
+      );
+      return {
+        meta: { contentType: out.ContentType, contentLength: out.ContentLength, etag: out.ETag },
+        status: out.$metadata?.httpStatusCode,
+      };
+    } catch (err) {
+      lastStatus = httpStatusOf(err);
+      lastError = err instanceof Error ? err.message : String(err);
+      const missing = lastStatus === 404 || isMissingObjectError(err);
+      console.warn("[MEDIA_B2] head_retry key=" + key + " attempt=" + attempt + " status=" + (lastStatus ?? "unknown") + " message=" + lastError);
+      if (!missing) {
+        return { meta: null, status: lastStatus, error: lastError };
+      }
+      if (attempt < attempts) {
+        await sleep(attempt === 1 ? 500 : 1000);
+      }
+    }
+  }
+  return { meta: null, status: lastStatus, error: lastError };
 }
 
 export async function downloadObjectToBuffer(key: string): Promise<Buffer> {

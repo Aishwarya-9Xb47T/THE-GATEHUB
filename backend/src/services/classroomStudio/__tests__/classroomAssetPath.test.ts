@@ -6,6 +6,7 @@ import {
   computeClassroomRenderProgress,
   slideVisualIsReady,
   canonicalSlideSvgRelative,
+  getClassroomSourceKey,
   canonicalSourceRelative,
   canonicalExportPdfRelative,
   parseClassroomAssetFilename,
@@ -21,6 +22,7 @@ describe("classroomAssetPath", () => {
   });
 
   it("uses canonical classroom keys for PPTX and SVG", () => {
+    expect(getClassroomSourceKey("pres-1")).toBe("uploads/classroom/pres-1/source/original.pptx");
     expect(canonicalSourceRelative("pres-1")).toBe("classroom/pres-1/source/original.pptx");
     expect(canonicalExportPdfRelative("pres-1")).toBe("classroom/pres-1/source/export.pdf");
     expect(canonicalSlideSvgRelative("pres-1", 2)).toBe("classroom/pres-1/renders/slide-002.svg");

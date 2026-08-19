@@ -9,9 +9,12 @@ import { persistAtPublicRelative, hydrateLocalUpload } from "../../middlewares/p
 import { resolveSafeUploadPath } from "../../middlewares/uploadAccess.js";
 import {
   downloadObjectToBuffer,
+  describeB2ConfigSafe,
   headObject,
+  headObjectWithRetry,
   isB2Configured,
   b2KeyFromPublicPath,
+  uploadBuffer,
 } from "../b2StorageService.js";
 import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
 import {
@@ -21,6 +24,7 @@ import {
   canonicalExportPdfRelative,
   canonicalPublicPath,
   canonicalSourceRelative,
+  getClassroomSourceKey,
 } from "./classroomAssetPath.js";
 
 export type ResolvedPresentationSource = {
@@ -77,7 +81,7 @@ function keysForRelative(relative: string): string[] {
 export function requireDurableClassroomStorage(): void {
   if (process.env.NODE_ENV === "production" && !isB2Configured()) {
     throw new AppError(500, "Classroom media storage is not configured", true, {
-      code: "CLASSROOM_STORAGE_NOT_CONFIGURED",
+      code: "CLASSROOM_B2_NOT_CONFIGURED",
       stage: "storage",
     });
   }
@@ -87,34 +91,55 @@ export function sha256OfBuffer(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
-export async function persistPptxBuffer(presentationId: string, buffer: Buffer): Promise<{ relative: string; bytes: number; sha256: string }> {
+export function persistPptxBuffer(presentationId: string, buffer: Buffer): Promise<{ relative: string; bytes: number; sha256: string }> {
+  return storeClassroomSourcePptx(presentationId, buffer);
+}
+
+export async function storeClassroomSourcePptx(presentationId: string, buffer: Buffer): Promise<{ relative: string; bytes: number; sha256: string }> {
   if (!isValidPptxBuffer(buffer)) {
     throw new AppError(422, "PowerPoint source file is not a valid PPTX", true, {
       code: "CLASSROOM_PPTX_INVALID",
       stage: "validation",
     });
   }
+  const maxBytes = 100 * 1024 * 1024;
+  if (buffer.length > maxBytes) {
+    console.warn("[CLASSROOM_SOURCE] fileBytes=" + buffer.length + " maxBytes=" + maxBytes);
+    throw new AppError(413, `PowerPoint files must be 100 MB or smaller (maxBytes=${maxBytes} actualBytes=${buffer.length})`, true, {
+      code: "CLASSROOM_PPTX_TOO_LARGE",
+      stage: "validation",
+    });
+  }
   requireDurableClassroomStorage();
   const relative = canonicalSourceRelative(presentationId);
+  const key = getClassroomSourceKey(presentationId);
   const sha256 = sha256OfBuffer(buffer);
+  const b2 = describeB2ConfigSafe();
   console.info("[CLASSROOM_SOURCE]", {
     presentationId,
     bytes: buffer.length,
     sha256,
+    pptxValid: true,
+    key,
+  });
+  console.info("[CLASSROOM_B2]", {
+    stage: "config",
+    configured: b2.configured,
+    bucket: b2.bucket,
+    endpoint: b2.endpoint,
+    region: b2.region,
+    prefix: b2.prefix,
   });
   if (isB2Configured()) {
-    for (const key of [`uploads/${relative}`, relative]) {
-      const existing = await headObject(key);
-      if (
-        existing?.contentLength
-        && existing.contentLength === buffer.length
-        && isCompatiblePptxContentType(existing.contentType ?? null)
-      ) {
+    for (const candidate of [key, relative]) {
+      const existing = await headObject(candidate);
+      if (existing?.contentLength && existing.contentLength === buffer.length) {
         console.info("[CLASSROOM_SOURCE] reuse_existing", {
           presentationId,
-          key,
+          key: candidate,
           bytes: existing.contentLength,
           sha256,
+          contentType: existing.contentType,
         });
         return { relative, bytes: existing.contentLength, sha256 };
       }
@@ -132,33 +157,46 @@ export async function persistPptxBuffer(presentationId: string, buffer: Buffer):
     await writeFile(dest, buffer);
     return { relative, bytes: buffer.length, sha256 };
   }
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-"));
-  const tmpPath = path.join(tmpDir, "original.pptx");
-  await writeFile(tmpPath, buffer);
-  await persistAtPublicRelative(tmpPath, relative, PPTX_MIME, { keepLocal: false });
-  if (isB2Configured()) {
-    const meta = await headObject(`uploads/${relative}`);
-    if (!meta || !(meta.contentLength && meta.contentLength > 0)) {
-      throw new AppError(500, "PowerPoint source file was not stored", true, {
-        code: "CLASSROOM_SOURCE_UPLOAD_FAILED",
-        stage: "source-upload",
-      });
-    }
-    if (!isCompatiblePptxContentType(meta.contentType ?? null)) {
-      console.warn("[CLASSROOM_SOURCE] unexpected_content_type", {
-        presentationId,
-        contentType: meta.contentType,
-      });
-    }
-    if (meta.contentLength !== buffer.length) {
-      throw new AppError(500, "PowerPoint source SHA/size mismatch after B2 upload", true, {
-        code: "CLASSROOM_SOURCE_UPLOAD_FAILED",
-        stage: "source-upload",
-      });
-    }
-    return { relative, bytes: meta.contentLength, sha256 };
+  console.info("[CLASSROOM_B2] stage=upload-start presentationId=" + presentationId + " key=" + key + " bytes=" + buffer.length + " mime=" + PPTX_MIME);
+  let uploaded: { etag?: string; bytes: number };
+  try {
+    uploaded = await uploadBuffer({ body: buffer, key, contentType: PPTX_MIME });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[CLASSROOM_B2] stage=upload-failed key=" + key + " error=" + message);
+    const tooLarge = /too large|entitytoo large|maxpostsize|request too long|payload too large/i.test(message);
+    throw new AppError(tooLarge ? 413 : 500, `B2 upload failed: ${message}`, true, {
+      code: tooLarge ? "CLASSROOM_B2_SIZE_LIMIT" : "CLASSROOM_B2_UPLOAD_FAILED",
+      stage: "source-upload",
+      presentationId,
+      sourceKey: key,
+    });
   }
-  return { relative, bytes: buffer.length, sha256 };
+  console.info("[CLASSROOM_B2] stage=upload-complete key=" + key + " uploadedBytes=" + uploaded.bytes + " etag=" + (uploaded.etag || ""));
+  console.info("[CLASSROOM_B2] stage=verify-start key=" + key);
+  const verified = await headObjectWithRetry(key);
+  const meta = verified.meta;
+  const actualBytes = Number(meta?.contentLength);
+  console.info("[CLASSROOM_B2] stage=verify-result exists=" + Boolean(meta) + " contentLength=" + (Number.isFinite(actualBytes) ? actualBytes : "missing") + " contentType=" + (meta?.contentType || "") + " etag=" + (meta?.etag || ""));
+  if (!meta || !Number.isFinite(actualBytes) || actualBytes !== buffer.length) {
+    const actual = Number.isFinite(actualBytes) ? actualBytes : "missing";
+    const detail = `object was uploaded but verification returned contentLength=${actual} expectedBytes=${buffer.length} key=${key} status=${verified.status ?? "unknown"} ${verified.error || ""}`.trim();
+    console.error("[CLASSROOM_B2] stage=verify-failed key=" + key + " expectedBytes=" + buffer.length + " actualBytes=" + actual + " expectedMime=" + PPTX_MIME + " actualMime=" + (meta?.contentType || "") + " error=" + (verified.error || "HEAD mismatch"));
+    throw new AppError(500, `B2 upload verification failed: ${detail}`, true, {
+      code: "CLASSROOM_B2_VERIFY_FAILED",
+      stage: "source-upload",
+      presentationId,
+      reason: detail,
+      sourceKey: key,
+    });
+  }
+  if (meta.contentType && !isCompatiblePptxContentType(meta.contentType)) {
+    console.warn("[CLASSROOM_SOURCE] unexpected_content_type", {
+      presentationId,
+      contentType: meta.contentType,
+    });
+  }
+  return { relative, bytes: actualBytes, sha256 };
 }
 
 export async function resolvePresentationSource(presentationId: string): Promise<ResolvedPresentationSource | MissingPresentationSource> {

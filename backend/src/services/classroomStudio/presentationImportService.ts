@@ -774,7 +774,12 @@ export async function importPresentation(
     } else {
       const code = error instanceof AppError ? error.details?.code : undefined;
       const failedStatus =
-        code === 'CLASSROOM_SOURCE_UPLOAD_FAILED' || code === 'CLASSROOM_STORAGE_NOT_CONFIGURED'
+        code === 'CLASSROOM_SOURCE_UPLOAD_FAILED'
+        || code === 'CLASSROOM_STORAGE_NOT_CONFIGURED'
+        || code === 'CLASSROOM_B2_NOT_CONFIGURED'
+        || code === 'CLASSROOM_B2_UPLOAD_FAILED'
+        || code === 'CLASSROOM_B2_VERIFY_FAILED'
+        || code === 'CLASSROOM_B2_SIZE_LIMIT'
           ? 'source_failed'
           : code === 'CLASSROOM_RENDER_FAILED'
             ? 'render_failed'
