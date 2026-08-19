@@ -268,25 +268,29 @@ export async function renderPresentationSlidesLibreOffice(
     await writeFile(pdfPath, options.pdfBuffer);
     log({ stage: 'DIRECT_PDF_LOADED', status: 'success', bytes: options.pdfBuffer.length });
   } else {
+    const crypto = await import('node:crypto');
+    const sha256 = crypto.createHash('sha256').update(pptxBuffer).digest('hex');
     const pptxPath = path.join(workDir, 'source.pptx');
     await writeFile(pptxPath, pptxBuffer);
-    log({ stage: 'PPTX_SOURCE_LOADED', status: 'success', bytes: pptxBuffer.length, soffice: tools.soffice });
-    log({ stage: 'PPTX_VALIDATED', status: 'success', bytes: pptxBuffer.length });
+    log({ stage: 'PPTX_SOURCE_LOADED', status: 'success', bytes: pptxBuffer.length, sha256, soffice: tools.soffice });
+    log({ stage: 'PPTX_VALIDATED', status: 'success', bytes: pptxBuffer.length, sha256 });
 
     const convertStarted = Date.now();
-    log({ stage: 'LIBREOFFICE_CONVERT_START', status: 'start' });
-  const convertArgs = (filter: string) => [
-    '--headless',
-    '--norestore',
-    '--nolockcheck',
-    '--nodefault',
-    '--nofirststartwizard',
-    '--convert-to',
-    filter,
-    '--outdir',
-    workDir,
-    pptxPath,
-  ];
+    log({ stage: 'LIBREOFFICE_CONVERT_START', status: 'start', sha256 });
+    const profileDir = path.join(workDir, 'lo_profile').replace(/\\/g, '/');
+    const convertArgs = (filter: string) => [
+      `--env:UserInstallation=file://${profileDir}`,
+      '--headless',
+      '--norestore',
+      '--nolockcheck',
+      '--nodefault',
+      '--nofirststartwizard',
+      '--convert-to',
+      filter,
+      '--outdir',
+      workDir,
+      pptxPath,
+    ];
   const sofficeEnv = { ...process.env, HOME: workDir, SAL_USE_VCLPLUGIN: 'svp' };
   let convert: { stdout: string; stderr: string; exitCode: number };
   try {

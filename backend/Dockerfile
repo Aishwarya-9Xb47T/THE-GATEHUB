@@ -61,9 +61,18 @@ RUN apt-get update \
     texlive-pictures \
     chromium \
     fonts-liberation \
+    fonts-liberation2 \
     fonts-dejavu-core \
     fonts-noto-core \
+    fonts-noto-extra \
+    fonts-opensymbol \
+    fonts-stix \
+    fonts-mathjax \
+    fonts-texgyre \
+    fonts-freefont-ttf \
     libreoffice-impress \
+    libreoffice-math \
+    libreoffice-draw \
     poppler-utils \
   && rm -rf /var/lib/apt/lists/* \
   && test -x /usr/bin/pdflatex \

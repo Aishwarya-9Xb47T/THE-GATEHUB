@@ -555,6 +555,14 @@ export async function importPresentation(
           stage: 'validation',
         });
       }
+      const crypto = await import('node:crypto');
+      const sha256 = crypto.createHash('sha256').update(sourceFileBuffer).digest('hex');
+      console.info('[CLASSROOM_SOURCE]', {
+        sourceType: 'pptx-upload',
+        originalBytes: sourceFileBuffer.length,
+        originalSha256: sha256,
+        presentationId: presentation.id,
+      });
       await onProgress({ stage: 'source', percent: 12, message: 'Saving source…' });
       requireDurableClassroomStorage();
       const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
