@@ -22,8 +22,9 @@ describe("presentation ownership", () => {
 });
 
 describe("failed import status", () => {
-  it("keeps a failed source upload as source_failed, not deleted/not-found", () => {
-    expect(failedImportStatus({ sourceStored: false })).toBe("source_failed");
+  it("keeps a failed source upload as import_failed, not deleted/not-found", () => {
+    expect(failedImportStatus({ sourceStored: false })).toBe("import_failed");
+    expect(failedImportStatus({ sourceStored: false, code: "CLASSROOM_B2_VERIFY_FAILED" })).toBe("import_failed");
   });
 
   it("keeps a render failure as render_failed so the editor can still open", () => {

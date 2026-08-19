@@ -30,7 +30,7 @@ describe("parseClassroomImportNdjson", () => {
     const payload = parseClassroomImportNdjson(text);
     expect(payload.success).toBe(false);
     expect(classroomImportPresentationId(payload)).toBeNull();
-    expect(classroomImportErrorMessage(payload)).toContain("CLASSROOM_B2_VERIFY_FAILED");
+    expect(classroomImportErrorMessage(payload)).toBe("PowerPoint upload verification failed. Please retry.");
   });
 
   it("does not navigate using payload.id from an unrelated object", () => {

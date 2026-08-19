@@ -100,6 +100,9 @@ function getClient(): S3Client {
       secretAccessKey: process.env.B2_APPLICATION_KEY!.trim(),
     },
     forcePathStyle: true,
+    // AWS SDK v3 defaults to sending checksums B2 does not fully honor (wrong/missing HEAD sizes, 400s).
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return cachedClient;
 }
@@ -238,41 +241,33 @@ export async function uploadBuffer(params: {
   key: string;
   contentType?: string;
 }): Promise<{ etag?: string; bytes: number }> {
+  return uploadExactBuffer(params);
+}
+
+/** Single PutObject. Do not multipart classroom PPTX — B2 HEAD after multipart often omits/wrong ContentLength. */
+export async function uploadExactBuffer(params: {
+  body: Buffer;
+  key: string;
+  contentType?: string;
+}): Promise<{ etag?: string; bytes: number }> {
   const client = getClient();
   const bucket = requireBucket();
   const contentType = params.contentType || detectContentType(params.key);
-  const bytes = params.body.length;
-  console.log("[MEDIA_B2] upload_start key=" + params.key + " bytes=" + bytes + " mime=" + contentType);
+  const body = Buffer.from(params.body);
+  const bytes = body.length;
+  console.log("[MEDIA_B2] upload_start key=" + params.key + " bytes=" + bytes + " mime=" + contentType + " method=PutObject");
   try {
-    if (bytes <= MULTIPART_THRESHOLD_BYTES) {
-      const out = await client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: params.key,
-          Body: params.body,
-          ContentType: contentType,
-          ContentLength: bytes,
-        }),
-      );
-      console.log("[MEDIA_B2] upload_complete key=" + params.key + " bytes=" + bytes + " etag=" + (out.ETag || ""));
-      return { etag: out.ETag, bytes };
-    }
-    const upload = new Upload({
-      client,
-      params: {
+    const out = await client.send(
+      new PutObjectCommand({
         Bucket: bucket,
         Key: params.key,
-        Body: params.body,
+        Body: body,
         ContentType: contentType,
         ContentLength: bytes,
-      },
-      queueSize: 3,
-      partSize: MULTIPART_THRESHOLD_BYTES,
-      leavePartsOnError: false,
-    });
-    const done = await upload.done();
-    console.log("[MEDIA_B2] upload_complete key=" + params.key + " bytes=" + bytes + " etag=" + (done.ETag || ""));
-    return { etag: done.ETag, bytes };
+      }),
+    );
+    console.log("[MEDIA_B2] upload_complete key=" + params.key + " bytes=" + bytes + " etag=" + (out.ETag || "") + " method=PutObject");
+    return { etag: out.ETag, bytes };
   } catch (err) {
     console.error("[MEDIA_B2] upload_failed key=" + params.key + " message=" + (err instanceof Error ? err.message : "unknown"));
     throw err;
@@ -395,7 +390,7 @@ export async function headObject(key: string): Promise<{ contentType?: string; c
 
 export async function headObjectWithRetry(
   key: string,
-  attempts = 3,
+  attempts = 4,
 ): Promise<{
   meta: { contentType?: string; contentLength?: number; etag?: string } | null;
   status?: number;
@@ -403,7 +398,11 @@ export async function headObjectWithRetry(
 }> {
   let lastStatus: number | undefined;
   let lastError: string | undefined;
+  const waits = [0, 500, 1000, 2000];
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleep(waits[Math.min(attempt - 1, waits.length - 1)] || 2000);
+    }
     try {
       const out = await getClient().send(
         new HeadObjectCommand({
@@ -423,12 +422,96 @@ export async function headObjectWithRetry(
       if (!missing) {
         return { meta: null, status: lastStatus, error: lastError };
       }
-      if (attempt < attempts) {
-        await sleep(attempt === 1 ? 500 : 1000);
-      }
     }
   }
   return { meta: null, status: lastStatus, error: lastError };
+}
+
+export function parseContentRangeTotal(contentRange?: string | null): number | undefined {
+  if (!contentRange) return undefined;
+  const match = String(contentRange).match(/\/(\d+)\s*$/);
+  if (!match) return undefined;
+  const total = Number(match[1]);
+  return Number.isFinite(total) && total >= 0 ? total : undefined;
+}
+
+async function drainStream(body: NodeJS.ReadableStream): Promise<void> {
+  for await (const _chunk of body as AsyncIterable<unknown>) {
+    /* discard */
+  }
+}
+
+/** B2 HeadObject often omits ContentLength. Fall back to ListObjects Size, then a 1-byte Range GET. */
+export async function statObjectBytes(key: string): Promise<{
+  bytes?: number;
+  etag?: string;
+  contentType?: string;
+  status?: number;
+  source: "head" | "list" | "range" | "missing";
+  error?: string;
+}> {
+  const head = await headObjectWithRetry(key);
+  const headLen = Number(head.meta?.contentLength);
+  if (head.meta && Number.isFinite(headLen) && headLen > 0) {
+    return {
+      bytes: headLen,
+      etag: head.meta.etag,
+      contentType: head.meta.contentType,
+      status: head.status,
+      source: "head",
+    };
+  }
+  try {
+    const listed = await getClient().send(
+      new ListObjectsV2Command({
+        Bucket: requireBucket(),
+        Prefix: key,
+        MaxKeys: 8,
+      }),
+    );
+    const match = (listed.Contents ?? []).find((obj) => obj.Key === key);
+    if (match && typeof match.Size === "number" && match.Size > 0) {
+      return {
+        bytes: match.Size,
+        etag: match.ETag,
+        contentType: head.meta?.contentType,
+        status: head.status,
+        source: "list",
+      };
+    }
+  } catch (err) {
+    console.warn("[MEDIA_B2] list_stat_failed key=" + key + " message=" + (err instanceof Error ? err.message : "unknown"));
+  }
+  try {
+    const ranged = await getObjectStream(key, "bytes=0-0");
+    await drainStream(ranged.body);
+    const total = parseContentRangeTotal(ranged.contentRange);
+    if (typeof total === "number" && total > 0) {
+      return {
+        bytes: total,
+        contentType: ranged.contentType,
+        status: ranged.status,
+        source: "range",
+      };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      source: "missing",
+      status: head.status,
+      error: head.error || message,
+    };
+  }
+  if (head.meta) {
+    return {
+      etag: head.meta.etag,
+      contentType: head.meta.contentType,
+      status: head.status,
+      source: "head",
+      error: "HEAD succeeded but ContentLength was missing",
+    };
+  }
+  return { source: "missing", status: head.status, error: head.error };
 }
 
 export async function downloadObjectToBuffer(key: string): Promise<Buffer> {

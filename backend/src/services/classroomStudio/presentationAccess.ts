@@ -9,7 +9,7 @@ export function presentationOwnershipAllowed(args: {
 }
 
 export function failedImportStatus(args: { sourceStored: boolean; code?: string }): string {
-  if (!args.sourceStored) return "source_failed";
+  if (!args.sourceStored || args.code?.startsWith("CLASSROOM_B2_")) return "import_failed";
   if (args.code === "CLASSROOM_RENDER_FAILED") return "render_failed";
   return "extraction_failed";
 }

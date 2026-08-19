@@ -1002,7 +1002,13 @@ export async function importPresentation(req: Request, res: Response, next: Next
     const { title, description, sourceType: rawSourceType, sourceUrl, options } = req.body;
     const sourceType = String(rawSourceType || "").trim();
     const file = req.file;
-    console.info('[Classroom import] Upload received', { sourceType, title, fileName: file?.originalname, bytes: file?.size });
+    console.info('[Classroom import] Upload received', {
+      sourceType,
+      title,
+      fileName: file?.originalname,
+      multerSize: file?.size,
+      bufferBytes: file?.buffer?.length,
+    });
     console.info('[CLASSROOM_IMPORT] stage=create-request', { sourceType, title, bytes: file?.size, instructorId });
 
     if (sourceType === 'powerpoint') {

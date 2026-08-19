@@ -49,6 +49,12 @@ export function classroomImportPresentationId(payload: ClassroomImportPayload | 
 
 export function classroomImportErrorMessage(payload: ClassroomImportPayload | null | undefined, httpStatus?: number): string {
   const error = payload?.error;
+  const code =
+    (error && typeof error === "object" && error.code) ||
+    (typeof payload?.code === "string" ? payload.code : undefined);
+  if (code === "CLASSROOM_B2_VERIFY_FAILED" || code === "CLASSROOM_B2_UPLOAD_FAILED") {
+    return "PowerPoint upload verification failed. Please retry.";
+  }
   const raw =
     typeof error === "string"
       ? error
