@@ -542,12 +542,6 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
         window.location.href = '/student/dashboard';
         break;
 
-      case 'announcement:broadcast':
-        if (message.data?.message) {
-          useToastStore.getState().add({ title: 'Instructor Announcement', description: message.data.message });
-        }
-        break;
-
       case 'session:pause':
       case 'session:resume':
         setViewData((curr) => curr ? {

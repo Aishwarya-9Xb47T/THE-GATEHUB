@@ -83,8 +83,11 @@ export async function getPresentation(req: Request, res: Response, next: NextFun
 
 export async function servePresentationAsset(req: Request, res: Response, next: NextFunction) {
   try {
-    const { id, kind, filename } = req.params;
-    const parsed = parseClassroomAssetFilename(kind, filename);
+    const { id, filename } = req.params;
+    const kind =
+      req.params.kind ||
+      (req.path.includes('/source/') ? 'source' : req.path.includes('/renders/') ? 'renders' : undefined);
+    const parsed = parseClassroomAssetFilename(kind as string, filename);
     if (!id || !parsed) {
       throw new AppError(400, "Invalid presentation asset path", true, {
         code: "CLASSROOM_ASSET_PATH_INVALID",

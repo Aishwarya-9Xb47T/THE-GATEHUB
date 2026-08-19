@@ -43,7 +43,7 @@ export function phaseAfterFeedback(
   paceMode: "self_paced" | "instructor_paced" = "instructor_paced"
 ): LivePlayerPhase {
   if (paceMode === "self_paced") {
-    return "QUESTION_ACTIVE";
+    return showLeaderboard ? "SHOW_LEADERBOARD" : "QUESTION_ACTIVE";
   }
   return showLeaderboard ? "SHOW_LEADERBOARD" : "READY_FOR_NEXT";
 }

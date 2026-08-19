@@ -45,6 +45,7 @@ router.get('/presentations', classroomStudioController.getPresentations);
 router.get('/presentations/stats', classroomStudioController.getPresentationStats);
 router.get('/presentations/:id/assets/source/:filename', classroomStudioController.servePresentationAsset);
 router.get('/presentations/:id/assets/renders/:filename', classroomStudioController.servePresentationAsset);
+router.get('/presentations/:id/assets/:kind/:filename', classroomStudioController.servePresentationAsset);
 router.get('/presentations/:id/visual-health', classroomStudioController.getPresentationVisualHealth);
 router.post('/presentations/:id/regenerate-visuals', regenerateVisualsLimiter, classroomStudioController.regeneratePresentationVisuals);
 router.get('/presentations/:id', classroomStudioController.getPresentation);
