@@ -189,6 +189,49 @@ describe('SlideRenderer', () => {
     expect(error.textContent).not.toContain('Regenerate slide visuals');
   });
 
+  it('shows a per-slide failure instead of a generic storage error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
+      ok: false,
+      status: 404,
+      contentType: 'application/json',
+      text: JSON.stringify({ error: { code: 'CLASSROOM_ASSET_NOT_FOUND', message: 'missing' } }),
+    })));
+
+    const content = {
+      version: 2,
+      size: { width: 12_192_000, height: 6_858_000 },
+      background: { type: 'solid', color: '#ffffff' },
+      visual: {
+        type: 'pptx',
+        src: '/uploads/classroom/demo/source/original.pptx',
+        slideIndex: 6,
+        availability: 'failed',
+        errorCode: 'CLASSROOM_RENDER_SLIDE_FAILED',
+        errorMessage: 'Slide visual unavailable',
+      },
+      elements: [],
+    };
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="Failed slide"
+        slideNumber={7}
+        presentationId="demo"
+        canRepair
+        onRepair={() => undefined}
+        pipelineStatus="rendering_partial"
+        slideCount={20}
+      />,
+    );
+
+    const error = await screen.findByTestId('classroom-visual-error');
+    expect(error.textContent).toContain('CLASSROOM_RENDER_SLIDE_FAILED');
+    expect(error.textContent).toContain('Slide visual unavailable');
+    expect(error.textContent).toContain('Retry this slide');
+    expect(error.textContent).not.toContain('Presentation asset unavailable');
+  });
+
   it('renders native PPTX SVG when a slide visual source is present', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
       contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',

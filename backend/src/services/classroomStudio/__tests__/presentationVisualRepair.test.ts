@@ -31,11 +31,25 @@ describe("existing presentation repair contract", () => {
 });
 
 describe("rendered SVG validation", () => {
-  it("accepts SVG markup and rejects JSON or HTML", async () => {
-    const { isValidRenderedSvg } = await import("../presentationRenderService.js");
+  it("accepts SVG markup and rejects JSON, HTML, ZIP bytes, and SVGs without dimensions", async () => {
+    const {
+      isValidRenderedSvg,
+      applyDeadlockSafeInflatePatch,
+      pptxSvgPackageVersion,
+      pptxSvgDistDir,
+    } = await import("../presentationRenderService.js");
     expect(isValidRenderedSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>')).toBe(true);
+    expect(isValidRenderedSvg('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>')).toBe(true);
     expect(isValidRenderedSvg('{"error":"nope"}')).toBe(false);
     expect(isValidRenderedSvg('<!DOCTYPE html><html><body>fail</body></html>')).toBe(false);
     expect(isValidRenderedSvg('')).toBe(false);
+    expect(isValidRenderedSvg('PK\u0003\u0004not-an-svg')).toBe(false);
+    expect(pptxSvgPackageVersion()).toBe("0.4.5");
+    const dist = pptxSvgDistDir();
+    expect(dist).toBeTruthy();
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const zipSource = readFileSync(join(dist!, "zip.js"), "utf8");
+    expect(applyDeadlockSafeInflatePatch(zipSource).applied).toBe(true);
   });
 });

@@ -333,6 +333,7 @@ async function persistImportedContent(
     console.info('[Classroom import] Rendering faithful slide visuals', { presentationId });
     const renderDir = path.join(assetRoot, 'renders');
     const renderResult = await renderPresentationSlides(sourceFileBuffer, renderDir, {
+      presentationId,
       onProgress: async ({ slide, total }) => {
         const percent = 45 + Math.round((slide / Math.max(1, total)) * 50);
         await options.onProgress?.({

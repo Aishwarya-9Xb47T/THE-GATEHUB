@@ -1688,6 +1688,31 @@ export function SlideRenderer({
           });
         }
 
+        const slideFailed =
+          visual.availability === 'failed'
+          || visual.errorCode === 'CLASSROOM_RENDER_SLIDE_FAILED';
+        if (slideFailed && presentationId) {
+          const n = slideNumber ?? slideIndex + 1;
+          const svgUrls = classroomVisualFetchUrls(
+            visual.type === 'svg' ? visual.src : `/api/classroom-studio/presentations/${presentationId}/assets/renders/slide-${String(n).padStart(3, '0')}.svg`,
+            presentationId,
+            'svg',
+          );
+          const found = await fetchFirstSuccessfulUpload(svgUrls);
+          if (found) {
+            const contentType = found.response.headers.get('content-type');
+            const svg = await found.response.text();
+            if (isSvgMarkup(svg) && !svg.startsWith('ERROR:') && isCompatibleSvgContentType(contentType)) {
+              applySvg(svg, 'pre-rendered-svg', found.url);
+              return;
+            }
+          }
+          throw Object.assign(
+            new Error(String(visual.errorMessage || 'Slide visual unavailable')),
+            { code: 'CLASSROOM_RENDER_SLIDE_FAILED' },
+          );
+        }
+
         const renderPptxWasm = async (pptxSrcHint?: string) => {
           const pptxSrc = pptxSrcHint
             || (visual.type === 'pptx' ? visual.src : undefined)
@@ -1934,7 +1959,9 @@ export function SlideRenderer({
                     ? 'Rendering slide visuals'
                     : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
                       ? 'Rendering failed'
-                      : 'Presentation asset unavailable'}
+                      : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED'
+                        ? 'Slide visual unavailable'
+                        : 'Presentation asset unavailable'}
                 </p>
                 <p style={{ fontSize: 14, margin: '0 0 12px', color: '#64748b', maxWidth: 420 }}>
                   {nativeVisualError.message}
@@ -1960,7 +1987,7 @@ export function SlideRenderer({
                       cursor: repairing ? 'wait' : 'pointer',
                     }}
                   >
-                    {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED' ? 'Retry rendering' : 'Regenerate slide visuals'}
+                    {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED' ? 'Retry this slide' : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED' ? 'Retry rendering' : 'Regenerate slide visuals'}
                   </button>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { prisma } from "../../utils/prisma.js";
@@ -53,12 +53,13 @@ function withVisual(
   presentationId: string,
   slideIndex: number,
   hasSvg: boolean,
+  error?: { code?: string; message?: string },
 ): Record<string, unknown> {
   const base =
     content && typeof content === "object" && !Array.isArray(content)
       ? { ...(content as Record<string, unknown>) }
       : {};
-  base.visual = buildSlideVisual(presentationId, slideIndex, hasSvg);
+  base.visual = buildSlideVisual(presentationId, slideIndex, hasSvg, error);
   return base;
 }
 
@@ -271,24 +272,27 @@ export async function renderAndPersistPresentationVisuals(
 
   const outputDir = path.join(os.tmpdir(), `classroom-render-${presentationId}`);
   const persistedIndexes = new Set<number>(alreadyRendered);
-  const persistOne = async (render: { index: number; path: string; svgLength: number }) => {
+  const persistOne = async (render: { index: number; path: string; svgLength: number; svgText?: string }) => {
     if (persistedIndexes.has(render.index)) return;
     const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
     const diskPath = path.join(outputDir, path.basename(render.path));
     classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-start", relative);
-    let svgText: string;
-    try {
-      svgText = await readFile(diskPath, "utf8");
-    } catch {
-      const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1} reason=missing on disk`);
-      (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
-      throw error;
+    let svgText = render.svgText;
+    if (!svgText) {
+      try {
+        svgText = await readFile(diskPath, "utf8");
+      } catch {
+        const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1} reason=missing on disk`);
+        (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
+        throw error;
+      }
     }
     if (!isValidRenderedSvg(svgText)) {
       const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1}`);
       (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
       throw error;
     }
+    await writeFile(diskPath, svgText, "utf8");
     try {
       await withDeadline(
         persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() }),
@@ -306,6 +310,11 @@ export async function renderAndPersistPresentationVisuals(
       const stored = await headObject(`uploads/${relative}`);
       if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
         const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1}`);
+        (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
+        throw error;
+      }
+      if (stored.contentType && !/svg/i.test(stored.contentType)) {
+        const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1} reason=contentType=${stored.contentType}`);
         (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
         throw error;
       }
@@ -336,6 +345,7 @@ export async function renderAndPersistPresentationVisuals(
     : await renderPresentationSlides(pptxBuffer, outputDir, {
       skipIndexes: alreadyRendered,
       onSlideRendered: persistOne,
+      presentationId,
     });
 
   try {
@@ -354,10 +364,16 @@ export async function renderAndPersistPresentationVisuals(
 
     for (const slide of presentation.slides) {
       const hasSvg = persistedIndexes.has(slide.order - 1);
+      const failure = hasSvg
+        ? undefined
+        : {
+            code: "CLASSROOM_RENDER_SLIDE_FAILED",
+            message: "Slide visual could not be rendered from the PowerPoint source",
+          };
       await prisma.slide.update({
         where: { id: slide.id },
         data: {
-          content: withVisual(slide.content, presentationId, slide.order - 1, hasSvg) as object,
+          content: withVisual(slide.content, presentationId, slide.order - 1, hasSvg, failure) as object,
         },
       });
     }

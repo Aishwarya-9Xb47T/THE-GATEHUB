@@ -39,6 +39,7 @@ export function buildSlideVisual(
   presentationId: string,
   slideIndex: number,
   hasSvg: boolean,
+  error?: { code?: string; message?: string },
 ): Record<string, unknown> {
   const source = {
     type: "pptx",
@@ -61,7 +62,9 @@ export function buildSlideVisual(
     src: canonicalSourceApi(presentationId),
     storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
     slideIndex,
-    availability: "missing",
+    availability: error?.code ? "failed" : "missing",
+    errorCode: error?.code,
+    errorMessage: error?.message,
     source,
   };
 }

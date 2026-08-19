@@ -10,7 +10,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
-import { renderPresentationSlides, slideTimeoutForPptx } from "../services/classroomStudio/presentationRenderService.js";
+import { renderPresentationSlides, slideTimeoutForPptx, pptxSvgPackageVersion } from "../services/classroomStudio/presentationRenderService.js";
 import { isValidPptxBuffer } from "../services/classroomStudio/classroomSourceResolver.js";
 
 function slideXml(title: string): string {
@@ -84,7 +84,8 @@ async function main() {
   assert.equal(slideTimeoutForPptx(1_000_000), 90_000);
   assert.equal(slideTimeoutForPptx(17_605_178), 240_000);
   assert.equal(slideTimeoutForPptx(17_605_178, 1500), 1500);
-  console.info("ok  generated PPTX buffers", { twoSlideBytes: twoSlide.length, twentySlideBytes: twentySlide.length });
+  assert.equal(pptxSvgPackageVersion(), "0.4.5");
+  console.info("ok  generated PPTX buffers", { twoSlideBytes: twoSlide.length, twentySlideBytes: twentySlide.length, pptxSvgVersion: pptxSvgPackageVersion() });
 
   const outputDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-pipeline-"));
   try {
@@ -109,6 +110,19 @@ async function main() {
       const svg = await readFile(file, "utf8");
       assert.equal(isSvg(svg), true, `${render.path} is not SVG`);
       assert.ok(svg.length > 32, `${render.path} is empty`);
+      assert.ok(/viewbox|width=|height=/i.test(svg), `${render.path} missing dimensions`);
+    }
+
+    const oneSlideDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pptx-slide1-"));
+    try {
+      const firstOnly = await renderPresentationSlides(await buildPptx(5), oneSlideDir, { maxSlides: 1 });
+      assert.equal(firstOnly.renders.length, 1, "diagnostic path must render only slide 1");
+      assert.equal(firstOnly.renders[0]?.index, 0);
+      const firstSvg = await readFile(path.join(oneSlideDir, path.basename(firstOnly.renders[0].path)), "utf8");
+      assert.equal(firstSvg.trimStart().toLowerCase().includes("<svg"), true);
+      console.info("ok  slide-1-only diagnostic", { bytes: firstSvg.length });
+    } finally {
+      await rm(oneSlideDir, { recursive: true, force: true });
     }
 
     const invalid = await renderPresentationSlides(Buffer.from("not-a-pptx"), outputDir);
