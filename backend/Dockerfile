@@ -62,6 +62,8 @@ RUN apt-get update \
     chromium \
     fonts-liberation \
     fonts-liberation2 \
+    fonts-crosextra-caladea \
+    fonts-crosextra-carlito \
     fonts-dejavu-core \
     fonts-noto-core \
     fonts-noto-extra \

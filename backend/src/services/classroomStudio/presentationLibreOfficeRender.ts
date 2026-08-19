@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isValidRenderedSvg, withDeadline, type PresentationRenderResult, type SlideRenderResult } from './presentationRenderService.js';
+import { formatPptxInspectionLog, inspectPptxArchive } from './pptxArchiveInspect.js';
 
 const PDF_CONVERT_TIMEOUT_MS = 120_000;
 const PAGE_RENDER_TIMEOUT_MS = 45_000;
@@ -215,6 +216,17 @@ export function pngDimensions(buffer: Buffer): { width: number; height: number }
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
+export function assertRenderablePng(png: Buffer): { width: number; height: number } {
+  if (png.length < 8_000) {
+    throw new Error(`CLASSROOM_RENDER_EMPTY_VISUAL pngBytes=${png.length}`);
+  }
+  const { width, height } = pngDimensions(png);
+  if (width < 640 || height < 360) {
+    throw new Error(`CLASSROOM_RENDER_EMPTY_VISUAL png=${width}x${height}`);
+  }
+  return { width, height };
+}
+
 export function wrapPngAsSvg(png: Buffer): string {
   const { width, height } = pngDimensions(png);
   const href = `data:image/png;base64,${png.toString('base64')}`;
@@ -257,7 +269,7 @@ export function libreOfficeJobEnv(workDir: string): NodeJS.ProcessEnv {
   const libraryPath = [programDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(path.delimiter);
   return {
     ...process.env,
-    HOME: workDir,
+    HOME: process.env.HOME || os.tmpdir(),
     TMPDIR: workDir,
     TEMP: workDir,
     TMP: workDir,
@@ -388,10 +400,19 @@ async function renderPdfPageToSvg(args: {
       );
     }
     const png = await readFile(pngPath);
+    const dims = assertRenderablePng(png);
     const svg = wrapPngAsSvg(png);
     if (!isValidRenderedSvg(svg)) {
       throw new Error('CLASSROOM_RENDER_INVALID_SVG PNG wrap did not produce valid SVG');
     }
+    classroomRenderLog({
+      stage: 'pdf-to-png',
+      page: args.page,
+      via,
+      pngBytes: png.length,
+      width: dims.width,
+      height: dims.height,
+    });
     return { svg, via, pngPath };
   };
 
@@ -448,53 +469,47 @@ async function convertPptxToPdf(args: {
 }): Promise<{ pdfPath: string; pdfBytes: number; pageCount: number; pdfText: string }> {
   const env = libreOfficeJobEnv(args.workDir);
   await writeLibreOfficeProfile(args.profileDir);
-  const filters = ['pdf', 'pdf:impress_pdf_Export'];
-  let last = { stdout: '', stderr: '', exitCode: 1, command: '', filter: '' };
+  const convertArgs = buildLibreOfficeConvertArgs({
+    profileDir: args.profileDir,
+    outputDir: args.outputDir,
+    pptxPath: args.pptxPath,
+    filter: 'pdf',
+  });
+  classroomRenderLog({
+    presentation: args.presentationId,
+    stage: 'pptx-to-pdf',
+    status: 'start',
+    pdfSource: 'libreoffice-pptx',
+    filter: 'pdf',
+    executable: args.soffice,
+    command: `${path.basename(args.soffice)} ${convertArgs.join(' ')}`,
+    cwd: args.workDir,
+    input: args.pptxPath,
+    outputDir: args.outputDir,
+    profile: args.profileDir,
+    inputSha256: args.sha256,
+    SAL_DISABLE_JAVA: env.SAL_DISABLE_JAVA,
+    HOME: env.HOME,
+  });
+  const convert = await withDeadline(
+    runCommand(args.soffice, convertArgs, PDF_CONVERT_TIMEOUT_MS, { cwd: args.workDir, env }),
+    PDF_CONVERT_TIMEOUT_MS + 5_000,
+    'CLASSROOM_RENDER_TIMEOUT',
+    'CLASSROOM_RENDER_TIMEOUT stage=LIBREOFFICE_CONVERT',
+  );
+  const last = { ...convert, command: `${args.soffice} ${convertArgs.join(' ')}`, filter: 'pdf' };
   let pdfPath = path.join(args.outputDir, 'source.pdf');
-
-  for (const filter of filters) {
-    const convertArgs = buildLibreOfficeConvertArgs({
-      profileDir: args.profileDir,
-      outputDir: args.outputDir,
-      pptxPath: args.pptxPath,
-      filter,
-    });
-    classroomRenderLog({
-      presentation: args.presentationId,
-      stage: 'pptx-to-pdf',
-      status: 'start',
-      filter,
-      executable: args.soffice,
-      command: `${path.basename(args.soffice)} ${convertArgs.join(' ')}`,
-      cwd: args.workDir,
-      input: args.pptxPath,
-      outputDir: args.outputDir,
-      profile: args.profileDir,
-      inputSha256: args.sha256,
-      SAL_DISABLE_JAVA: env.SAL_DISABLE_JAVA,
-      SAL_USE_VCLPLUGIN: env.SAL_USE_VCLPLUGIN,
-      HOME: env.HOME,
-    });
-    const convert = await withDeadline(
-      runCommand(args.soffice, convertArgs, PDF_CONVERT_TIMEOUT_MS, { cwd: args.workDir, env }),
-      PDF_CONVERT_TIMEOUT_MS + 5_000,
-      'CLASSROOM_RENDER_TIMEOUT',
-      'CLASSROOM_RENDER_TIMEOUT stage=LIBREOFFICE_CONVERT',
-    );
-    last = { ...convert, command: `${args.soffice} ${convertArgs.join(' ')}`, filter };
-    const found = (await findNamedFile(args.outputDir, (name) => name.toLowerCase().endsWith('.pdf'))) ?? pdfPath;
-    if (existsSync(found)) pdfPath = found;
-    classroomRenderLog({
-      presentation: args.presentationId,
-      stage: 'pptx-to-pdf',
-      filter,
-      exitCode: convert.exitCode,
-      stdout: convert.stdout.slice(0, LOG_TEXT_LIMIT),
-      stderr: convert.stderr.slice(0, LOG_TEXT_LIMIT),
-      pdfExists: existsSync(pdfPath),
-    });
-    if (existsSync(pdfPath)) break;
-  }
+  const found = (await findNamedFile(args.outputDir, (name) => name.toLowerCase().endsWith('.pdf'))) ?? pdfPath;
+  if (existsSync(found)) pdfPath = found;
+  classroomRenderLog({
+    presentation: args.presentationId,
+    stage: 'pptx-to-pdf',
+    filter: 'pdf',
+    exitCode: convert.exitCode,
+    stdout: convert.stdout.slice(0, LOG_TEXT_LIMIT),
+    stderr: convert.stderr.slice(0, LOG_TEXT_LIMIT),
+    pdfExists: existsSync(pdfPath),
+  });
 
   if (!existsSync(pdfPath)) {
     const message = [
@@ -510,7 +525,26 @@ async function convertPptxToPdf(args: {
     throw error;
   }
 
+  const meta = await readPdfMetadata(pdfPath, args.outputDir);
+  classroomRenderLog({
+    presentation: args.presentationId,
+    stage: 'pptx-to-pdf',
+    status: 'success',
+    pdfBytes: meta.pdfBytes,
+    pdfPages: meta.pageCount,
+    pdfPath,
+    javaldxWarning: /javaldx/i.test(last.stderr),
+    exitCode: last.exitCode,
+    pdfTextPreview: meta.pdfText.replace(/\s+/g, ' ').slice(0, 400),
+  });
+  return { pdfPath, ...meta };
+}
+
+async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pageCount: number; pdfText: string; pdfBytes: number }> {
   const pdf = await readFile(pdfPath);
+  if (pdf.length < 200 || !pdf.subarray(0, 4).equals(Buffer.from('%PDF'))) {
+    throw new Error(`LIBREOFFICE_CONVERSION_FAILED PDF is empty or invalid bytes=${pdf.length}`);
+  }
   let pageCount = 0;
   const pdfinfo = pdfInfoExecutable();
   if (pdfinfo) {
@@ -521,22 +555,14 @@ async function convertPptxToPdf(args: {
   let pdfText = '';
   const pdftotext = pdfToTextExecutable();
   if (pdftotext) {
-    const textFile = path.join(args.outputDir, 'source.txt');
+    const textFile = path.join(outputDir, 'source.txt');
     await runCommand(pdftotext, ['-layout', pdfPath, textFile], 15_000);
     if (existsSync(textFile)) pdfText = await readFile(textFile, 'utf8');
   }
-
-  classroomRenderLog({
-    presentation: args.presentationId,
-    stage: 'pptx-to-pdf',
-    status: 'success',
-    pdfBytes: pdf.length,
-    pdfPages: pageCount,
-    pdfPath,
-    javaldxWarning: /javaldx/i.test(last.stderr),
-  });
-
-  return { pdfPath, pdfBytes: pdf.length, pageCount, pdfText };
+  if (pageCount < 1) {
+    throw new Error('LIBREOFFICE_CONVERSION_FAILED PDF was produced but page count could not be determined');
+  }
+  return { pageCount, pdfText, pdfBytes: pdf.length };
 }
 
 export async function renderPresentationSlidesLibreOffice(
@@ -562,6 +588,10 @@ export async function renderPresentationSlidesLibreOffice(
     classroomRenderLog({ presentation: presentationId, method, ...fields });
 
   const inputSha256 = sha256Hex(pptxBuffer);
+  const archive = await inspectPptxArchive(pptxBuffer).catch(() => null);
+  if (archive) {
+    console.info(formatPptxInspectionLog(options?.pdfBuffer ? 'CLASSROOM_SOURCE_B' : 'CLASSROOM_SOURCE_A', archive));
+  }
   log({
     stage: 'RENDER_START',
     status: 'start',
@@ -569,6 +599,8 @@ export async function renderPresentationSlidesLibreOffice(
     inputSha256,
     sourceSha256: options?.sourceSha256,
     directPdf: Boolean(options?.pdfBuffer),
+    sourceSlides: archive?.slideCount,
+    sourceMedia: archive?.mediaCount,
   });
 
   if (options?.sourceSha256 && options.sourceSha256 !== inputSha256) {
@@ -621,8 +653,17 @@ export async function renderPresentationSlidesLibreOffice(
   try {
     if (options?.pdfBuffer && options.pdfBuffer.length > 100 && options.pdfBuffer.subarray(0, 4).equals(Buffer.from('%PDF'))) {
       await writeFile(pdfPath, options.pdfBuffer);
-      pdfBytes = options.pdfBuffer.length;
-      log({ stage: 'DIRECT_PDF_LOADED', status: 'success', bytes: options.pdfBuffer.length });
+      const meta = await readPdfMetadata(pdfPath, convertDir);
+      pdfBytes = meta.pdfBytes;
+      pdfText = meta.pdfText;
+      log({
+        stage: 'DIRECT_PDF_LOADED',
+        status: 'success',
+        bytes: meta.pdfBytes,
+        pdfPages: meta.pageCount,
+        pdfSource: 'google-native-pdf',
+        pdfTextPreview: meta.pdfText.replace(/\s+/g, ' ').slice(0, 400),
+      });
     } else {
       const pptxPath = path.join(workDir, 'source.pptx');
       await writeFile(pptxPath, pptxBuffer);
@@ -643,20 +684,17 @@ export async function renderPresentationSlidesLibreOffice(
         log({ stage: 'SHA256_MISMATCH', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', inputSha256, writtenSha });
         return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
       }
-      log({ stage: 'PPTX_SOURCE_LOADED', status: 'success', bytes: pptxBuffer.length, sha256: inputSha256, soffice: tools.soffice });
-      const runtime = await describeLibreOfficeRuntime();
       log({
-        stage: 'LIBREOFFICE_RUNTIME',
-        executable: runtime.soffice,
-        version: runtime.sofficeVersion,
-        java: runtime.java,
-        javaVersion: runtime.javaVersion,
-        javaHome: runtime.javaHome,
-        javaldx: runtime.javaldx,
-        home: runtime.home,
-        tmp: runtime.tmp,
-        cwd: workDir,
-        user: runtime.user,
+        stage: 'PPTX_SOURCE_LOADED',
+        status: 'success',
+        bytes: pptxBuffer.length,
+        sha256: inputSha256,
+        soffice: tools.soffice,
+        pdfSource: 'libreoffice-pptx',
+        version: readLibreOfficeVersionFile(),
+        javaHome: tools.javaHome,
+        javaldx: tools.javaldx,
+        home: process.env.HOME || os.tmpdir(),
       });
       try {
         const converted = await convertPptxToPdf({
@@ -701,6 +739,19 @@ export async function renderPresentationSlidesLibreOffice(
       const error = 'PDF_RENDER_FAILED could not determine PDF page count';
       log({ stage: 'PDF_READY', status: 'failure', errorCode: 'PDF_RENDER_FAILED', errorMessage: error });
       return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
+    }
+    const sourceTextRuns = archive?.slides.reduce((sum, slide) => sum + slide.textRuns, 0) ?? 0;
+    if (tools.pdftotext && sourceTextRuns > 0 && !pdfText.replace(/\s+/g, '')) {
+      const error = 'LIBREOFFICE_CONVERSION_FAILED source PPTX contains text but the PDF has no extractable text';
+      log({
+        stage: 'PDF_READY',
+        status: 'failure',
+        errorCode: 'LIBREOFFICE_CONVERSION_FAILED',
+        errorMessage: error,
+        sourceTextRuns,
+        pdfBytes,
+      });
+      return { success: false, slideCount: pageCount, renders: [], warnings, errors: [error], method };
     }
     const lastPage = Math.min(pageCount, options?.maxSlides && options.maxSlides > 0 ? options.maxSlides : pageCount);
     log({ stage: 'PDF_READY', status: 'success', pages: pageCount, requested: lastPage });

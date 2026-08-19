@@ -16,7 +16,9 @@ import {
 import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
 import {
   CLASSROOM_PREFIX,
+  PDF_MIME,
   PPTX_MIME,
+  canonicalExportPdfRelative,
   canonicalPublicPath,
   canonicalSourceRelative,
 } from "./classroomAssetPath.js";
@@ -231,6 +233,61 @@ export async function resolvePresentationSource(presentationId: string): Promise
     presentationId,
     keysChecked: [...new Set(keysChecked.length ? keysChecked : relatives.map((relative) => `uploads/${relative}`))],
   };
+}
+
+export function isValidPdfBuffer(buffer: Buffer | Uint8Array | null | undefined): boolean {
+  if (!buffer || buffer.length < 100) return false;
+  return buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46;
+}
+
+export async function persistPdfBuffer(presentationId: string, buffer: Buffer): Promise<{ relative: string; bytes: number; sha256: string } | null> {
+  if (!isValidPdfBuffer(buffer)) return null;
+  requireDurableClassroomStorage();
+  const relative = canonicalExportPdfRelative(presentationId);
+  const sha256 = sha256OfBuffer(buffer);
+  console.info("[CLASSROOM_SOURCE] export_pdf", {
+    presentationId,
+    bytes: buffer.length,
+    sha256,
+  });
+  if (!isB2Configured()) {
+    const dest = resolveSafeUploadPath(relative);
+    if (!dest) return null;
+    await mkdir(path.dirname(dest), { recursive: true });
+    await writeFile(dest, buffer);
+    return { relative, bytes: buffer.length, sha256 };
+  }
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "classroom-pdf-"));
+  const tmpPath = path.join(tmpDir, "export.pdf");
+  await writeFile(tmpPath, buffer);
+  await persistAtPublicRelative(tmpPath, relative, PDF_MIME, { keepLocal: false });
+  return { relative, bytes: buffer.length, sha256 };
+}
+
+export async function downloadPresentationExportPdf(presentationId: string): Promise<Buffer | null> {
+  const relative = canonicalExportPdfRelative(presentationId);
+  try {
+    if (isB2Configured()) {
+      for (const key of keysForRelative(relative)) {
+        const meta = await headObject(key);
+        if (meta && (meta.contentLength ?? 0) > 100) {
+          const buffer = await downloadObjectToBuffer(key);
+          return isValidPdfBuffer(buffer) ? buffer : null;
+        }
+      }
+    }
+    const localPath = await hydrateLocalUpload(canonicalPublicPath(relative));
+    if (localPath && existsSync(localPath)) {
+      const buffer = await readFile(localPath);
+      return isValidPdfBuffer(buffer) ? buffer : null;
+    }
+  } catch (error) {
+    console.warn("[CLASSROOM_SOURCE] export_pdf_missing", {
+      presentationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return null;
 }
 
 export async function downloadPresentationPptx(resolved: ResolvedPresentationSource): Promise<Buffer> {

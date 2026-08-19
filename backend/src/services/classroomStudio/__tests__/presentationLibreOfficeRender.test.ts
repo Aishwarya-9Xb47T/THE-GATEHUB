@@ -17,7 +17,9 @@ import {
   wrapPngAsSvg,
   writeLibreOfficeProfile,
   libreOfficeJobEnv,
+  assertRenderablePng,
 } from "../presentationLibreOfficeRender.js";
+import { inspectPptxArchive } from "../pptxArchiveInspect.js";
 import { isValidRenderedSvg } from "../presentationRenderService.js";
 import JSZip from "jszip";
 
@@ -40,7 +42,7 @@ describe("LibreOffice classroom renderer contract", () => {
     expect(args.join(" ")).not.toMatch(/(?:^|\s)--env:/);
     const env = libreOfficeJobEnv("/tmp/classroom-lo-job");
     expect(env.SAL_DISABLE_JAVA).toBe("1");
-    expect(env.HOME).toBe("/tmp/classroom-lo-job");
+    expect(env.HOME).toBe(process.env.HOME || require("node:os").tmpdir());
     expect(env.SAL_USE_VCLPLUGIN).toBeUndefined();
   });
 
@@ -84,6 +86,18 @@ describe("LibreOffice classroom renderer contract", () => {
     expect(svg).toContain("data:image/png;base64,");
     expect(svg).toContain('width="1920"');
     expect(svg).toContain('height="1080"');
+    expect(() => assertRenderablePng(png)).toThrow(/EMPTY_VISUAL/);
+  });
+
+  it("inspects PPTX ZIP internals without using the slide parser as a visual", async () => {
+    const pptx = await buildConvolutionDeckPptx();
+    const inspection = await inspectPptxArchive(pptx);
+    expect(inspection.zipValid).toBe(true);
+    expect(inspection.slideCount).toBe(CONVOLUTION_DECK_SLIDE_COUNT);
+    expect(inspection.slides[0].textRuns).toBeGreaterThan(5);
+    expect(inspection.slides[0].tables).toBeGreaterThan(0);
+    expect(inspection.hasTheme).toBe(true);
+    expect(inspection.hasContentTypes).toBe(true);
   });
 
   it("keeps conversion failure reasons specific instead of a bare CLASSROOM_RENDER_FAILED", async () => {

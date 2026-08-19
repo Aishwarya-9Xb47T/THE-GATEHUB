@@ -7,6 +7,7 @@ import {
   slideVisualIsReady,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
+  canonicalExportPdfRelative,
   parseClassroomAssetFilename,
   sanitizeClassroomAssetRest,
   classroomStorageRelatives,
@@ -21,6 +22,7 @@ describe("classroomAssetPath", () => {
 
   it("uses canonical classroom keys for PPTX and SVG", () => {
     expect(canonicalSourceRelative("pres-1")).toBe("classroom/pres-1/source/original.pptx");
+    expect(canonicalExportPdfRelative("pres-1")).toBe("classroom/pres-1/source/export.pdf");
     expect(canonicalSlideSvgRelative("pres-1", 2)).toBe("classroom/pres-1/renders/slide-002.svg");
     expect(classroomStorageRelatives("pres-1", CLASSROOM_SOURCE_REST)).toEqual([
       "classroom/pres-1/source/original.pptx",

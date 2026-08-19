@@ -15,6 +15,7 @@ import {
 } from "./presentationRenderService.js";
 import {
   downloadPresentationPptx,
+  downloadPresentationExportPdf,
   persistPptxBuffer,
   resolvePresentationSource,
   sha256OfBuffer,
@@ -196,12 +197,15 @@ export async function regeneratePresentationVisuals(
   const { started, job } = startExclusiveVisualRender(presentationId, async () => {
     const pptxBuffer = await downloadPresentationPptx(resolved);
     const downloadedSha = sha256OfBuffer(pptxBuffer);
+    const storedPdf = await downloadPresentationExportPdf(presentationId);
     console.info("[CLASSROOM_SOURCE]", {
       presentationId,
       origin: resolved.origin,
       key: resolved.key,
       bytes: pptxBuffer.length,
       sha256: downloadedSha,
+      hasStoredPdf: Boolean(storedPdf),
+      pdfBytes: storedPdf?.length,
     });
     const persistedSource =
       resolved.relative === canonicalRelative
@@ -212,6 +216,7 @@ export async function regeneratePresentationVisuals(
       sourceRelative: persistedSource.relative,
       sourceBytes: persistedSource.bytes,
       sourceSha256: persistedSource.sha256 ?? downloadedSha,
+      pdfBuffer: storedPdf ?? undefined,
     });
   });
 
@@ -294,7 +299,7 @@ export async function renderAndPersistPresentationVisuals(
     for (const slide of presentation.slides) {
       const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
       const existing = await headFirst(svgRelative);
-      if (existing?.meta.contentLength && existing.meta.contentLength > 32) {
+      if (existing?.meta.contentLength && existing.meta.contentLength > 8_000) {
         alreadyRendered.add(slide.order - 1);
       }
     }
@@ -345,7 +350,7 @@ export async function renderAndPersistPresentationVisuals(
     }
     if (isB2Configured()) {
       const stored = await headObject(`uploads/${relative}`);
-      if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
+      if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
         const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1}`);
         (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
         throw error;
@@ -378,13 +383,19 @@ export async function renderAndPersistPresentationVisuals(
   const missingIndexes = presentation.slides
     .map((slide) => slide.order - 1)
     .filter((index) => !alreadyRendered.has(index));
+  const storedPdf = options?.pdfBuffer ?? (await downloadPresentationExportPdf(presentationId)) ?? undefined;
+  console.info("[CLASSROOM_RENDER]", {
+    presentationId,
+    pdfSource: storedPdf ? "stored-or-google-pdf" : "libreoffice-pptx",
+    pdfBytes: storedPdf?.length,
+  });
   const renderResult = missingIndexes.length === 0
     ? { success: true, slideCount: expected, renders: [], warnings: [], errors: [], method: describeClassroomRenderer().renderer }
     : await renderPresentationSlides(pptxBuffer, outputDir, {
       skipIndexes: alreadyRendered,
       onSlideRendered: persistOne,
       presentationId,
-      pdfBuffer: options?.pdfBuffer,
+      pdfBuffer: storedPdf,
       sourceSha256: options?.sourceSha256 ?? inputSha256,
     });
 

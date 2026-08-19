@@ -33,10 +33,12 @@ import {
 } from './classroomAssetPath.js';
 import {
   persistPptxBuffer,
+  persistPdfBuffer,
   requireDurableClassroomStorage,
   isValidPptxBuffer,
   sha256OfBuffer,
 } from './classroomSourceResolver.js';
+import { formatPptxInspectionLog, inspectPptxArchive } from './pptxArchiveInspect.js';
 import { renderAndPersistPresentationVisuals, startExclusiveVisualRender } from './presentationVisualRepairService.js';
 import type {
   ImportResult,
@@ -380,7 +382,7 @@ async function persistImportedContent(
       await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() });
       if (isB2Configured()) {
         const stored = await headObject(`uploads/${relative}`);
-        if (!stored || !(stored.contentLength && stored.contentLength > 32)) {
+        if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
           renderErrors.push(`Slide visual was not stored: ${relative}`);
           continue;
         }
@@ -557,11 +559,15 @@ export async function importPresentation(
         });
       }
       const sha256 = sha256OfBuffer(sourceFileBuffer);
+      const inspection = await inspectPptxArchive(sourceFileBuffer);
+      console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_A', inspection));
       console.info('[CLASSROOM_SOURCE]', {
         sourceType: 'pptx-upload',
         originalBytes: sourceFileBuffer.length,
         originalSha256: sha256,
         presentationId: presentation.id,
+        zipValid: inspection.zipValid,
+        slides: inspection.slideCount,
       });
       await onProgress({ stage: 'source', percent: 12, message: 'Saving source…' });
       requireDurableClassroomStorage();
@@ -592,12 +598,35 @@ export async function importPresentation(
       requireDurableClassroomStorage();
       const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
       sourceStored = true;
+      if (input.sourceType === 'google_slides') {
+        const inspection = await inspectPptxArchive(sourceFileBuffer);
+        console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_B', inspection));
+        console.info('[CLASSROOM_SOURCE]', {
+          sourceType: 'google-slides',
+          presentationId: presentation.id,
+          pptxBytes: sourceFileBuffer.length,
+          sha256: stored.sha256,
+          zipValid: inspection.zipValid,
+          slides: inspection.slideCount,
+          hasDirectPdf: Boolean(resolved.pdfFileBuffer),
+          pdfBytes: resolved.pdfFileBuffer?.length,
+        });
+      }
       await prisma.presentation.update({
         where: { id: presentation.id },
         data: {
           status: 'source_stored',
           ...(input.sourceType === 'google_slides' ? {} : { sourceUrl: canonicalPublicPath(stored.relative) }),
         },
+      });
+    }
+
+    if (isPptxPipeline && resolved.pdfFileBuffer) {
+      await persistPdfBuffer(presentation.id, resolved.pdfFileBuffer).catch((error) => {
+        console.warn('[CLASSROOM_SOURCE] export_pdf_persist_failed', {
+          presentationId: presentation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }
 
@@ -646,6 +675,7 @@ export async function importPresentation(
           presentationId,
           bytes: buffer.length,
           hasDirectPdf: Boolean(pdfBuf),
+          pdfSource: pdfBuf ? 'google-native-pdf' : 'libreoffice-pptx',
           slides: persistResult.expectedCount,
         });
         const { job } = startExclusiveVisualRender(presentationId, () =>

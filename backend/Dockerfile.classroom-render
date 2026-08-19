@@ -13,12 +13,20 @@ ENV LC_ALL=C.UTF-8
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     libreoffice-impress \
+    libreoffice-math \
     libreoffice-java-common \
     default-jre-headless \
     fontconfig \
     poppler-utils \
     fonts-liberation \
+    fonts-liberation2 \
+    fonts-crosextra-caladea \
+    fonts-crosextra-carlito \
     fonts-dejavu-core \
+    fonts-noto-core \
+    fonts-opensymbol \
+    fonts-stix \
+    fonts-freefont-ttf \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && (test -f /etc/machine-id || (cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id) || true) \

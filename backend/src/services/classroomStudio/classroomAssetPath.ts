@@ -8,7 +8,9 @@
 export const CLASSROOM_PREFIX = "classroom";
 export const CLASSROOM_LEGACY_PREFIX = "classroom-studio";
 export const CLASSROOM_SOURCE_REST = "source/original.pptx";
+export const CLASSROOM_EXPORT_PDF_REST = "source/export.pdf";
 export const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+export const PDF_MIME = "application/pdf";
 export const SVG_MIME = "image/svg+xml";
 
 export function paddedSlideFile(slideNumber: number): string {
@@ -17,6 +19,10 @@ export function paddedSlideFile(slideNumber: number): string {
 
 export function canonicalSourceRelative(presentationId: string): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_SOURCE_REST}`;
+}
+
+export function canonicalExportPdfRelative(presentationId: string): string {
+  return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_EXPORT_PDF_REST}`;
 }
 
 export function canonicalSlideSvgRelative(presentationId: string, slideNumber: number): string {
@@ -141,5 +147,6 @@ export function classroomAssetMime(rest: string): string {
   const base = requestedAssetBasename(rest).toLowerCase();
   if (base.endsWith(".svg")) return SVG_MIME;
   if (base.endsWith(".pptx")) return PPTX_MIME;
+  if (base.endsWith(".pdf")) return PDF_MIME;
   return "application/octet-stream";
 }
