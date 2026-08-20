@@ -222,6 +222,7 @@ export interface TableRow {
 
 export type ElementType =
   | 'text'
+  | 'equation'
   | 'shape'
   | 'image'
   | 'table'
