@@ -76,6 +76,7 @@ router.get('/presentations/:id/assets/renders/:filename', classroomStudioControl
 router.get('/presentations/:id/assets/:kind/:filename', classroomStudioController.servePresentationAsset);
 router.get('/presentations/:id/visual-health', classroomStudioController.getPresentationVisualHealth);
 router.post('/presentations/:id/regenerate-visuals', regenerateVisualsLimiter, classroomStudioController.regeneratePresentationVisuals);
+router.post('/presentations/:id/slides/:slideId/retry-visual', regenerateVisualsLimiter, classroomStudioController.retrySlideVisual);
 router.get('/presentations/:id', classroomStudioController.getPresentation);
 router.put('/presentations/:id', classroomStudioController.updatePresentation);
 router.delete('/presentations/:id', classroomStudioController.deletePresentation);

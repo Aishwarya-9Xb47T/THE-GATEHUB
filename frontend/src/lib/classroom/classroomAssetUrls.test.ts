@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalClassroomApiAsset,
   classroomAssetErrorFromBody,
+  classroomRenderedImageUrl,
   classroomVisualFetchUrls,
   decodeSlideAltText,
   isCompatiblePptxContentType,
@@ -50,6 +51,12 @@ describe("classroomAssetUrls", () => {
     expect(isCompatiblePptxContentType("text/html")).toBe(false);
     expect(isCompatibleSvgContentType("application/json")).toBe(false);
     expect(isCompatiblePptxContentType("application/json")).toBe(false);
+  });
+
+  it("builds the canonical PNG classroom visual URL from slide number", () => {
+    expect(classroomRenderedImageUrl("abc", 1)).toBe(
+      "/api/classroom-studio/presentations/abc/assets/renders/slide-001.png",
+    );
   });
 
   it("requests a stable API URL after refresh-style metadata reload", () => {

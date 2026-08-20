@@ -16,13 +16,11 @@
  */
 
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import { fetchAuthenticatedUpload, withUploadAuth } from '@/lib/courseMediaUrls';
+import { withUploadAuth } from '@/lib/courseMediaUrls';
 import {
-  classroomVisualFetchUrls,
+  classroomRenderedImageUrl,
   decodeSlideAltText,
-  isCompatibleRasterContentType,
   isOfficeGeneratedAlt,
-  isSvgMarkup,
   rewriteClassroomAssetRef,
 } from '@/lib/classroom/classroomAssetUrls';
 import { resolveColor, buildGradient } from './engine/colorResolver';
@@ -823,24 +821,6 @@ function ParagraphElement({ paragraph, theme, ctx }: { paragraph: Paragraph; the
  *   imgH    = scaleH * 100%
  */
 /** User-facing error for native PPTX visual load failures */
-function formatPptxVisualError(status: number | null, reason?: string): { code: string; message: string } {
-  if (status === 401) {
-    return { code: 'CLASSROOM_ASSET_UNAUTHORIZED', message: 'Presentation asset requires authentication.' };
-  }
-  if (status === 403) {
-    return { code: 'CLASSROOM_ASSET_FORBIDDEN', message: 'You do not have access to this presentation file.' };
-  }
-  if (status === 404) {
-    return { code: 'CLASSROOM_ASSET_NOT_FOUND', message: 'The PowerPoint visual was not found in storage.' };
-  }
-  if (status != null) {
-    return { code: 'CLASSROOM_ASSET_HTTP_ERROR', message: `Presentation asset could not be loaded (HTTP ${status}).` };
-  }
-  if (reason?.includes('init')) {
-    return { code: 'CLASSROOM_PPTX_RENDERER_INIT', message: 'PowerPoint renderer could not initialize.' };
-  }
-  return { code: 'CLASSROOM_ASSET_UNAVAILABLE', message: reason ?? 'PowerPoint visual could not be loaded.' };
-}
 
 function resolveSlideAssetUrl(src: string | undefined, presentationId?: string): string | undefined {
   if (!src || /^(data:|blob:)/i.test(src)) return src;
@@ -851,39 +831,6 @@ function resolveSlideAssetUrl(src: string | undefined, presentationId?: string):
 
 export function clearClassroomPptxBufferCache() {
   /* PPTX WASM is no longer used as a classroom visual source. */
-}
-
-async function fetchFirstSuccessfulUpload(urls: string[]): Promise<{ response: Response; url: string } | null> {
-  let authError: Error | null = null;
-  for (const url of urls) {
-    try {
-      const response = await fetchAuthenticatedUpload(url);
-      if (response.ok) return { response, url };
-      if (response.status === 401 || response.status === 403) {
-        const formatted = formatPptxVisualError(response.status);
-        authError = Object.assign(new Error(formatted.message), { code: formatted.code });
-        continue;
-      }
-    } catch (error) {
-      if (error instanceof Error && /HTTP 40[13]/.test(error.message)) {
-        authError = error;
-      }
-    }
-  }
-  if (authError) throw authError;
-  return null;
-}
-
-async function blobLooksLikeSlideVisual(blob: Blob): Promise<boolean> {
-  if (blob.size < 32) return false;
-  const buffer = typeof blob.arrayBuffer === 'function'
-    ? await blob.arrayBuffer()
-    : await new Response(blob).arrayBuffer();
-  const header = new Uint8Array(buffer).slice(0, 256);
-  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) return true;
-  if (header[0] === 0xff && header[1] === 0xd8) return true;
-  const preview = new TextDecoder().decode(header).trimStart().toLowerCase();
-  return isSvgMarkup(preview);
 }
 
 function ImageElement({ element, theme: _theme }: { element: NormalizedElement; theme?: ThemeColors }) {
@@ -1541,10 +1488,11 @@ export function SlideRenderer({
   const slideCanvasRef = useRef<HTMLDivElement>(null);
   const slide = useMemo(() => normalizeSlide(content), [content]);
   const [fitScale, setFitScale] = useState(1);
-  const [nativeSvg, setNativeSvg] = useState<string | null>(null);
   const [nativeImageUrl, setNativeImageUrl] = useState<string | null>(null);
   const [nativeVisualError, setNativeVisualError] = useState<{ code: string; message: string } | null>(null);
   const [renderWaitTimedOut, setRenderWaitTimedOut] = useState(false);
+  const [imageReady, setImageReady] = useState(false);
+  const [imageNonce, setImageNonce] = useState(0);
 
   const visual = useMemo(() => {
     const raw = (content as any)?.visual;
@@ -1553,6 +1501,21 @@ export function SlideRenderer({
     return undefined;
   }, [content]);
   const format = String((content as any)?.format ?? 'unknown');
+  const slideIndex = Math.max(0, Number(visual?.slideIndex ?? (slideNumber != null ? slideNumber - 1 : 0)));
+  const resolvedSlideNumber = slideNumber ?? slideIndex + 1;
+  const renderedImageUrl = classroomRenderedImageUrl(
+    presentationId,
+    resolvedSlideNumber,
+    visual?.renderedImageUrl || visual?.src,
+  );
+  const authorizedImageSrc = renderedImageUrl
+    ? withUploadAuth(renderedImageUrl)
+    : null;
+  const displayImageSrc = authorizedImageSrc
+    ? `${authorizedImageSrc}${authorizedImageSrc.includes('?') ? '&' : '?'}r=${imageNonce}`
+    : null;
+  const pipelineRendering = ['rendering', 'uploading', 'extracting', 'source_stored', 'rendering_partial'].includes(pipelineStatus || '');
+  const visualFailed = visual?.availability === 'failed' || visual?.renderStatus === 'failed' || visual?.errorCode === 'CLASSROOM_RENDER_SLIDE_FAILED';
 
   const logRenderDiagnostic = useCallback((diag: RenderDiagnostic) => {
     if (import.meta.env.DEV) {
@@ -1585,181 +1548,62 @@ export function SlideRenderer({
       setRenderWaitTimedOut(false);
       return;
     }
-    const timer = window.setTimeout(() => setRenderWaitTimedOut(true), 10 * 60 * 1000);
+    const timer = window.setTimeout(() => setRenderWaitTimedOut(true), 3 * 60 * 1000);
     return () => window.clearTimeout(timer);
   }, [pipelineStatus, presentationId]);
 
   useEffect(() => {
-    let cancelled = false;
-    const slideIndex = Math.max(0, Number(visual?.slideIndex ?? (slideNumber != null ? slideNumber - 1 : 0)));
-    const structuredElementCount = slide.elements.length;
-
-    if (!visual?.src && !presentationId) {
-      setNativeSvg(null);
-      setNativeImageUrl(null);
-      setNativeVisualError(null);
-      logRenderDiagnostic({
-        presentationId,
-        slideId,
-        slideIndex,
-        format,
-        hasVisual: false,
-        nativeRendererAttempted: false,
-        nativeRendererSucceeded: false,
-        structuredRendererUsed: structuredElementCount > 0,
-        structuredElementCount,
-        nativeSvgLength: 0,
-        activeRenderer: structuredElementCount > 0 ? 'structured-fallback' : 'none',
-        fallbackReason: 'No visual block on slide content',
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
     const loadNativeVisual = async () => {
-      if (import.meta.env.DEV) {
-        console.info('[PPTX NATIVE] START', {
-          presentationId,
-          slideId,
-          slideIndex,
-          type: visual?.type,
-          src: visual?.src,
-        });
+      setImageReady(false);
+      if (!visual && !presentationId) {
+        setNativeVisualError(null);
+        setNativeImageUrl(null);
+        return;
       }
-
-      try {
-        const n = slideNumber ?? slideIndex + 1;
-        const rendering = ['rendering', 'uploading', 'extracting', 'source_stored', 'rendering_partial'].includes(pipelineStatus || '');
-        const urls = [
-          ...classroomVisualFetchUrls(visual?.src, presentationId, 'any'),
-          ...(presentationId
-            ? classroomVisualFetchUrls(
-              `/api/classroom-studio/presentations/${presentationId}/assets/renders/slide-${String(n).padStart(3, '0')}.png`,
-              presentationId,
-              'any',
-            )
-            : []),
-        ].filter((url, index, list) => list.indexOf(url) === index);
-
-        const found = await fetchFirstSuccessfulUpload(urls);
-        if (found) {
-          const contentType = found.response.headers.get('content-type');
-          if (isCompatibleRasterContentType(contentType)) {
-            const blob = await found.response.clone().blob();
-            if (await blobLooksLikeSlideVisual(blob)) {
-              const objectUrl = URL.createObjectURL(blob);
-              if (cancelled) {
-                URL.revokeObjectURL(objectUrl);
-                return;
-              }
-              setNativeImageUrl((previous) => {
-                if (previous) URL.revokeObjectURL(previous);
-                return objectUrl;
-              });
-              setNativeSvg(null);
-              setNativeVisualError(null);
-              logRenderDiagnostic({
-                presentationId,
-                slideId,
-                slideIndex,
-                format,
-                hasVisual: true,
-                visualType: visual?.type,
-                visualSrc: found.url,
-                nativeRendererAttempted: true,
-                nativeRendererSucceeded: true,
-                structuredRendererUsed: false,
-                structuredElementCount,
-                nativeSvgLength: blob.size,
-                activeRenderer: found.url.includes('.svg') ? 'pre-rendered-svg' : 'raster-image',
-              });
-              return;
-            }
-          }
-        }
-
-        if (visual?.availability === 'failed' || visual?.errorCode === 'CLASSROOM_RENDER_SLIDE_FAILED') {
-          throw Object.assign(
-            new Error(String(visual.errorMessage || 'Slide visual unavailable')),
-            { code: 'CLASSROOM_RENDER_SLIDE_FAILED' },
-          );
-        }
-
-        if (rendering && !renderWaitTimedOut) {
-          const total = slideCount || n;
-          const progress = renderProgressSlide || n;
-          const stageLabel =
-            renderStage === 'PPTX_TO_PDF'
-              ? 'Converting PowerPoint to PDF…'
-              : renderStage === 'PPTX_DOWNLOAD' || renderStage === 'PPTX_VALIDATION'
-                ? 'Preparing the original PowerPoint…'
-                : renderStage === 'VISUAL_UPLOAD'
-                  ? `Saving slide ${progress} of ${total}…`
-                  : total
-                    ? `Rendering slide ${progress} of ${total}…`
-                    : `Rendering slide ${progress}…`;
-          throw Object.assign(new Error(stageLabel), { code: 'CLASSROOM_RENDERING' });
-        }
-
-        const failedCode = pipelineStatus === 'render_failed' || renderWaitTimedOut
-          ? 'CLASSROOM_RENDER_FAILED'
-          : 'CLASSROOM_ASSET_NOT_FOUND';
-        const failedMessage = pipelineStatus === 'render_failed' || renderWaitTimedOut
-          ? (typeof visual?.errorMessage === 'string' && visual.errorMessage.trim()
-            ? visual.errorMessage
-            : 'Slide visual rendering failed. Retry rendering.')
-          : 'The PowerPoint visual was not found in storage.';
-        throw Object.assign(new Error(failedMessage), { code: failedCode });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : formatPptxVisualError(null, 'Unknown visual render error').message;
-        const code = error && typeof error === 'object' && 'code' in error
-          ? String((error as { code?: string }).code)
-          : formatPptxVisualError(null, message).code;
-        console.info('[CLASSROOM_SLIDE]', {
-          code,
-          presentationId,
-          slideId,
-          slideIndex,
-          stage: 'native-visual',
+      if (visualFailed) {
+        setNativeVisualError({
+          code: String(visual?.errorCode || 'CLASSROOM_RENDER_SLIDE_FAILED'),
+          message: String(visual?.errorMessage || 'Slide visual unavailable'),
         });
-        if (!cancelled) {
-          setNativeSvg(null);
-          setNativeImageUrl((previous) => {
-            if (previous) URL.revokeObjectURL(previous);
-            return null;
-          });
-          setNativeVisualError({ code, message });
-          logRenderDiagnostic({
-            presentationId,
-            slideId,
-            slideIndex,
-            format,
-            hasVisual: true,
-            visualType: visual?.type,
-            visualSrc: visual?.src,
-            nativeRendererAttempted: true,
-            nativeRendererSucceeded: false,
-            structuredRendererUsed: false,
-            structuredElementCount,
-            nativeSvgLength: 0,
-            activeRenderer: 'none',
-            fallbackReason: message,
-          });
-        }
+        return;
       }
+      setNativeImageUrl(displayImageSrc);
+      if (pipelineRendering && !renderWaitTimedOut) {
+        const total = slideCount || resolvedSlideNumber;
+        const progress = renderProgressSlide || resolvedSlideNumber;
+        const stageLabel =
+          renderStage === 'PPTX_TO_PDF'
+            ? 'Converting PowerPoint to PDF…'
+            : renderStage === 'PPTX_DOWNLOAD' || renderStage === 'PPTX_VALIDATION'
+              ? 'Preparing the original PowerPoint…'
+              : renderStage === 'VISUAL_UPLOAD'
+                ? `Saving slide ${progress} of ${total}…`
+                : total
+                  ? `Rendering slide ${progress} of ${total}…`
+                  : `Rendering slide ${progress}…`;
+        setNativeVisualError({ code: 'CLASSROOM_RENDERING', message: stageLabel });
+        return;
+      }
+      if (renderWaitTimedOut || pipelineStatus === 'render_failed') {
+        setNativeVisualError({
+          code: String(visual?.errorCode || 'CLASSROOM_RENDER_FAILED'),
+          message: String(visual?.errorMessage || 'Slide visual rendering failed. Retry rendering.'),
+        });
+        return;
+      }
+      setNativeVisualError(null);
     };
 
     void loadNativeVisual();
+  }, [visual?.type, visual?.src, visual?.renderedImageUrl, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, visualFailed, displayImageSrc, pipelineRendering, pipelineStatus, renderWaitTimedOut, slideNumber, presentationId, slideId, resolvedSlideNumber, slideCount, renderProgressSlide, renderStage]);
 
-    return () => {
-      cancelled = true;
-      setNativeImageUrl((previous) => {
-        if (previous) URL.revokeObjectURL(previous);
-        return null;
-      });
-    };
-  }, [visual?.type, visual?.src, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, slideNumber, presentationId, slideId, format, slide.elements.length, logRenderDiagnostic, pipelineStatus, renderWaitTimedOut]);
+  useEffect(() => {
+    if (!pipelineRendering || imageReady || visualFailed || renderWaitTimedOut) return;
+    const timer = window.setInterval(() => {
+      setImageNonce((value) => value + 1);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [pipelineRendering, imageReady, visualFailed, renderWaitTimedOut, presentationId, slideId]);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {
@@ -1831,7 +1675,7 @@ export function SlideRenderer({
   const scaledW = slideWidthPx * fitScale;
   const scaledH = slideHeightPx * fitScale;
   const showSourceVisual = Boolean(visual);
-  const sourceVisualReady = Boolean(nativeImageUrl);
+  const sourceVisualReady = imageReady;
 
   const sourceVisualStatus = nativeVisualError ? (
     <div
@@ -1932,7 +1776,7 @@ export function SlideRenderer({
           flexShrink: 0,
           position: 'relative',
           boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
-          ...((showSourceVisual && sourceVisualReady) || nativeSvg ? {} : backgroundCSS(slide.background, slide.theme)),
+          ...(showSourceVisual && sourceVisualReady ? {} : backgroundCSS(slide.background, slide.theme)),
         }}
       >
         <div
@@ -1948,38 +1792,53 @@ export function SlideRenderer({
             transition: 'transform 120ms ease',
           }}
         >
-          {showSourceVisual && sourceVisualReady ? (
-            <img
-              data-testid="classroom-slide-visual"
-              src={nativeImageUrl ?? ''}
-              alt={title || `Slide ${slideNumber ?? ''}`}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                background: '#000',
-                pointerEvents: 'none',
-                zIndex: 0,
-              }}
-            />
+          {showSourceVisual && displayImageSrc ? (
+            <>
+              <img
+                data-testid="classroom-slide-visual"
+                src={displayImageSrc}
+                alt={title || `Slide ${slideNumber ?? ''}`}
+                onLoad={() => {
+                  setImageReady(true);
+                  setNativeVisualError(null);
+                }}
+                onError={() => {
+                  setImageReady(false);
+                  if (visualFailed) {
+                    setNativeVisualError({
+                      code: String(visual?.errorCode || 'CLASSROOM_RENDER_SLIDE_FAILED'),
+                      message: String(visual?.errorMessage || 'Slide visual unavailable'),
+                    });
+                    return;
+                  }
+                  if (pipelineRendering && !renderWaitTimedOut) {
+                    setNativeVisualError({
+                      code: 'CLASSROOM_RENDERING',
+                      message: `Rendering slide ${resolvedSlideNumber} of ${slideCount || resolvedSlideNumber}…`,
+                    });
+                    return;
+                  }
+                  setNativeVisualError({
+                    code: 'IMAGE_LOAD_FAILED',
+                    message: 'The original slide image could not be loaded.',
+                  });
+                }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  background: '#000',
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                  opacity: sourceVisualReady ? 1 : 0,
+                }}
+              />
+              {!sourceVisualReady ? sourceVisualStatus : null}
+            </>
           ) : showSourceVisual ? (
             sourceVisualStatus
-          ) : nativeSvg ? (
-            <div
-              dangerouslySetInnerHTML={{ __html: nativeSvg }}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                overflow: 'hidden',
-                pointerEvents: 'none',
-                zIndex: 0,
-              }}
-              className="[&_svg]:block [&_svg]:h-full [&_svg]:w-full [&_svg]:max-w-none"
-            />
           ) : (
             <>
               {slide.elements.map((el, idx) => (
@@ -2025,7 +1884,7 @@ export function SlideRenderer({
             </div>
           )}
 
-          {!showSourceVisual && !nativeSvg && !slide.elements.length && !nativeVisualError && (
+          {!showSourceVisual && !slide.elements.length && !nativeVisualError && (
             <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', padding: 40, textAlign: 'center', color: '#64748b' }}>
               <div>
                 <p style={{ fontSize: 24, fontWeight: 600, color: '#334155', margin: '0 0 8px' }}>{title ?? 'Untitled slide'}</p>

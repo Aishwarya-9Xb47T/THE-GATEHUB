@@ -26,6 +26,7 @@ import {
 import {
   canonicalPublicPath,
   canonicalSlidePngRelative,
+  canonicalSlidePngApi,
   canonicalSourceRelative,
   buildSlideVisual,
   PPTX_MIME,
@@ -40,8 +41,9 @@ import {
   sha256OfBuffer,
 } from './classroomSourceResolver.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
-import { renderAndPersistPresentationVisuals, startExclusiveVisualRender, setVisualRenderProgress } from './presentationVisualRepairService.js';
+import { renderAndPersistPresentationVisuals, startExclusiveVisualRender, setVisualRenderProgress, getVisualRenderProgress } from './presentationVisualRepairService.js';
 import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
+import { slideVisualIsReady } from './classroomAssetPath.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -363,11 +365,14 @@ async function persistImportedContent(
             ...contentRest,
             elements: Array.isArray(contentRest.elements) ? contentRest.elements.map(slimElement) : [],
             ...(options.isPptxPipeline
-              ? { visual: buildSlideVisual(presentationId, index, false) }
+              ? { visual: buildSlideVisual(presentationId, index, false, undefined, { renderStatus: 'pending' }) }
               : {}),
           }),
         ),
         notes: slideData.notes,
+        ...(options.isPptxPipeline
+          ? { thumbnail: canonicalSlidePngApi(presentationId, index + 1) }
+          : {}),
       };
     }),
   });
@@ -484,7 +489,7 @@ async function persistImportedContent(
               ? slide.content
               : {}) as object),
             visual: buildSlideVisual(presentationId, slide.order - 1, hasSvg),
-          },
+          } as object,
         },
       });
     }
@@ -520,7 +525,9 @@ async function persistImportedContent(
     content: replaceAssets({
       ...slideData.content,
       ...(options.isPptxPipeline
-        ? { visual: buildSlideVisual(presentationId, index, renderedByIndex.has(index)) }
+        ? { visual: buildSlideVisual(presentationId, index, renderedByIndex.has(index), undefined, {
+            renderStatus: renderedByIndex.has(index) ? 'ready' : 'pending',
+          }) }
         : {}),
     }),
   }));
@@ -615,6 +622,25 @@ function overallStatusFromPipeline(args: {
   if (args.visualRenderStatus === 'pending') return 'rendering';
   if (args.visualRenderStatus === 'partial') return 'rendering_partial';
   return 'render_failed';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForFirstRenderedSlide(presentationId: string, timeoutMs: number): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const slide = await prisma.slide.findFirst({
+      where: { presentationId, order: 1 },
+      select: { content: true },
+    });
+    if (slideVisualIsReady(slide?.content)) return true;
+    const progress = getVisualRenderProgress(presentationId);
+    if (progress?.stage === 'FAILED') return false;
+    await sleep(400);
+  }
+  return false;
 }
 
 export async function importPresentation(
@@ -765,7 +791,7 @@ export async function importPresentation(
       },
     );
 
-    const overallStatus = overallStatusFromPipeline({
+    let overallStatus = overallStatusFromPipeline({
       isPptxPipeline,
       visualRenderStatus: persistResult.visualRenderStatus,
       expectedCount: persistResult.expectedCount,
@@ -785,53 +811,65 @@ export async function importPresentation(
       const buffer = sourceFileBuffer;
       const pdfBuf = resolved.pdfFileBuffer;
       const presentationId = presentation.id;
-      setImmediate(() => {
-        console.info('[CLASSROOM_RENDER] background_start', {
-          presentationId,
-          bytes: buffer.length,
-          hasDirectPdf: Boolean(pdfBuf),
-          pdfSource: pdfBuf ? 'google-native-pdf' : 'libreoffice-pptx',
-          slides: persistResult.expectedCount,
-        });
-        classroomPptxPipelineLog('source_resolved', {
-          presentationId,
-          sourceType: input.sourceType,
-          originalBytes: buffer.length,
-          hasDirectPdf: Boolean(pdfBuf),
-          slideCount: persistResult.expectedCount,
-        });
-        const { job } = startExclusiveVisualRender(presentationId, () =>
-          renderAndPersistPresentationVisuals(presentationId, buffer, {
-            skipExisting: true,
-            sourceRelative: canonicalSourceRelative(presentationId),
-            sourceBytes: buffer.length,
-            sourceSha256: sha256OfBuffer(buffer),
-            pdfBuffer: pdfBuf,
-          }),
-        );
-        job.catch(async (error) => {
-          console.error('[Classroom import] Background slide render failed', {
-            presentationId,
-            error: error instanceof Error ? error.message : String(error),
-            details: error instanceof AppError ? error.details : undefined,
-          });
-          setVisualRenderProgress(presentationId, {
-            stage: 'FAILED',
-            currentSlide: 0,
-            totalSlides: persistResult.expectedCount,
-          });
-          const current = await prisma.presentation.findUnique({
-            where: { id: presentationId },
-            select: { status: true },
-          });
-          if (current?.status === 'rendering') {
-            await prisma.presentation.update({
-              where: { id: presentationId },
-              data: { status: 'render_failed' },
-            }).catch(() => undefined);
-          }
-        });
+      console.info('[CLASSROOM_RENDER] background_start', {
+        presentationId,
+        bytes: buffer.length,
+        hasDirectPdf: Boolean(pdfBuf),
+        pdfSource: pdfBuf ? 'google-native-pdf' : 'libreoffice-pptx',
+        slides: persistResult.expectedCount,
       });
+      classroomPptxPipelineLog('source_resolved', {
+        presentationId,
+        sourceType: input.sourceType,
+        originalBytes: buffer.length,
+        hasDirectPdf: Boolean(pdfBuf),
+        slideCount: persistResult.expectedCount,
+      });
+      const { job } = startExclusiveVisualRender(presentationId, () =>
+        renderAndPersistPresentationVisuals(presentationId, buffer, {
+          skipExisting: true,
+          sourceRelative: canonicalSourceRelative(presentationId),
+          sourceBytes: buffer.length,
+          sourceSha256: sha256OfBuffer(buffer),
+          pdfBuffer: pdfBuf,
+        }),
+      );
+      job.catch(async (error) => {
+        console.error('[Classroom import] Background slide render failed', {
+          presentationId,
+          error: error instanceof Error ? error.message : String(error),
+          details: error instanceof AppError ? error.details : undefined,
+        });
+        setVisualRenderProgress(presentationId, {
+          stage: 'FAILED',
+          currentSlide: 0,
+          totalSlides: persistResult.expectedCount,
+        });
+        const current = await prisma.presentation.findUnique({
+          where: { id: presentationId },
+          select: { status: true },
+        });
+        if (current?.status === 'rendering') {
+          await prisma.presentation.update({
+            where: { id: presentationId },
+            data: { status: 'render_failed' },
+          }).catch(() => undefined);
+        }
+      });
+      const firstReady = await waitForFirstRenderedSlide(presentationId, 12_000);
+      if (firstReady) {
+        persistResult.renderedCount = Math.max(persistResult.renderedCount, 1);
+        persistResult.visualRenderStatus = persistResult.expectedCount <= 1 ? 'complete' : 'pending';
+        overallStatus = overallStatusFromPipeline({
+          isPptxPipeline,
+          visualRenderStatus: persistResult.visualRenderStatus,
+          expectedCount: persistResult.expectedCount,
+        });
+        await prisma.presentation.update({
+          where: { id: presentationId },
+          data: { status: overallStatus },
+        }).catch(() => undefined);
+      }
     }
 
     const result: ImportPresentationResult = {

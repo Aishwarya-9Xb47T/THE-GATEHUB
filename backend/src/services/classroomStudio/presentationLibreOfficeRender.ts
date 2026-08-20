@@ -20,6 +20,7 @@ const PDF_CONVERT_TIMEOUT_MS = 180_000;
 const PAGE_RENDER_TIMEOUT_MS = 45_000;
 const LOG_TEXT_LIMIT = 4_000;
 const IMPRESS_PDF_FILTER = 'pdf:impress_pdf_Export';
+const CLASSROOM_PNG_DPI = 200;
 
 const JAVA_DISABLE_REGISTRY = `<?xml version="1.0" encoding="UTF-8"?>
 <oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -444,7 +445,7 @@ async function renderPdfPageToSvg(args: {
     try {
       const pngResult = await runCommand(
         args.pdftoppm,
-        ['-png', '-singlefile', '-r', '192', '-f', String(args.page), '-l', String(args.page), args.pdfPath, pngPrefix],
+        ['-png', '-singlefile', '-r', String(CLASSROOM_PNG_DPI), '-f', String(args.page), '-l', String(args.page), args.pdfPath, pngPrefix],
         PAGE_RENDER_TIMEOUT_MS,
       );
       return await loadPng(pngResult, [pngPrefix], 'pdftoppm-png');
@@ -457,7 +458,7 @@ async function renderPdfPageToSvg(args: {
     const cairoPngPrefix = `${prefix}-cairo`;
     const pngResult = await runCommand(
       args.pdftocairo,
-      ['-png', '-singlefile', '-r', '192', '-f', String(args.page), '-l', String(args.page), args.pdfPath, cairoPngPrefix],
+      ['-png', '-singlefile', '-r', String(CLASSROOM_PNG_DPI), '-f', String(args.page), '-l', String(args.page), args.pdfPath, cairoPngPrefix],
       PAGE_RENDER_TIMEOUT_MS,
     );
     try {
@@ -482,7 +483,7 @@ async function renderPdfPageToSvg(args: {
   throw new Error('PDF_RENDER_FAILED pdftoppm and pdftocairo are missing');
 }
 
-async function convertPptxToPdf(args: {
+export async function convertPptxToPdf(args: {
   soffice: string;
   pptxPath: string;
   workDir: string;
@@ -580,6 +581,10 @@ async function convertPptxToPdf(args: {
   return { pdfPath, ...meta, exitCode: convert.exitCode };
 }
 
+export async function readCanonicalPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pageCount: number; pdfText: string; pdfBytes: number; pdfBuffer: Buffer }> {
+  return readPdfMetadata(pdfPath, outputDir);
+}
+
 async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pageCount: number; pdfText: string; pdfBytes: number; pdfBuffer: Buffer }> {
   const pdf = await readFile(pdfPath);
   if (pdf.length < 200 || !pdf.subarray(0, 4).equals(Buffer.from('%PDF'))) {
@@ -605,6 +610,73 @@ async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pa
   return { pageCount, pdfText, pdfBytes: pdf.length, pdfBuffer: pdf };
 }
 
+export async function convertOriginalPptxToCanonicalPdf(args: {
+  pptxPath: string;
+  workDir: string;
+  presentationId?: string;
+}): Promise<{ pdfPath: string; pdfBytes: number; pageCount: number; pdfText: string; pdfBuffer: Buffer; exitCode: number }> {
+  const soffice = libreOfficeExecutable();
+  if (!soffice) {
+    const error = new Error('PPTX_CONVERSION_FAILED LibreOffice (soffice) is not installed');
+    (error as Error & { code?: string }).code = 'PPTX_CONVERSION_FAILED';
+    throw error;
+  }
+  const profileDir = path.join(args.workDir, `profile-${randomUUID()}`);
+  const outputDir = path.join(args.workDir, 'pdf-out');
+  await mkdir(profileDir, { recursive: true });
+  await mkdir(outputDir, { recursive: true });
+  const pptx = await readFile(args.pptxPath);
+  return convertPptxToPdf({
+    soffice,
+    pptxPath: args.pptxPath,
+    workDir: args.workDir,
+    profileDir,
+    outputDir,
+    sha256: sha256Hex(pptx),
+    presentationId: args.presentationId,
+  });
+}
+
+export async function rasterizePdfPagesToPng(args: {
+  pdfPath: string;
+  pages: number[];
+  outputDir: string;
+  dpi?: number;
+}): Promise<Array<{ page: number; buffer: Buffer; bytes: number; width: number; height: number }>> {
+  const tools = describeLibreOfficeTools();
+  if (!tools.pdftocairo && !tools.pdftoppm) {
+    const error = new Error('IMAGE_RENDER_FAILED pdftocairo/pdftoppm is not installed');
+    (error as Error & { code?: string }).code = 'IMAGE_RENDER_FAILED';
+    throw error;
+  }
+  await mkdir(args.outputDir, { recursive: true });
+  const images: Array<{ page: number; buffer: Buffer; bytes: number; width: number; height: number }> = [];
+  for (const page of args.pages) {
+    const rendered = await renderPdfPageToSvg({
+      pdfPath: args.pdfPath,
+      page,
+      outputDir: args.outputDir,
+      pdftocairo: tools.pdftocairo,
+      pdftoppm: tools.pdftoppm,
+    });
+    if (!rendered.pngPath || !existsSync(rendered.pngPath)) {
+      const error = new Error(`IMAGE_RENDER_FAILED page=${page} PNG was not produced`);
+      (error as Error & { code?: string }).code = 'IMAGE_RENDER_FAILED';
+      throw error;
+    }
+    const png = await readFile(rendered.pngPath);
+    const dims = assertRenderablePng(png);
+    images.push({
+      page,
+      buffer: png,
+      bytes: png.length,
+      width: dims.width,
+      height: dims.height,
+    });
+  }
+  return images;
+}
+
 export async function renderPresentationSlidesLibreOffice(
   pptxBuffer: Buffer,
   outputDir: string,
@@ -616,6 +688,7 @@ export async function renderPresentationSlidesLibreOffice(
     maxSlides?: number;
     pdfBuffer?: Buffer;
     sourceSha256?: string;
+    pages?: number[];
   },
 ): Promise<PresentationRenderResult> {
   const warnings: string[] = [];
@@ -859,7 +932,10 @@ export async function renderPresentationSlidesLibreOffice(
         pdfBytes,
       });
     }
-    const lastPage = Math.min(pageCount, options?.maxSlides && options.maxSlides > 0 ? options.maxSlides : pageCount);
+    const requestedPages = (options?.pages?.filter((page) => page >= 1 && page <= pageCount) ?? []).sort((a, b) => a - b);
+    const lastPage = requestedPages.length
+      ? Math.max(...requestedPages)
+      : Math.min(pageCount, options?.maxSlides && options.maxSlides > 0 ? options.maxSlides : pageCount);
     log({ stage: 'PDF_READY', status: 'success', pages: pageCount, requested: lastPage });
     classroomPptxPipelineLog('pdf_page_count', {
       presentationId,
@@ -868,7 +944,14 @@ export async function renderPresentationSlidesLibreOffice(
     });
 
     const renders: SlideRenderResult[] = [];
-    for (let index = 0; index < lastPage; index += 1) {
+    const pageIndexes = requestedPages.length
+      ? requestedPages.map((page) => page - 1)
+      : Array.from({ length: lastPage }, (_, index) => index);
+    if (pageIndexes.includes(0)) {
+      pageIndexes.splice(pageIndexes.indexOf(0), 1);
+      pageIndexes.unshift(0);
+    }
+    for (const index of pageIndexes) {
       const slide = index + 1;
       if (skipIndexes.has(index)) {
         log({ stage: 'SLIDE_COMPLETE', slide, skipped: true, status: 'success' });
@@ -968,7 +1051,7 @@ export async function renderPresentationSlidesLibreOffice(
       }
     }
 
-    const newlyExpected = lastPage - [...skipIndexes].filter((index) => index >= 0 && index < lastPage).length;
+    const newlyExpected = pageIndexes.filter((index) => !skipIndexes.has(index)).length;
     log({
       complete: true,
       requested: newlyExpected,

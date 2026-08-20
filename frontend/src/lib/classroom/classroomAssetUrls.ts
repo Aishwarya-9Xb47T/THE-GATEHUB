@@ -44,6 +44,18 @@ export function canonicalClassroomApiAsset(
   return `/api/classroom-studio/presentations/${presentationId}/assets/${kind}/${filename}`;
 }
 
+export function classroomRenderedImageUrl(
+  presentationId: string | undefined,
+  slideNumber: number | undefined,
+  visualSrc?: string,
+): string | null {
+  if (presentationId && slideNumber && slideNumber >= 1) {
+    return canonicalClassroomApiAsset(presentationId, "renders", paddedSlideFile(slideNumber, "png"));
+  }
+  const urls = classroomVisualFetchUrls(visualSrc, presentationId, "png");
+  return urls[0] ?? null;
+}
+
 export function classroomVisualFetchUrls(
   src: string | undefined,
   presentationId?: string,

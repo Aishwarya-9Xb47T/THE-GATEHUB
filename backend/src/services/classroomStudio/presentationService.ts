@@ -127,6 +127,7 @@ export async function getPresentationById(
   }));
   const renderProgress = computeClassroomRenderProgress(slides);
   const jobProgress = (await import('./presentationVisualRepairService.js')).getVisualRenderProgress(presentation.id);
+  const renderJob = (await import('./presentationVisualRepairService.js')).getClassroomRenderJob(presentation.id);
   if (jobProgress) {
     renderProgress.stage = jobProgress.stage;
     if (jobProgress.currentSlide > 0) renderProgress.currentSlide = jobProgress.currentSlide;
@@ -191,6 +192,7 @@ export async function getPresentationById(
     slides,
     renderProgress,
     renderedVisuals: renderProgress.rendered,
+    renderJob,
     lastRenderError: failedVisual?.errorCode
       ? { code: failedVisual.errorCode, message: failedVisual.errorMessage || null, slide: failedSlide?.order ?? null }
       : null,

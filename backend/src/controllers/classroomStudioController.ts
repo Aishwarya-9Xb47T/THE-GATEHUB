@@ -27,6 +27,7 @@ import { parseClassroomAssetFilename } from '../services/classroomStudio/classro
 import {
   inspectPresentationVisuals,
   regeneratePresentationVisuals as regeneratePresentationVisualsService,
+  retrySlideVisual as retrySlideVisualService,
 } from '../services/classroomStudio/presentationVisualRepairService.js';
 import { analyzeSlideContent as parseSlideInteraction } from '../services/classroomStudio/slideParserEngine.js';
 import { enrichInteractionSettings } from '../services/classroomStudio/slideContentParser.js';
@@ -141,6 +142,22 @@ export async function regeneratePresentationVisuals(req: Request, res: Response,
     const instructorId = getUserId(req);
     const result = await regeneratePresentationVisualsService(
       id,
+      instructorId,
+      (req as any).user?.role as string | undefined,
+    );
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retrySlideVisual(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id, slideId } = req.params;
+    const instructorId = getUserId(req);
+    const result = await retrySlideVisualService(
+      id,
+      slideId,
       instructorId,
       (req as any).user?.role as string | undefined,
     );

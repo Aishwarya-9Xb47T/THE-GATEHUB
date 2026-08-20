@@ -1,15 +1,14 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { prisma } from "../../utils/prisma.js";
 import { AppError } from "../../middlewares/errorHandler.js";
 import { isAdminRole } from "../../utils/roles.js";
 import { persistAtPublicRelative } from "../../middlewares/persistUpload.js";
+import { resolveSafeUploadPath } from "../../middlewares/uploadAccess.js";
 import { headObject, isB2Configured } from "../b2StorageService.js";
 import {
   B2_UPLOAD_TIMEOUT_MS,
-  describeClassroomRenderer,
-  renderPresentationSlides,
   withDeadline,
 } from "./presentationRenderService.js";
 import {
@@ -24,13 +23,21 @@ import {
   PNG_MIME,
   buildSlideVisual,
   canonicalPublicPath,
+  canonicalSlidePngApi,
   canonicalSlidePngRelative,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
+  type SlideRenderStatus,
 } from "./classroomAssetPath.js";
 import { assertRenderablePng } from "./presentationLibreOfficeRender.js";
 import { CLASSROOM_RENDER_JOB_TIMEOUT_MS } from "./presentationAccess.js";
 import { classroomPptxPipelineLog } from "./classroomPipelineLog.js";
+import {
+  CLASSROOM_RENDERER_VERSION,
+  classifyClassroomRenderError,
+  renderPresentation,
+  type SlidePng,
+} from "./presentationRenderer.js";
 
 function classroomRenderPersistLog(
   presentationId: string,
@@ -58,15 +65,60 @@ function withVisual(
   content: unknown,
   presentationId: string,
   slideIndex: number,
-  hasSvg: boolean,
+  hasRenderedImage: boolean,
   error?: { code?: string; message?: string },
+  extra?: {
+    renderStatus?: SlideRenderStatus;
+    sourceHash?: string;
+    jobId?: string;
+    attempt?: number;
+  },
 ): Record<string, unknown> {
   const base =
     content && typeof content === "object" && !Array.isArray(content)
       ? { ...(content as Record<string, unknown>) }
       : {};
-  base.visual = buildSlideVisual(presentationId, slideIndex, hasSvg, error);
+  base.visual = buildSlideVisual(presentationId, slideIndex, hasRenderedImage, error, {
+    ...extra,
+    rendererVersion: CLASSROOM_RENDERER_VERSION,
+  });
   return base;
+}
+
+export type ClassroomRenderJobRecord = {
+  jobId: string;
+  presentationId: string;
+  slideIndex: number | null;
+  sourceType: string;
+  status: "PENDING" | "RENDERING" | "READY" | "FAILED";
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+  attempt: number;
+};
+
+const renderJobs = new Map<string, ClassroomRenderJobRecord>();
+
+export function getClassroomRenderJob(presentationId: string): ClassroomRenderJobRecord | null {
+  return renderJobs.get(presentationId) ?? null;
+}
+
+function upsertRenderJob(presentationId: string, patch: Partial<ClassroomRenderJobRecord>): ClassroomRenderJobRecord {
+  const existing = renderJobs.get(presentationId);
+  const next: ClassroomRenderJobRecord = {
+    jobId: patch.jobId || existing?.jobId || randomUUID(),
+    presentationId,
+    slideIndex: patch.slideIndex ?? existing?.slideIndex ?? null,
+    sourceType: patch.sourceType || existing?.sourceType || "powerpoint",
+    status: patch.status || existing?.status || "PENDING",
+    startedAt: patch.startedAt || existing?.startedAt || new Date().toISOString(),
+    completedAt: patch.completedAt ?? existing?.completedAt,
+    error: patch.error ?? existing?.error,
+    attempt: patch.attempt ?? existing?.attempt ?? 1,
+  };
+  renderJobs.set(presentationId, next);
+  console.info("[CLASSROOM_RENDER_JOB]", next);
+  return next;
 }
 
 const inflightVisualRenders = new Map<string, Promise<unknown>>();
@@ -223,7 +275,11 @@ export async function regeneratePresentationVisuals(
     key: resolved.key,
     bytes: resolved.bytes,
   });
-  console.info("[CLASSROOM_RENDER]", describeClassroomRenderer());
+  console.info("[CLASSROOM_RENDER]", {
+    presentationId,
+    renderer: CLASSROOM_RENDERER_VERSION,
+    sourceType: presentation.sourceType,
+  });
 
   const expected = presentation.slides.length;
   const canonicalRelative = canonicalSourceRelative(presentationId);
@@ -317,6 +373,76 @@ export async function regeneratePresentationVisuals(
   };
 }
 
+async function persistRenderedPng(args: {
+  presentationId: string;
+  slideOrder: number;
+  png: Buffer;
+  sourceHash: string;
+  jobId: string;
+  attempt?: number;
+}): Promise<void> {
+  const dims = assertRenderablePng(args.png);
+  const relative = canonicalSlidePngRelative(args.presentationId, args.slideOrder);
+  const dest = resolveSafeUploadPath(relative);
+  if (!dest) {
+    const error = new Error(`IMAGE_STORAGE_FAILED invalid path slide=${args.slideOrder}`);
+    (error as Error & { code?: string }).code = "IMAGE_STORAGE_FAILED";
+    throw error;
+  }
+  await mkdir(path.dirname(dest), { recursive: true });
+  await writeFile(dest, args.png);
+  classroomRenderLogPersist(args.presentationId, args.slideOrder, "b2-upload-start", relative);
+  try {
+    await withDeadline(
+      persistAtPublicRelative(dest, relative, PNG_MIME, { keepLocal: true }),
+      B2_UPLOAD_TIMEOUT_MS,
+      "IMAGE_STORAGE_FAILED",
+      `IMAGE_STORAGE_FAILED slide=${args.slideOrder}`,
+    );
+  } catch (error) {
+    const wrapped = error instanceof Error ? error : new Error(String(error));
+    (wrapped as Error & { code?: string }).code = "IMAGE_STORAGE_FAILED";
+    throw wrapped;
+  }
+  if (isB2Configured()) {
+    const stored = await headObject(`uploads/${relative}`);
+    if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
+      const error = new Error(`IMAGE_STORAGE_FAILED slide=${args.slideOrder} B2 verify failed`);
+      (error as Error & { code?: string }).code = "IMAGE_STORAGE_FAILED";
+      throw error;
+    }
+    classroomRenderPersistLog(args.presentationId, args.slideOrder, relative, stored.contentLength);
+  } else {
+    classroomRenderPersistLog(args.presentationId, args.slideOrder, relative, args.png.length);
+  }
+  const slide = await prisma.slide.findFirst({
+    where: { presentationId: args.presentationId, order: args.slideOrder },
+  });
+  if (slide) {
+    await prisma.slide.update({
+      where: { id: slide.id },
+      data: {
+        thumbnail: canonicalSlidePngApi(args.presentationId, args.slideOrder),
+        content: withVisual(slide.content, args.presentationId, args.slideOrder - 1, true, undefined, {
+          renderStatus: "ready",
+          sourceHash: args.sourceHash,
+          jobId: args.jobId,
+          attempt: args.attempt,
+        }) as object,
+      },
+    });
+  }
+  console.info("[CLASSROOM_RENDER_SLIDE]", {
+    slide: args.slideOrder,
+    pngGenerated: true,
+    pngSize: args.png.length,
+    width: dims.width,
+    height: dims.height,
+    storageSuccess: true,
+    presentationId: args.presentationId,
+  });
+}
+
 export async function renderAndPersistPresentationVisuals(
   presentationId: string,
   pptxBuffer: Buffer,
@@ -326,6 +452,9 @@ export async function renderAndPersistPresentationVisuals(
     sourceBytes?: number;
     sourceSha256?: string;
     pdfBuffer?: Buffer;
+    pages?: number[];
+    jobId?: string;
+    attempt?: number;
   },
 ) {
   const presentation = await prisma.presentation.findUnique({
@@ -339,305 +468,311 @@ export async function renderAndPersistPresentationVisuals(
   const expected = presentation.slides.length;
   const sourceRelative = options?.sourceRelative ?? canonicalSourceRelative(presentationId);
   const inputSha256 = sha256OfBuffer(pptxBuffer);
+  const job = upsertRenderJob(presentationId, {
+    jobId: options?.jobId,
+    sourceType: presentation.sourceType,
+    status: "RENDERING",
+    slideIndex: options?.pages?.[0] ?? null,
+    attempt: options?.attempt,
+    startedAt: new Date().toISOString(),
+  });
   console.info("[CLASSROOM_SOURCE]", {
     presentationId,
     bytes: pptxBuffer.length,
     sha256: inputSha256,
   });
-  console.info("[CLASSROOM_RENDER]", {
-    presentationId,
-    inputBytes: pptxBuffer.length,
-    inputSha256,
-    sourceBytes: options?.sourceBytes,
-    sourceSha256: options?.sourceSha256,
-  });
   if (options?.sourceSha256 && options.sourceSha256 !== inputSha256) {
+    upsertRenderJob(presentationId, { status: "FAILED", error: "SOURCE_INVALID hash mismatch", completedAt: new Date().toISOString() });
     throw new AppError(500, "Render input SHA-256 does not match the stored PowerPoint source", true, {
-      code: "CLASSROOM_RENDER_SOURCE_FAILED",
+      code: "SOURCE_INVALID",
       stage: "render",
       reason: "SHA256_MISMATCH",
       presentationId,
     });
   }
+
   const alreadyRendered = new Set<number>();
   if (options?.skipExisting) {
     for (const slide of presentation.slides) {
+      const visual = (slide.content as { visual?: { sourceHash?: string; rendererVersion?: string; renderStatus?: string } } | null)?.visual;
       const pngRelative = canonicalSlidePngRelative(presentationId, slide.order);
       const existingPng = await headFirst(pngRelative);
       if (existingPng?.meta.contentLength && existingPng.meta.contentLength > 8_000) {
-        alreadyRendered.add(slide.order - 1);
-        continue;
-      }
-      const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
-      const existing = await headFirst(svgRelative);
-      if (existing?.meta.contentLength && existing.meta.contentLength > 8_000) {
-        alreadyRendered.add(slide.order - 1);
+        const reusable = !visual?.sourceHash
+          || (visual.sourceHash === inputSha256 && visual.rendererVersion === CLASSROOM_RENDERER_VERSION);
+        if (reusable) alreadyRendered.add(slide.order - 1);
       }
     }
   }
 
-  console.info("[CLASSROOM_RENDER]", {
-    presentationId,
-    slides: expected,
-    skipExisting: alreadyRendered.size,
-    renderer: describeClassroomRenderer().renderer,
-  });
+  const requestedPages = (options?.pages?.length
+    ? options.pages
+    : presentation.slides.map((slide) => slide.order)
+  ).filter((page) => page >= 1 && !alreadyRendered.has(page - 1));
+  requestedPages.sort((a, b) => a - b);
+  if (requestedPages.includes(1)) {
+    requestedPages.splice(requestedPages.indexOf(1), 1);
+    requestedPages.unshift(1);
+  }
 
-  const outputDir = path.join(os.tmpdir(), `classroom-render-${presentationId}`);
-  const persistedIndexes = new Set<number>(alreadyRendered);
-  const persistOne = async (render: { index: number; path: string; svgLength?: number; svgText?: string; pngLength?: number }) => {
-    if (persistedIndexes.has(render.index)) return;
-    const pngRelative = canonicalSlidePngRelative(presentationId, render.index + 1);
-    const pngName = path.basename(render.path).replace(/\.svg$/i, ".png");
-    const pngDiskPath = path.join(outputDir, pngName.endsWith(".png") ? pngName : `slide-${String(render.index + 1).padStart(3, "0")}.png`);
-    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-start", pngRelative);
-    classroomPptxPipelineLog("visual_upload_started", {
-      presentationId,
-      slideNumber: render.index + 1,
-      sourceKey: `uploads/${pngRelative}`,
-    });
-    let png: Buffer;
-    try {
-      png = await readFile(pngDiskPath);
-    } catch {
-      const error = new Error(`CLASSROOM_RENDER_EMPTY_VISUAL slide=${render.index + 1} reason=missing PNG on disk`);
-      (error as Error & { code?: string }).code = "CLASSROOM_RENDER_EMPTY_VISUAL";
-      throw error;
-    }
-    try {
-      assertRenderablePng(png);
-    } catch (error) {
-      const wrapped = error instanceof Error ? error : new Error(String(error));
-      (wrapped as Error & { code?: string }).code = "CLASSROOM_RENDER_EMPTY_VISUAL";
-      throw wrapped;
-    }
-    await writeFile(pngDiskPath, png);
-    try {
-      await withDeadline(
-        persistAtPublicRelative(pngDiskPath, pngRelative, PNG_MIME, { keepLocal: !isB2Configured() }),
-        B2_UPLOAD_TIMEOUT_MS,
-        "CLASSROOM_RENDER_B2_UPLOAD_FAILED",
-        `CLASSROOM_RENDER_B2_UPLOAD_FAILED slide=${render.index + 1}`,
-      );
-    } catch (error) {
-      const wrapped = error instanceof Error ? error : new Error(String(error));
-      (wrapped as Error & { code?: string }).code =
-        (wrapped as Error & { code?: string }).code || "CLASSROOM_RENDER_B2_UPLOAD_FAILED";
-      throw wrapped;
-    }
-    if (isB2Configured()) {
-      const stored = await headObject(`uploads/${pngRelative}`);
-      if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
-        const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1}`);
-        (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
-        throw error;
-      }
-      const type = String(stored.contentType || "").toLowerCase();
-      if (type && /json|html|text\/plain/.test(type)) {
-        const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1} reason=contentType=${stored.contentType}`);
-        (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
-        throw error;
-      }
-      classroomRenderLogPersist(presentationId, render.index + 1, "B2_HEAD_VERIFIED", pngRelative);
-      classroomRenderPersistLog(presentationId, render.index + 1, pngRelative, stored.contentLength);
-    } else {
-      classroomRenderPersistLog(presentationId, render.index + 1, pngRelative, png.length);
-    }
-    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-complete", pngRelative);
-    classroomPptxPipelineLog("visual_upload_completed", {
-      presentationId,
-      slideNumber: render.index + 1,
-      sourceKey: `uploads/${pngRelative}`,
-    });
-    console.info("[CLASSROOM_RENDER]", {
-      presentationId,
-      slideIndex: render.index + 1,
-      imageGenerated: true,
-      imageStored: true,
-      visualUrl: `/api/classroom-studio/presentations/${presentationId}/assets/renders/${path.basename(pngRelative)}`,
-    });
-    setVisualRenderProgress(presentationId, {
-      stage: "VISUAL_UPLOAD",
-      currentSlide: render.index + 1,
-      totalSlides: expected,
-    });
-    const slide = presentation.slides.find((item) => item.order === render.index + 1);
-    if (slide) {
-      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-start", pngRelative);
-      await prisma.slide.update({
-        where: { id: slide.id },
-        data: {
-          content: withVisual(slide.content, presentationId, render.index, true) as object,
-        },
-      });
-      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-complete", pngRelative);
-      classroomPptxPipelineLog("slide_persisted", {
-        presentationId,
-        slideId: slide.id,
-        slideNumber: render.index + 1,
-      });
-    }
-    persistedIndexes.add(render.index);
-  };
-
-  const missingIndexes = presentation.slides
-    .map((slide) => slide.order - 1)
-    .filter((index) => !alreadyRendered.has(index));
-  const storedPdf =
-    presentation.sourceType === "google_slides"
-      ? options?.pdfBuffer ?? (await downloadPresentationExportPdf(presentationId)) ?? undefined
-      : options?.pdfBuffer;
-  setVisualRenderProgress(presentationId, {
-    stage: storedPdf ? "PDF_TO_IMAGES" : "PPTX_TO_PDF",
-    currentSlide: 0,
-    totalSlides: expected,
-  });
-  classroomPptxPipelineLog("source_resolved", {
-    presentationId,
-    sourceKey: `uploads/${sourceRelative}`,
-    originalBytes: pptxBuffer.length,
-    pdfBytes: storedPdf?.length,
-    pdfSource: storedPdf ? "stored-or-google-pdf" : "libreoffice-pptx",
-    slideCount: expected,
-  });
-  console.info("[CLASSROOM_RENDER]", {
-    presentationId,
-    pdfSource: storedPdf ? "stored-or-google-pdf" : "libreoffice-pptx",
-    pdfBytes: storedPdf?.length,
-  });
-  const renderResult = missingIndexes.length === 0
-    ? { success: true, slideCount: expected, renders: [], warnings: [], errors: [], method: describeClassroomRenderer().renderer }
-    : await renderPresentationSlides(pptxBuffer, outputDir, {
-      skipIndexes: alreadyRendered,
-      onSlideRendered: persistOne,
-      presentationId,
-      pdfBuffer: storedPdf,
-      sourceSha256: options?.sourceSha256 ?? inputSha256,
-      onProgress: async ({ slide, total }) => {
-        setVisualRenderProgress(presentationId, {
-          stage: "PDF_TO_IMAGES",
-          currentSlide: slide,
-          totalSlides: total,
-        });
+  for (const slide of presentation.slides) {
+    if (alreadyRendered.has(slide.order - 1) || (options?.pages && !options.pages.includes(slide.order))) continue;
+    await prisma.slide.update({
+      where: { id: slide.id },
+      data: {
+        content: withVisual(slide.content, presentationId, slide.order - 1, false, undefined, {
+          renderStatus: "rendering",
+          sourceHash: inputSha256,
+          jobId: job.jobId,
+          attempt: job.attempt,
+        }) as object,
       },
     });
+  }
 
-  if (!storedPdf && renderResult.pdfBuffer) {
-    await persistPdfBuffer(presentationId, renderResult.pdfBuffer).catch((error) => {
-      console.warn("[CLASSROOM_SOURCE] libreoffice_pdf_persist_failed", {
-        presentationId,
-        error: error instanceof Error ? error.message : String(error),
+  const storedPdf =
+    options?.pdfBuffer
+    ?? (presentation.sourceType === "google_slides" ? await downloadPresentationExportPdf(presentationId) : null)
+    ?? await downloadPresentationExportPdf(presentationId);
+  setVisualRenderProgress(presentationId, {
+    stage: storedPdf ? "PDF_TO_IMAGES" : "PPTX_TO_PDF",
+    currentSlide: requestedPages[0] ?? 0,
+    totalSlides: expected,
+  });
+
+  const persistImages = async (images: SlidePng[]) => {
+    for (const image of images) {
+      setVisualRenderProgress(presentationId, {
+        stage: "VISUAL_UPLOAD",
+        currentSlide: image.page,
+        totalSlides: expected,
       });
+      try {
+        await persistRenderedPng({
+          presentationId,
+          slideOrder: image.page,
+          png: image.buffer,
+          sourceHash: inputSha256,
+          jobId: job.jobId,
+          attempt: job.attempt,
+        });
+        alreadyRendered.add(image.page - 1);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[CLASSROOM_RENDER_ERROR]", {
+          presentationId,
+          slide: image.page,
+          stage: "IMAGE_STORAGE",
+          error: message.slice(0, 800),
+        });
+        const slide = presentation.slides.find((item) => item.order === image.page);
+        if (slide) {
+          await prisma.slide.update({
+            where: { id: slide.id },
+            data: {
+              content: withVisual(slide.content, presentationId, image.page - 1, false, {
+                code: classifyClassroomRenderError(error),
+                message,
+              }, {
+                renderStatus: "failed",
+                sourceHash: inputSha256,
+                jobId: job.jobId,
+                attempt: job.attempt,
+              }) as object,
+            },
+          });
+        }
+      }
+    }
+  };
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  let method = "libreoffice-pdf";
+  let canonicalPdf = storedPdf ?? undefined;
+
+  if (requestedPages.length > 0) {
+    const firstPages = requestedPages[0] === 1 ? [1] : [requestedPages[0]];
+    const restPages = requestedPages.filter((page) => !firstPages.includes(page));
+    const firstResult = await renderPresentation({
+      presentationId,
+      pptxBuffer,
+      pdfBuffer: canonicalPdf,
+      expectedSlideCount: expected,
+      pages: firstPages,
+      sourceHash: inputSha256,
+    });
+    method = firstResult.provider;
+    errors.push(...firstResult.errors);
+    warnings.push(...firstResult.warnings);
+    if (firstResult.pdf?.buffer) {
+      canonicalPdf = firstResult.pdf.buffer;
+      await persistPdfBuffer(presentationId, firstResult.pdf.buffer).catch((error) => {
+        console.warn("[CLASSROOM_SOURCE] canonical_pdf_persist_failed", {
+          presentationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    await persistImages(firstResult.images);
+
+    if (restPages.length && canonicalPdf) {
+      const restResult = await renderPresentation({
+        presentationId,
+        pptxBuffer,
+        pdfBuffer: canonicalPdf,
+        expectedSlideCount: expected,
+        pages: restPages,
+        sourceHash: inputSha256,
+      });
+      method = restResult.provider;
+      errors.push(...restResult.errors);
+      warnings.push(...restResult.warnings);
+      await persistImages(restResult.images);
+    } else if (restPages.length && !canonicalPdf) {
+      errors.push("PDF_GENERATION_FAILED canonical PDF unavailable for remaining slides");
+    }
+  }
+
+  const refreshed = await prisma.slide.findMany({
+    where: { presentationId },
+    orderBy: { order: "asc" },
+  });
+  const targetedOrders = new Set(options?.pages?.length ? options.pages : refreshed.map((slide) => slide.order));
+  const readyIndexes = new Set<number>();
+  for (const slide of refreshed) {
+    const visual = (slide.content as { visual?: { renderStatus?: string; availability?: string } } | null)?.visual;
+    if (visual?.renderStatus === "ready" || visual?.availability === "available" || alreadyRendered.has(slide.order - 1)) {
+      readyIndexes.add(slide.order - 1);
+      continue;
+    }
+    if (!targetedOrders.has(slide.order)) continue;
+    const failure = {
+      code: errors.some((item) => /PAGE_COUNT_MISMATCH/.test(item))
+        ? "PDF_PAGE_COUNT_MISMATCH"
+        : (readyIndexes.size === 0 ? "CLASSROOM_RENDER_FAILED" : "CLASSROOM_RENDER_SLIDE_FAILED"),
+      message: errors[0] || "Slide visual could not be rendered from the original presentation",
+    };
+    await prisma.slide.update({
+      where: { id: slide.id },
+      data: {
+        content: withVisual(slide.content, presentationId, slide.order - 1, false, failure, {
+          renderStatus: "failed",
+          sourceHash: inputSha256,
+          jobId: job.jobId,
+          attempt: job.attempt,
+        }) as object,
+      },
     });
   }
 
-  try {
-    for (const render of renderResult.renders) {
-      if (persistedIndexes.has(render.index)) continue;
-      try {
-        await persistOne(render);
-      } catch (error) {
-        console.warn("[CLASSROOM_REPAIR] persist_failed", {
-          presentationId,
-          slide: render.index + 1,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    const firstError = renderResult.errors[0]?.slice(0, 220);
-    for (const slide of presentation.slides) {
-      const hasSvg = persistedIndexes.has(slide.order - 1);
-      const failure = hasSvg
-        ? undefined
-        : {
-            code: persistedIndexes.size === 0 ? "CLASSROOM_RENDER_FAILED" : "CLASSROOM_RENDER_SLIDE_FAILED",
-            message: firstError || "Slide visual could not be rendered from the PowerPoint source",
-          };
-      await prisma.slide.update({
-        where: { id: slide.id },
-        data: {
-          content: withVisual(slide.content, presentationId, slide.order - 1, hasSvg, failure) as object,
-        },
-      });
-    }
-
-    const failedSlideNumbers = presentation.slides
-      .filter((slide) => !persistedIndexes.has(slide.order - 1))
-      .map((slide) => slide.order);
-    const status = persistedIndexes.size === expected && expected > 0
+  const failedSlideNumbers = refreshed
+    .filter((slide) => targetedOrders.has(slide.order) && !readyIndexes.has(slide.order - 1))
+    .map((slide) => slide.order);
+  const allReady = refreshed.every((slide) => readyIndexes.has(slide.order - 1));
+  const pageMismatch = errors.some((item) => /PAGE_COUNT_MISMATCH/.test(item));
+  const status = pageMismatch
+    ? "render_failed"
+    : allReady && refreshed.length > 0
       ? "ready"
-      : persistedIndexes.size > 0
+      : readyIndexes.size > 0
         ? "rendering_partial"
         : "render_failed";
 
-    await prisma.presentation.update({
-      where: { id: presentationId },
-      data: {
-        sourceUrl: canonicalPublicPath(sourceRelative),
-        status,
-      },
-    });
-    setVisualRenderProgress(presentationId, {
-      stage: status === "render_failed" ? "FAILED" : "COMPLETE",
-      currentSlide: persistedIndexes.size,
-      totalSlides: expected,
-    });
-
-    console.info(
-      `[CLASSROOM_RENDER] complete requested=${expected} rendered=${persistedIndexes.size} failed=${failedSlideNumbers.length} skipped=${alreadyRendered.size} status=${status} presentationId=${presentationId}`,
-    );
-    classroomPptxPipelineLog("render_complete", {
-      presentationId,
-      overallRenderStatus: status,
-      slidesSucceeded: persistedIndexes.size,
-      slidesFailed: failedSlideNumbers.length,
-      method: renderResult.method,
-    });
-    console.info("[CLASSROOM_PPTX] render_complete", {
-      presentationId,
+  await prisma.presentation.update({
+    where: { id: presentationId },
+    data: {
+      sourceUrl: canonicalPublicPath(sourceRelative),
+      thumbnail: readyIndexes.has(0) ? canonicalSlidePngApi(presentationId, 1) : undefined,
       status,
-      rendered: persistedIndexes.size,
+    },
+  });
+  upsertRenderJob(presentationId, {
+    status: status === "ready" ? "READY" : status === "render_failed" ? "FAILED" : "RENDERING",
+    completedAt: status === "rendering_partial" ? undefined : new Date().toISOString(),
+    error: errors[0],
+  });
+  setVisualRenderProgress(presentationId, {
+    stage: status === "render_failed" ? "FAILED" : "COMPLETE",
+    currentSlide: readyIndexes.size,
+    totalSlides: expected,
+  });
+  console.info("[CLASSROOM_RENDER_COMPLETE]", {
+    presentationId,
+    slidesReady: readyIndexes.size,
+    failed: failedSlideNumbers.length,
+    status,
+    method,
+  });
+
+  return {
+    presentationId,
+    rendered: readyIndexes.size,
+    skipped: alreadyRendered.size,
+    slideCount: expected,
+    sourceRelative,
+    sourceKey: `uploads/${sourceRelative}`,
+    sourceBytes: options?.sourceBytes,
+    method,
+    code: status === "ready"
+      ? "CLASSROOM_REGENERATE_OK"
+      : status === "rendering_partial"
+        ? "CLASSROOM_RENDER_PARTIAL"
+        : "CLASSROOM_RENDER_FAILED",
+    slidesSucceeded: readyIndexes.size,
+    slidesFailed: failedSlideNumbers.length,
+    failedSlideNumbers,
+    warnings: [...warnings, ...errors],
+    errors,
+    jobId: job.jobId,
+  };
+}
+
+export async function retrySlideVisual(
+  presentationId: string,
+  slideId: string,
+  actorUserId: string,
+  actorRole?: string,
+) {
+  const presentation = await prisma.presentation.findUnique({
+    where: { id: presentationId },
+    include: { slides: { orderBy: { order: "asc" } } },
+  });
+  if (!presentation) throw new AppError(404, "Presentation not found");
+  if (presentation.instructorId !== actorUserId && !isAdminRole(actorRole)) {
+    throw new AppError(403, "You do not have access to this presentation", true, {
+      code: "CLASSROOM_ASSET_FORBIDDEN",
+      stage: "auth",
     });
-
-    if (persistedIndexes.size === 0) {
-      console.error("[CLASSROOM_RENDER] visuals_failed_presentation_kept", {
-        presentationId,
-        slideCount: expected,
-        errors: renderResult.errors.slice(0, 12),
-      });
-      return {
-        presentationId,
-        rendered: 0,
-        skipped: alreadyRendered.size,
-        slideCount: expected,
-        sourceRelative,
-        sourceKey: `uploads/${sourceRelative}`,
-        sourceBytes: options?.sourceBytes,
-        method: renderResult.method,
-        code: "CLASSROOM_RENDER_FAILED",
-        failedSlideNumbers,
-        warnings: renderResult.warnings,
-        errors: renderResult.errors,
-      };
-    }
-
-    return {
-      presentationId,
-      rendered: persistedIndexes.size,
-      skipped: alreadyRendered.size,
-      slideCount: expected,
-      sourceRelative,
-      sourceKey: `uploads/${sourceRelative}`,
-      sourceBytes: options?.sourceBytes,
-      method: renderResult.method,
-      code: failedSlideNumbers.length ? "CLASSROOM_RENDER_PARTIAL" : "CLASSROOM_REGENERATE_OK",
-      slidesSucceeded: persistedIndexes.size,
-      slidesFailed: failedSlideNumbers.length,
-      failedSlideNumbers,
-      warnings: [...renderResult.warnings, ...renderResult.errors],
-    };
-  } finally {
-    await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
+  const slide = presentation.slides.find((item) => item.id === slideId);
+  if (!slide) throw new AppError(404, "Slide not found");
+
+  const resolved = await resolvePresentationSource(presentationId);
+  if (!resolved.ok) {
+    throw new AppError(404, "The original PowerPoint file was not found in storage", true, {
+      code: "SOURCE_NOT_FOUND",
+      stage: "source-lookup",
+    });
+  }
+  const pptxBuffer = await downloadPresentationPptx(resolved);
+  const pdfBuffer = await downloadPresentationExportPdf(presentationId);
+  const visual = (slide.content as { visual?: { attempt?: number } } | null)?.visual;
+  const attempt = (visual?.attempt || 0) + 1;
+  await prisma.slide.update({
+    where: { id: slide.id },
+    data: {
+      content: withVisual(slide.content, presentationId, slide.order - 1, false, undefined, {
+        renderStatus: "rendering",
+        attempt,
+      }) as object,
+    },
+  });
+  return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
+    skipExisting: false,
+    pages: [slide.order],
+    pdfBuffer: pdfBuffer ?? undefined,
+    sourceSha256: sha256OfBuffer(pptxBuffer),
+    attempt,
+  });
 }

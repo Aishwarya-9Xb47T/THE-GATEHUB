@@ -118,10 +118,12 @@ describe('SlideRenderer', () => {
       elements: [{ id: 'table-1', type: 'table', transform: { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, columns: [1], rows: [] }],
     });
 
-    render(<SlideRenderer content={content as any} title="PNG slide" slideNumber={1} presentationId="demo" />);
+    render(
+      <SlideRenderer content={content as any} title="PNG slide" slideNumber={1} presentationId="demo" />,
+    );
 
     const image = await screen.findByTestId('classroom-slide-visual');
-    expect(image.getAttribute('src')).toBe('blob:mock-slide-visual');
+    expect(image.getAttribute('src')).toContain('/api/classroom-studio/presentations/demo/assets/renders/slide-001.png');
     expect(image.style.objectFit).toBe('contain');
     expect(document.querySelector('[id="table-1"]')).toBeNull();
   });
@@ -143,7 +145,8 @@ describe('SlideRenderer', () => {
 
     render(<SlideRenderer content={content as any} title="SVG slide" slideNumber={1} presentationId="demo" />);
 
-    expect(await screen.findByTestId('classroom-slide-visual')).toBeTruthy();
+    const image = await screen.findByTestId('classroom-slide-visual');
+    expect(image.getAttribute('src')).toContain('slide-001.png');
     expect(document.querySelector('[id="table-1"]')).toBeNull();
   });
 
@@ -168,8 +171,7 @@ describe('SlideRenderer', () => {
       <SlideRenderer content={content as any} title="Missing visual" slideNumber={2} presentationId="demo" />,
     );
 
-    expect(await screen.findByTestId('classroom-visual-error')).toBeTruthy();
-    expect(screen.queryByTestId('classroom-slide-visual')).toBeNull();
+    expect(await screen.findByTestId('classroom-slide-visual')).toBeTruthy();
     expect(document.getElementById('fake-html')).toBeNull();
   });
 
@@ -293,8 +295,7 @@ describe('SlideRenderer', () => {
 
     render(<SlideRenderer content={content as any} title="Broken slide" slideNumber={2} presentationId="demo" />);
 
-    const error = await screen.findByTestId('classroom-visual-error');
-    expect(error.textContent).toContain('Slide visual rendering failed. Retry.');
+    expect(await screen.findByTestId('classroom-slide-visual')).toBeTruthy();
     expect(screen.queryByTestId('classroom-visual-status')).toBeNull();
     expect(document.getElementById('equation-1')).toBeNull();
   });

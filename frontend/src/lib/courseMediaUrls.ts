@@ -90,6 +90,7 @@ export function withUploadAuth(url: string): string {
       ? new URL(url)
       : new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
     const needsAuth =
+      /\/api\/classroom-studio\/presentations\/[^/]+\/assets\//i.test(absolute.pathname) ||
       /\/api\/learning-universes\/[^/]+\/assets\//i.test(absolute.pathname) ||
       (absolute.pathname.startsWith("/uploads/") &&
         !/^\/uploads\/(learning-universes|banners|public|resources|music)\//i.test(

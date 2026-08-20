@@ -30,9 +30,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToastStore } from "@/store/toastStore";
-import { classroomAssetErrorFromBody } from "@/lib/classroom/classroomAssetUrls";
+import { classroomAssetErrorFromBody, classroomRenderedImageUrl } from "@/lib/classroom/classroomAssetUrls";
 import { apiUrl, getToken } from "@/lib/api";
 import { unwrapClassroomPresentation } from "@/lib/classroom/parseClassroomImportResponse";
+import { withUploadAuth } from "@/lib/courseMediaUrls";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
 import { SessionQrPanel } from "@/components/classroom/SessionQrPanel";
 
@@ -362,6 +363,33 @@ export function InteractiveClassroomEditor() {
       if (!options?.silent) {
         toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });
       }
+    } finally {
+      setRepairingVisuals(false);
+    }
+  };
+
+  const handleRetrySlide = async (slideId?: string) => {
+    if (!presentationId || !slideId) {
+      await handleRegenerateVisuals();
+      return;
+    }
+    setRepairingVisuals(true);
+    try {
+      const response = await fetch(
+        apiUrl(`/api/classroom-studio/presentations/${presentationId}/slides/${slideId}/retry-visual`),
+        { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } },
+      );
+      if (!response.ok) {
+        await handleRegenerateVisuals({ silent: true });
+        return;
+      }
+      toast({
+        title: "Retrying this slide",
+        description: "Only the failed slide image is being regenerated.",
+      });
+      await fetchPresentation({ silent: true });
+    } catch {
+      await handleRegenerateVisuals({ silent: true });
     } finally {
       setRepairingVisuals(false);
     }
@@ -835,6 +863,19 @@ export function InteractiveClassroomEditor() {
                           {formatSlideNumber(slide.order)}
                         </span>
                         <div className="min-w-0 flex-1">
+                          {(() => {
+                            const thumb = classroomRenderedImageUrl(presentationId, slide.order, slide.thumbnail || slide.content?.visual?.renderedImageUrl);
+                            return thumb ? (
+                              <img
+                                src={withUploadAuth(thumb)}
+                                alt=""
+                                className="w-full h-16 object-contain bg-slate-900 rounded mb-1"
+                                onError={(event) => {
+                                  event.currentTarget.style.display = "none";
+                                }}
+                              />
+                            ) : null;
+                          })()}
                           <p className="text-sm font-medium truncate">{title}</p>
                           <div className="flex items-center gap-1 mt-0.5">
                             {slide.isHidden && (
@@ -978,7 +1019,7 @@ export function InteractiveClassroomEditor() {
                   slideCount={slides.length}
                   renderProgressSlide={presentation.renderProgress?.currentSlide}
                   renderStage={presentation.renderProgress?.stage}
-                  onRepair={() => void handleRegenerateVisuals()}
+                  onRepair={() => void handleRetrySlide(selectedSlide.id)}
                 />
               </div>
             </>

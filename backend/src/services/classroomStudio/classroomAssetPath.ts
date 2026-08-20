@@ -63,46 +63,55 @@ export function canonicalPublicPath(relative: string): string {
   return `/uploads/${relative.replace(/^\/+/, "").replace(/^uploads\//, "")}`;
 }
 
+export type SlideRenderStatus = "pending" | "rendering" | "ready" | "failed";
+
 export function buildSlideVisual(
   presentationId: string,
   slideIndex: number,
-  hasSvg: boolean,
+  hasRenderedImage: boolean,
   error?: { code?: string; message?: string },
+  extra?: {
+    renderStatus?: SlideRenderStatus;
+    sourceHash?: string;
+    jobId?: string;
+    attempt?: number;
+    rendererVersion?: string;
+  },
 ): Record<string, unknown> {
+  const renderedImageUrl = canonicalSlidePngApi(presentationId, slideIndex + 1);
   const source = {
     type: "pptx",
     src: canonicalSourceApi(presentationId),
     storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
     slideIndex,
   };
-  if (hasSvg) {
-    return {
-      type: "image",
-      src: canonicalSlidePngApi(presentationId, slideIndex + 1),
-      storageKey: `uploads/${canonicalSlidePngRelative(presentationId, slideIndex + 1)}`,
-      mimeType: PNG_MIME,
-      slideIndex,
-      availability: "available",
-      source,
-    };
-  }
+  const renderStatus: SlideRenderStatus = extra?.renderStatus
+    ?? (hasRenderedImage ? "ready" : error?.code ? "failed" : "pending");
   return {
-    type: "pptx",
-    src: canonicalSourceApi(presentationId),
-    storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
+    type: "image",
+    src: renderedImageUrl,
+    renderedImageUrl,
+    storageKey: `uploads/${canonicalSlidePngRelative(presentationId, slideIndex + 1)}`,
+    mimeType: PNG_MIME,
     slideIndex,
-    availability: error?.code ? "failed" : "missing",
+    availability: hasRenderedImage ? "available" : error?.code ? "failed" : "missing",
+    renderStatus,
+    renderError: error?.code ? { code: error.code, message: error.message } : null,
     errorCode: error?.code,
     errorMessage: error?.message,
+    sourceHash: extra?.sourceHash,
+    jobId: extra?.jobId,
+    attempt: extra?.attempt,
+    rendererVersion: extra?.rendererVersion,
     source,
   };
 }
 
 export function slideVisualIsReady(content: unknown): boolean {
   if (!content || typeof content !== "object" || Array.isArray(content)) return false;
-  const visual = (content as { visual?: { availability?: string } }).visual;
+  const visual = (content as { visual?: { availability?: string; renderStatus?: string } }).visual;
   if (!visual || typeof visual !== "object") return false;
-  return visual.availability === "available";
+  return visual.availability === "available" || visual.renderStatus === "ready";
 }
 
 export function computeClassroomRenderProgress(
