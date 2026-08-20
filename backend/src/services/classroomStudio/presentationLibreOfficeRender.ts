@@ -14,7 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isValidRenderedSvg, withDeadline, type PresentationRenderResult, type SlideRenderResult } from './presentationRenderService.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
-import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
+import { flattenPptxMathForLibreOffice } from './pptxOfficeMathFlatten.js';
 
 const PDF_CONVERT_TIMEOUT_MS = 180_000;
 const PAGE_RENDER_TIMEOUT_MS = 45_000;
@@ -487,7 +487,7 @@ async function convertPptxToPdf(args: {
   outputDir: string;
   sha256: string;
   presentationId?: string;
-}): Promise<{ pdfPath: string; pdfBytes: number; pageCount: number; pdfText: string; pdfBuffer: Buffer }> {
+}): Promise<{ pdfPath: string; pdfBytes: number; pageCount: number; pdfText: string; pdfBuffer: Buffer; exitCode: number }> {
   const env = libreOfficeJobEnv(args.workDir);
   await writeLibreOfficeProfile(args.profileDir);
   const convertArgs = buildLibreOfficeConvertArgs({
@@ -541,6 +541,12 @@ async function convertPptxToPdf(args: {
     libreofficeExitCode: convert.exitCode,
     pdfExists: existsSync(pdfPath),
   });
+  console.info('[CLASSROOM_PPTX]', {
+    presentationId: args.presentationId,
+    libreoffice_exitCode: convert.exitCode,
+    pdfPath,
+    pdfExists: existsSync(pdfPath),
+  });
 
   if (!existsSync(pdfPath)) {
     const message = [
@@ -568,7 +574,7 @@ async function convertPptxToPdf(args: {
     exitCode: last.exitCode,
     pdfTextPreview: meta.pdfText.replace(/\s+/g, ' ').slice(0, 400),
   });
-  return { pdfPath, ...meta };
+  return { pdfPath, ...meta, exitCode: convert.exitCode };
 }
 
 async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pageCount: number; pdfText: string; pdfBytes: number; pdfBuffer: Buffer }> {
@@ -718,36 +724,68 @@ export async function renderPresentationSlidesLibreOffice(
         pdfTextPreview: meta.pdfText.replace(/\s+/g, ' ').slice(0, 400),
       });
     } else {
-      const pptxPath = path.join(workDir, 'source.pptx');
-      await writeFile(pptxPath, pptxBuffer);
-      const written = await readFile(pptxPath);
+      const originalPath = path.join(workDir, 'original.pptx');
+      await writeFile(originalPath, pptxBuffer);
+      const written = await readFile(originalPath);
       const writtenSha = sha256Hex(written);
       classroomPptxPipelineLog('local_file_created', {
         presentationId,
         originalBytes: pptxBuffer.length,
         localBytes: written.length,
         bytesMatch: written.length === pptxBuffer.length,
+        sourceKey: originalPath,
+        filename: 'original.pptx',
       });
-      console.info('[CLASSROOM_SOURCE]', {
+      console.info('[CLASSROOM_PPTX]', {
         presentationId,
-        bytes: pptxBuffer.length,
-        sha256: inputSha256,
-      });
-      console.info('[CLASSROOM_RENDER]', {
-        presentationId,
-        inputBytes: written.length,
-        inputSha256: writtenSha,
+        sourceType: 'powerpoint',
+        filename: 'original.pptx',
+        originalBytes: pptxBuffer.length,
+        storedBytes: options?.sourceSha256 ? pptxBuffer.length : pptxBuffer.length,
+        downloadedBytes: pptxBuffer.length,
+        localBytes: written.length,
       });
       if (writtenSha !== inputSha256 || written.length !== pptxBuffer.length) {
         const error = 'CLASSROOM_RENDER_SOURCE_FAILED written PPTX SHA-256 or byte size does not match render input';
         log({ stage: 'SHA256_MISMATCH', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', inputSha256, writtenSha, originalBytes: pptxBuffer.length, localBytes: written.length });
         return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
       }
+      let workingBuffer = written;
+      try {
+        const flattened = await flattenPptxMathForLibreOffice(written);
+        workingBuffer = flattened.buffer;
+        console.info('[CLASSROOM_PPTX]', {
+          presentationId,
+          validation: 'PASS',
+          slideCount: flattened.slideCount,
+          mathObjects: flattened.mathObjects,
+          alternateContent: flattened.alternateContent,
+          rasterized: flattened.rasterized,
+          inlined: flattened.inlined,
+          pdflatex: flattened.pdflatex,
+        });
+        log({
+          stage: 'PPTX_MATH_FLATTEN',
+          status: 'success',
+          mathObjects: flattened.mathObjects,
+          alternateContent: flattened.alternateContent,
+          rasterized: flattened.rasterized,
+          inlined: flattened.inlined,
+          workingCopyBytes: flattened.flattenedBytes,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`PPTX math flatten failed; using original PPTX for LibreOffice (${message.slice(0, 180)})`);
+        console.error('[CLASSROOM_PPTX] flatten_failed', { presentationId, error: message.slice(0, 400) });
+      }
+      const pptxPath = path.join(workDir, 'source.pptx');
+      await writeFile(pptxPath, workingBuffer);
       log({
         stage: 'PPTX_SOURCE_LOADED',
         status: 'success',
         bytes: pptxBuffer.length,
         sha256: inputSha256,
+        workingCopyBytes: workingBuffer.length,
         soffice: tools.soffice,
         pdfSource: 'libreoffice-pptx',
         version: readLibreOfficeVersionFile(),
@@ -756,14 +794,28 @@ export async function renderPresentationSlidesLibreOffice(
         home: process.env.HOME || os.tmpdir(),
       });
       try {
+        console.info('[CLASSROOM_PPTX] libreoffice_start', {
+          presentationId,
+          executable: tools.soffice,
+          input: pptxPath,
+          originalBytes: pptxBuffer.length,
+          localBytes: workingBuffer.length,
+        });
         const converted = await convertPptxToPdf({
           soffice: tools.soffice!,
           pptxPath,
           workDir,
           profileDir,
           outputDir: convertDir,
-          sha256: inputSha256,
+          sha256: sha256Hex(workingBuffer),
           presentationId,
+        });
+        console.info('[CLASSROOM_PPTX]', {
+          presentationId,
+          libreoffice_exitCode: converted.exitCode,
+          pdfPath: converted.pdfPath,
+          pdfBytes: converted.pdfBytes,
+          pdfPages: converted.pageCount,
         });
         pdfPath = converted.pdfPath;
         pdfBytes = converted.pdfBytes;
@@ -840,6 +892,7 @@ export async function renderPresentationSlidesLibreOffice(
         presentationId,
         slideNumber: slide,
       });
+      console.info('[CLASSROOM_PPTX] pdf_page_render_start', { presentationId, page: slide });
       try {
         await options?.onProgress?.({ slide, total: pageCount });
         const pageSvg = await renderPdfPageToSvg({
@@ -900,6 +953,7 @@ export async function renderPresentationSlidesLibreOffice(
           slideNumber: slide,
           durationMs: Date.now() - started,
         });
+        console.info('[CLASSROOM_PPTX] pdf_page_render_complete', { presentationId, page: slide });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const code = /TIMEOUT/.test(message)

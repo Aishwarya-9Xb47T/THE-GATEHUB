@@ -40,7 +40,7 @@ import {
   sha256OfBuffer,
 } from './classroomSourceResolver.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
-import { renderAndPersistPresentationVisuals, startExclusiveVisualRender } from './presentationVisualRepairService.js';
+import { renderAndPersistPresentationVisuals, startExclusiveVisualRender, setVisualRenderProgress } from './presentationVisualRepairService.js';
 import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
 import type {
   ImportResult,
@@ -284,6 +284,7 @@ async function persistImportedContent(
   const expectedCount = importResult.slides!.length;
 
   for (const asset of importResult.assets ?? []) {
+    if (options.isPptxPipeline) continue;
     if (asset.path === 'source/original.pptx') continue;
     const diskPath = path.resolve(assetRoot, asset.path);
     if (!diskPath.startsWith(`${assetRoot}${path.sep}`)) {
@@ -292,6 +293,12 @@ async function persistImportedContent(
     await mkdir(path.dirname(diskPath), { recursive: true });
     await writeFile(diskPath, asset.data);
     assetUrls.set(`asset://${asset.path}`, `/uploads/classroom/${presentationId}/${asset.path}`);
+  }
+  if (options.isPptxPipeline) {
+    console.info('[Classroom import] Skipping extracted PPTX media persist; document renderer owns visuals', {
+      presentationId,
+      skipped: importResult.assets?.length ?? 0,
+    });
   }
   console.info('[Classroom import] Media extracted', { presentationId, count: assetUrls.size });
 
@@ -742,6 +749,11 @@ export async function importPresentation(
             presentationId,
             error: error instanceof Error ? error.message : String(error),
             details: error instanceof AppError ? error.details : undefined,
+          });
+          setVisualRenderProgress(presentationId, {
+            stage: 'FAILED',
+            currentSlide: 0,
+            totalSlides: persistResult.expectedCount,
           });
           const current = await prisma.presentation.findUnique({
             where: { id: presentationId },

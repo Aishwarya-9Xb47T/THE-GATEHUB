@@ -118,6 +118,12 @@ export async function getPresentationById(
     content: rewriteClassroomAssetTree(slide.content, presentation.id),
   }));
   const renderProgress = computeClassroomRenderProgress(slides);
+  const jobProgress = (await import('./presentationVisualRepairService.js')).getVisualRenderProgress(presentation.id);
+  if (jobProgress) {
+    renderProgress.stage = jobProgress.stage;
+    if (jobProgress.currentSlide > 0) renderProgress.currentSlide = jobProgress.currentSlide;
+    if (jobProgress.totalSlides > 0) renderProgress.total = jobProgress.totalSlides;
+  }
   const failedSlide = slides.find((slide) => {
     const visual = (slide.content as { visual?: { availability?: string; errorCode?: string; errorMessage?: string } } | null)?.visual;
     return visual?.availability === 'failed' || visual?.errorCode;

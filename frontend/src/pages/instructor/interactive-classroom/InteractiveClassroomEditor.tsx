@@ -78,7 +78,7 @@ interface Presentation {
   sourceType: string;
   status: string;
   slides: Slide[];
-  renderProgress?: { rendered: number; total: number; currentSlide: number };
+  renderProgress?: { rendered: number; total: number; currentSlide: number; stage?: string };
   renderedVisuals?: number;
 }
 
@@ -910,6 +910,7 @@ export function InteractiveClassroomEditor() {
                   pipelineStatus={presentation.status}
                   slideCount={slides.length}
                   renderProgressSlide={presentation.renderProgress?.currentSlide}
+                  renderStage={presentation.renderProgress?.stage}
                   onRepair={() => void handleRegenerateVisuals()}
                 />
               </div>

@@ -70,6 +70,37 @@ function withVisual(
 
 const inflightVisualRenders = new Map<string, Promise<unknown>>();
 
+export type ClassroomRenderStage =
+  | "PPTX_DOWNLOAD"
+  | "PPTX_VALIDATION"
+  | "PPTX_TO_PDF"
+  | "PDF_TO_IMAGES"
+  | "VISUAL_UPLOAD"
+  | "COMPLETE"
+  | "FAILED";
+
+export type ClassroomRenderJobProgress = {
+  stage: ClassroomRenderStage;
+  currentSlide: number;
+  totalSlides: number;
+};
+
+const visualRenderProgress = new Map<string, ClassroomRenderJobProgress>();
+
+export function getVisualRenderProgress(presentationId: string): ClassroomRenderJobProgress | null {
+  return visualRenderProgress.get(presentationId) ?? null;
+}
+
+export function setVisualRenderProgress(presentationId: string, progress: ClassroomRenderJobProgress): void {
+  visualRenderProgress.set(presentationId, progress);
+  console.info("[CLASSROOM_PPTX]", {
+    presentationId,
+    stage: progress.stage,
+    currentSlide: progress.currentSlide,
+    totalSlides: progress.totalSlides,
+  });
+}
+
 export function isExclusiveVisualRenderRunning(presentationId: string): boolean {
   return inflightVisualRenders.has(presentationId);
 }
@@ -203,9 +234,15 @@ export async function regeneratePresentationVisuals(
   });
 
   const { started, job } = startExclusiveVisualRender(presentationId, async () => {
+    setVisualRenderProgress(presentationId, {
+      stage: "PPTX_DOWNLOAD",
+      currentSlide: 0,
+      totalSlides: expected,
+    });
     const pptxBuffer = await downloadPresentationPptx(resolved);
     const downloadedSha = sha256OfBuffer(pptxBuffer);
-    const storedPdf = await downloadPresentationExportPdf(presentationId);
+    const storedPdf =
+      presentation.sourceType === "google_slides" ? await downloadPresentationExportPdf(presentationId) : null;
     classroomPptxPipelineLog("source_download_complete", {
       presentationId,
       sourceType: presentation.sourceType,
@@ -229,7 +266,7 @@ export async function regeneratePresentationVisuals(
         ? { relative: resolved.relative, bytes: resolved.bytes, sha256: downloadedSha }
         : await persistPptxBuffer(presentationId, pptxBuffer);
     return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
-      skipExisting: true,
+      skipExisting: false,
       sourceRelative: persistedSource.relative,
       sourceBytes: persistedSource.bytes,
       sourceSha256: persistedSource.sha256 ?? downloadedSha,
@@ -249,6 +286,11 @@ export async function regeneratePresentationVisuals(
       const current = await prisma.presentation.findUnique({
         where: { id: presentationId },
         select: { status: true },
+      });
+      setVisualRenderProgress(presentationId, {
+        stage: "FAILED",
+        currentSlide: 0,
+        totalSlides: expected,
       });
       if (current?.status === "rendering") {
         await prisma.presentation.update({
@@ -393,6 +435,15 @@ export async function renderAndPersistPresentationVisuals(
       slideNumber: render.index + 1,
       sourceKey: `uploads/${relative}`,
     });
+    console.info("[CLASSROOM_PPTX] visual_upload_complete", {
+      presentationId,
+      slide: render.index + 1,
+    });
+    setVisualRenderProgress(presentationId, {
+      stage: "VISUAL_UPLOAD",
+      currentSlide: render.index + 1,
+      totalSlides: expected,
+    });
     const slide = presentation.slides.find((item) => item.order === render.index + 1);
     if (slide) {
       classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-start", relative);
@@ -415,7 +466,15 @@ export async function renderAndPersistPresentationVisuals(
   const missingIndexes = presentation.slides
     .map((slide) => slide.order - 1)
     .filter((index) => !alreadyRendered.has(index));
-  const storedPdf = options?.pdfBuffer ?? (await downloadPresentationExportPdf(presentationId)) ?? undefined;
+  const storedPdf =
+    presentation.sourceType === "google_slides"
+      ? options?.pdfBuffer ?? (await downloadPresentationExportPdf(presentationId)) ?? undefined
+      : options?.pdfBuffer;
+  setVisualRenderProgress(presentationId, {
+    stage: storedPdf ? "PDF_TO_IMAGES" : "PPTX_TO_PDF",
+    currentSlide: 0,
+    totalSlides: expected,
+  });
   classroomPptxPipelineLog("source_resolved", {
     presentationId,
     sourceKey: `uploads/${sourceRelative}`,
@@ -437,6 +496,13 @@ export async function renderAndPersistPresentationVisuals(
       presentationId,
       pdfBuffer: storedPdf,
       sourceSha256: options?.sourceSha256 ?? inputSha256,
+      onProgress: async ({ slide, total }) => {
+        setVisualRenderProgress(presentationId, {
+          stage: "PDF_TO_IMAGES",
+          currentSlide: slide,
+          totalSlides: total,
+        });
+      },
     });
 
   if (!storedPdf && renderResult.pdfBuffer) {
@@ -495,6 +561,11 @@ export async function renderAndPersistPresentationVisuals(
         status,
       },
     });
+    setVisualRenderProgress(presentationId, {
+      stage: status === "render_failed" ? "FAILED" : "COMPLETE",
+      currentSlide: persistedIndexes.size,
+      totalSlides: expected,
+    });
 
     console.info(
       `[CLASSROOM_RENDER] complete requested=${expected} rendered=${persistedIndexes.size} failed=${failedSlideNumbers.length} skipped=${alreadyRendered.size} status=${status} presentationId=${presentationId}`,
@@ -505,6 +576,11 @@ export async function renderAndPersistPresentationVisuals(
       slidesSucceeded: persistedIndexes.size,
       slidesFailed: failedSlideNumbers.length,
       method: renderResult.method,
+    });
+    console.info("[CLASSROOM_PPTX] render_complete", {
+      presentationId,
+      status,
+      rendered: persistedIndexes.size,
     });
 
     if (persistedIndexes.size === 0) {

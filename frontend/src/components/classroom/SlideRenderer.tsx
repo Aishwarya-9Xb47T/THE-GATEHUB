@@ -118,6 +118,7 @@ export type SlideRendererProps = {
   pipelineStatus?: string;
   slideCount?: number;
   renderProgressSlide?: number;
+  renderStage?: string;
 };
 
 type RenderDiagnostic = {
@@ -1557,6 +1558,7 @@ export function SlideRenderer({
   pipelineStatus,
   slideCount,
   renderProgressSlide,
+  renderStage,
 }: SlideRendererProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const slideCanvasRef = useRef<HTMLDivElement>(null);
@@ -1694,10 +1696,17 @@ export function SlideRenderer({
           }
           const total = slideCount || n;
           const progress = renderProgressSlide || n;
-          throw Object.assign(
-            new Error(total ? `Rendering slide ${progress} of ${total}…` : `Rendering slide ${progress}…`),
-            { code: 'CLASSROOM_RENDERING' },
-          );
+          const stageLabel =
+            renderStage === 'PPTX_TO_PDF'
+              ? 'Converting PowerPoint to PDF…'
+              : renderStage === 'PPTX_DOWNLOAD' || renderStage === 'PPTX_VALIDATION'
+                ? 'Preparing the original PowerPoint…'
+                : renderStage === 'VISUAL_UPLOAD'
+                  ? `Saving slide ${progress} of ${total}…`
+                  : total
+                    ? `Rendering slide ${progress} of ${total}…`
+                    : `Rendering slide ${progress}…`;
+          throw Object.assign(new Error(stageLabel), { code: 'CLASSROOM_RENDERING' });
         }
         if (pipelineStatus === 'render_failed') {
           const detail = typeof visual.errorMessage === 'string' && visual.errorMessage.trim()
@@ -1831,7 +1840,7 @@ export function SlideRenderer({
     return () => {
       cancelled = true;
     };
-  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount, renderProgressSlide, renderWaitTimedOut]);
+  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount, renderProgressSlide, renderStage, renderWaitTimedOut]);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {

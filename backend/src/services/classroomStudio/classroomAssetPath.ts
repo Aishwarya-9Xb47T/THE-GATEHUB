@@ -90,7 +90,7 @@ export function slideVisualIsReady(content: unknown): boolean {
 
 export function computeClassroomRenderProgress(
   slides: Array<{ order: number; content?: unknown }>,
-): { rendered: number; total: number; currentSlide: number } {
+): { rendered: number; total: number; currentSlide: number; stage?: string } {
   const ordered = [...slides].sort((a, b) => a.order - b.order);
   const rendered = ordered.filter((slide) => slideVisualIsReady(slide.content)).length;
   const firstMissing = ordered.find((slide) => !slideVisualIsReady(slide.content));
