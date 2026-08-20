@@ -15,6 +15,17 @@ export function classroomOriginalPptxUrl(presentationId: string): string {
   return canonicalClassroomApiAsset(presentationId, "source", "original.pptx");
 }
 
+export function classroomSlideVisualUrls(presentationId: string, slideNumber: number): string[] {
+  const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
+  const padded = String(n).padStart(3, "0");
+  return [
+    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.svg`),
+    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.png`),
+    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.svg`),
+    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.png`),
+  ];
+}
+
 export function isOriginalPresentationVisual(visual?: {
   type?: string;
   visualSource?: string;

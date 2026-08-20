@@ -17,6 +17,16 @@ vi.mock('@/lib/courseMediaUrls', async (importOriginal) => {
     fetchAuthenticatedUpload: vi.fn(async () => ({
       ok: true,
       status: 200,
+      headers: {
+        get: (name: string) => {
+          const key = name.toLowerCase();
+          if (key === "content-type") {
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+          }
+          if (key === "content-length") return "8";
+          return null;
+        },
+      },
       arrayBuffer: async () => Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]).buffer,
     })),
   };

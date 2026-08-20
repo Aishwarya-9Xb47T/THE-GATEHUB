@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ import {
   b2KeyFromPublicPath,
   uploadExactBuffer,
   statObjectBytes,
+  getObjectStream,
 } from "../b2StorageService.js";
 import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
 import {
@@ -23,6 +24,7 @@ import {
   PPTX_MIME,
   canonicalExportPdfRelative,
   canonicalPublicPath,
+  canonicalSourceApi,
   canonicalSourceRelative,
   getClassroomSourceKey,
 } from "./classroomAssetPath.js";
@@ -78,13 +80,72 @@ function keysForRelative(relative: string): string[] {
   return [`uploads/${relative}`, relative];
 }
 
+export type OriginalSourceMissReason =
+  | "FILE_NOT_FOUND"
+  | "INVALID_STORAGE_PATH"
+  | "PRESENTATION_NOT_FOUND"
+  | "WRONG_PRESENTATION_ID"
+  | "DEPLOYED_FILESYSTEM_MISMATCH"
+  | "UPLOAD_NOT_PERSISTED"
+  | "AUTH_ROUTE_MISMATCH"
+  | "BAD_SOURCE_URL"
+  | "B2_NOT_CONFIGURED";
+
+export type PresentationOriginalSource = {
+  presentationId: string;
+  absoluteStoragePath: string | null;
+  relativeStoragePath: string;
+  publicAssetPath: string;
+  sourceType: string | null;
+  exists: boolean;
+  size: number;
+  mimeType: string;
+  origin: "b2" | "local" | null;
+  key: string;
+  reason?: OriginalSourceMissReason;
+};
+
+export function isEphemeralHost(): boolean {
+  const env = String(process.env.NODE_ENV || "").toLowerCase();
+  return env === "production"
+    || Boolean(process.env.RENDER)
+    || Boolean(process.env.RENDER_SERVICE_ID)
+    || Boolean(process.env.FLY_APP_NAME)
+    || Boolean(process.env.RAILWAY_ENVIRONMENT)
+    || Boolean(process.env.K_SERVICE);
+}
+
+export function diagnoseMissingOriginalSource(args: {
+  presentationFound: boolean;
+  sourceUrl?: string | null;
+  b2Configured: boolean;
+  ephemeralHost: boolean;
+  sourceUrlMatchesPresentation?: boolean;
+}): OriginalSourceMissReason {
+  if (!args.presentationFound) return "PRESENTATION_NOT_FOUND";
+  if (args.ephemeralHost && !args.b2Configured) return "DEPLOYED_FILESYSTEM_MISMATCH";
+  if (!args.sourceUrl) return "UPLOAD_NOT_PERSISTED";
+  if (args.sourceUrlMatchesPresentation === false) return "BAD_SOURCE_URL";
+  if (!args.b2Configured) return "FILE_NOT_FOUND";
+  return "FILE_NOT_FOUND";
+}
+
 export function requireDurableClassroomStorage(): void {
-  if (process.env.NODE_ENV === "production" && !isB2Configured()) {
+  if (isEphemeralHost() && !isB2Configured()) {
     throw new AppError(500, "Classroom media storage is not configured", true, {
       code: "CLASSROOM_B2_NOT_CONFIGURED",
       stage: "storage",
+      reason: "DEPLOYED_FILESYSTEM_MISMATCH",
     });
   }
+}
+
+async function writeLocalClassroomFile(relative: string, body: Buffer): Promise<string | null> {
+  const dest = resolveSafeUploadPath(relative);
+  if (!dest) return null;
+  await mkdir(path.dirname(dest), { recursive: true });
+  await writeFile(dest, body);
+  return dest;
 }
 
 export function sha256OfBuffer(buffer: Buffer): string {
@@ -139,15 +200,14 @@ export async function storeClassroomSourcePptx(presentationId: string, buffer: B
   console.info("[CLASSROOM_B2] stage=upload_start presentationId=" + presentationId + " key=" + key + " expectedBytes=" + expectedBytes + " mimeType=" + PPTX_MIME);
 
   if (!isB2Configured()) {
-    const dest = resolveSafeUploadPath(relative);
+    const dest = await writeLocalClassroomFile(relative, body);
     if (!dest) {
       throw new AppError(500, "Invalid classroom storage path", true, {
         code: "CLASSROOM_ASSET_PATH_INVALID",
         stage: "storage",
+        reason: "INVALID_STORAGE_PATH",
       });
     }
-    await mkdir(path.dirname(dest), { recursive: true });
-    await writeFile(dest, body);
     return { relative, bytes: expectedBytes, sha256 };
   }
 
@@ -221,7 +281,191 @@ export async function storeClassroomSourcePptx(presentationId: string, buffer: B
       contentType: verified.contentType,
     });
   }
+  try {
+    await writeLocalClassroomFile(relative, body);
+  } catch (error) {
+    console.warn("[CLASSROOM_SOURCE] local_copy_failed", {
+      presentationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return { relative, bytes: actualBytes, sha256 };
+}
+
+export async function persistClassroomAssetBuffer(args: {
+  relative: string;
+  body: Buffer;
+  contentType: string;
+}): Promise<{ relative: string; bytes: number }> {
+  const body = Buffer.from(args.body);
+  if (!body.length) {
+    throw new AppError(500, "Classroom asset is empty", true, {
+      code: "CLASSROOM_ASSET_EMPTY",
+      stage: "storage",
+    });
+  }
+  requireDurableClassroomStorage();
+  await writeLocalClassroomFile(args.relative, body);
+  if (isB2Configured()) {
+    const key = `uploads/${args.relative.replace(/^uploads\//, "")}`;
+    await uploadExactBuffer({ body, key, contentType: args.contentType });
+  }
+  return { relative: args.relative, bytes: body.length };
+}
+
+export async function getPresentationOriginalSource(presentationId: string): Promise<PresentationOriginalSource> {
+  const relative = canonicalSourceRelative(presentationId);
+  const key = getClassroomSourceKey(presentationId);
+  const localCanonical = resolveSafeUploadPath(relative);
+  const base: Omit<PresentationOriginalSource, "exists" | "size" | "origin"> = {
+    presentationId,
+    absoluteStoragePath: localCanonical,
+    relativeStoragePath: relative,
+    publicAssetPath: canonicalSourceApi(presentationId),
+    sourceType: null,
+    mimeType: PPTX_MIME,
+    key,
+  };
+
+  if (!presentationId || presentationId.includes("..")) {
+    return {
+      ...base,
+      exists: false,
+      size: 0,
+      origin: null,
+      reason: "WRONG_PRESENTATION_ID",
+    };
+  }
+
+  const presentation = await prisma.presentation.findUnique({
+    where: { id: presentationId },
+    select: { id: true, sourceUrl: true, sourceType: true },
+  });
+  base.sourceType = presentation?.sourceType ?? null;
+
+  if (!presentation) {
+    console.warn("[CLASSROOM_SOURCE] lookup_failed", {
+      presentationId,
+      reason: "PRESENTATION_NOT_FOUND",
+      key,
+    });
+    return {
+      ...base,
+      exists: false,
+      size: 0,
+      origin: null,
+      reason: "PRESENTATION_NOT_FOUND",
+    };
+  }
+
+  const relatives = collectSourceRelatives(presentationId, presentation.sourceUrl);
+
+  if (isB2Configured()) {
+    for (const candidateRelative of relatives) {
+      for (const candidateKey of keysForRelative(candidateRelative)) {
+        const verified = await statObjectBytes(candidateKey);
+        if (verified.bytes && verified.bytes > 0) {
+          return {
+            ...base,
+            relativeStoragePath: candidateRelative.replace(/^uploads\//, ""),
+            exists: true,
+            size: verified.bytes,
+            origin: "b2",
+            key: candidateKey,
+            mimeType: isCompatiblePptxContentType(verified.contentType) ? PPTX_MIME : (verified.contentType || PPTX_MIME),
+          };
+        }
+      }
+    }
+  }
+
+  for (const candidateRelative of relatives) {
+    const dest = resolveSafeUploadPath(candidateRelative);
+    if (!dest || !existsSync(dest)) continue;
+    try {
+      const info = await stat(dest);
+      if (info.size > 0) {
+        return {
+          ...base,
+          absoluteStoragePath: dest,
+          relativeStoragePath: candidateRelative,
+          exists: true,
+          size: info.size,
+          origin: "local",
+          key: `uploads/${candidateRelative}`,
+        };
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  const sourceUrlMatches = presentation.sourceUrl
+    ? Boolean(relativeFromSourceUrl(presentation.sourceUrl, presentationId))
+    : undefined;
+  const reason = diagnoseMissingOriginalSource({
+    presentationFound: true,
+    sourceUrl: presentation.sourceUrl,
+    b2Configured: isB2Configured(),
+    ephemeralHost: isEphemeralHost(),
+    sourceUrlMatchesPresentation: sourceUrlMatches,
+  });
+  console.warn("[CLASSROOM_SOURCE] lookup_failed", {
+    presentationId,
+    reason,
+    key,
+    sourceUrl: presentation.sourceUrl ? "set" : "missing",
+    b2Configured: isB2Configured(),
+    ephemeralHost: isEphemeralHost(),
+    relatives: relatives.slice(0, 6),
+  });
+  return {
+    ...base,
+    exists: false,
+    size: 0,
+    origin: null,
+    reason,
+  };
+}
+
+export async function verifyReadableOriginalPptx(presentationId: string): Promise<PresentationOriginalSource> {
+  const source = await getPresentationOriginalSource(presentationId);
+  if (!source.exists) return source;
+
+  try {
+    if (source.origin === "b2" && source.key && isB2Configured()) {
+      const ranged = await getObjectStream(source.key, "bytes=0-3");
+      const chunks: Buffer[] = [];
+      for await (const chunk of ranged.body) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const header = Buffer.concat(chunks);
+      if (!isValidPptxBuffer(header)) {
+        return { ...source, exists: false, reason: "FILE_NOT_FOUND" };
+      }
+      return source;
+    }
+    if (source.absoluteStoragePath && existsSync(source.absoluteStoragePath)) {
+      const fd = await readFile(source.absoluteStoragePath);
+      if (!isValidPptxBuffer(fd) || fd.length <= 0) {
+        return { ...source, exists: false, size: 0, reason: "FILE_NOT_FOUND" };
+      }
+      return { ...source, size: fd.length };
+    }
+  } catch (error) {
+    console.error("[CLASSROOM_SOURCE] verify_read_failed", {
+      presentationId,
+      key: source.key,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      ...source,
+      exists: false,
+      reason: isEphemeralHost() && !isB2Configured() ? "DEPLOYED_FILESYSTEM_MISMATCH" : "FILE_NOT_FOUND",
+    };
+  }
+
+  return { ...source, exists: false, reason: "FILE_NOT_FOUND" };
 }
 
 export async function resolvePresentationSource(presentationId: string): Promise<ResolvedPresentationSource | MissingPresentationSource> {

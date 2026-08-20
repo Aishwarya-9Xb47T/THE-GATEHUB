@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { googleSlidesEmbedUrl, googleSlidesPresentationId, isOriginalPresentationVisual, usesOriginalPresentationSource } from "./originalPresentationUrls";
+import { googleSlidesEmbedUrl, googleSlidesPresentationId, classroomSlideVisualUrls, isOriginalPresentationVisual, usesOriginalPresentationSource } from "./originalPresentationUrls";
 
 describe("originalPresentationUrls", () => {
   it("builds a Google Slides embed URL for a specific slide", () => {
@@ -14,5 +14,14 @@ describe("originalPresentationUrls", () => {
     expect(isOriginalPresentationVisual({ type: "image" })).toBe(false);
     expect(usesOriginalPresentationSource("powerpoint", { type: "image" })).toBe(true);
     expect(usesOriginalPresentationSource("google_slides")).toBe(true);
+  });
+
+  it("builds visual-cache URLs without using PDF assets", () => {
+    expect(classroomSlideVisualUrls("pres-1", 2)).toEqual([
+      "/api/classroom-studio/presentations/pres-1/assets/visuals/2.svg",
+      "/api/classroom-studio/presentations/pres-1/assets/visuals/2.png",
+      "/api/classroom-studio/presentations/pres-1/assets/renders/slide-002.svg",
+      "/api/classroom-studio/presentations/pres-1/assets/renders/slide-002.png",
+    ]);
   });
 });

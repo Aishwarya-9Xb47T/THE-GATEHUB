@@ -10,6 +10,7 @@ import {
   slideVisualIsReady,
   canonicalSlidePngRelative,
   canonicalSlideSvgRelative,
+  canonicalVisualRelative,
   getClassroomSourceKey,
   canonicalSourceRelative,
   canonicalExportPdfRelative,
@@ -31,6 +32,7 @@ describe("classroomAssetPath", () => {
     expect(canonicalExportPdfRelative("pres-1")).toBe("classroom/pres-1/source/export.pdf");
     expect(canonicalSlideSvgRelative("pres-1", 2)).toBe("classroom/pres-1/renders/slide-002.svg");
     expect(canonicalSlidePngRelative("pres-1", 2)).toBe("classroom/pres-1/renders/slide-002.png");
+    expect(canonicalVisualRelative("pres-1", 2, "svg")).toBe("classroom/pres-1/visuals/2.svg");
     expect(classroomStorageRelatives("pres-1", CLASSROOM_SOURCE_REST)).toEqual([
       "classroom/pres-1/source/original.pptx",
       "classroom-studio/pres-1/source/original.pptx",
@@ -50,7 +52,14 @@ describe("classroomAssetPath", () => {
       rest: "renders/slide-002.png",
       mime: PNG_MIME,
     });
-    expect(parseClassroomAssetFilename("renders", "../slide-001.svg")).toBeNull();
+    expect(parseClassroomAssetFilename("visuals", "1.svg")).toEqual({
+      rest: "visuals/1.svg",
+      mime: SVG_MIME,
+    });
+    expect(parseClassroomAssetFilename("visuals", "slide-2.png")).toEqual({
+      rest: "visuals/2.png",
+      mime: PNG_MIME,
+    });
     expect(parseClassroomAssetFilename("source", "notes.pdf")).toBeNull();
   });
 

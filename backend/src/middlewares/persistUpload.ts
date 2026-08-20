@@ -29,6 +29,11 @@ import { classroomAssetLookupRelatives } from "../services/classroomStudio/class
 export type { B2Prefix };
 export { isVideoUploadPath };
 
+function httpStatusOfGet(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  return (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+}
+
 function allowedMediaOrigins(): string[] {
   const isProduction = process.env.NODE_ENV === "production";
   return [
@@ -411,6 +416,58 @@ export async function serveStoredUpload(
     }
   }
   if (!meta) {
+    for (const candidateKey of [...new Set(candidateKeys)]) {
+      try {
+        const streamed = await getObjectStream(candidateKey);
+        const size = streamed.contentLength ?? 0;
+        const mime =
+          options?.mimeType ||
+          (streamed.contentType && streamed.contentType !== "application/octet-stream"
+            ? streamed.contentType
+            : mimeFromUploadPath(candidateKey, streamed.contentType));
+        applyUploadCorsHeaders(res, options?.origin);
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Accept-Ranges", "bytes");
+        res.setHeader("Content-Type", mime);
+        if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
+        mediaLog("MEDIA_B2", { key: candidateKey, mime, size, found: 1, via: "get_fallback" });
+        mediaLog("MEDIA_STREAM", {
+          key: candidateKey,
+          mime,
+          range: "none",
+          status: streamed.status || 200,
+          length: streamed.contentLength,
+          source: "b2",
+        });
+        if (options?.method === "HEAD") {
+          res.status(200);
+          if (size) res.setHeader("Content-Length", String(size));
+          res.end();
+          streamed.body.resume?.();
+          return true;
+        }
+        res.status(streamed.status || 200);
+        if (streamed.contentLength != null) res.setHeader("Content-Length", String(streamed.contentLength));
+        streamed.body.on("error", (err) => {
+          console.error(
+            `[MEDIA_STREAM] stream_error key=${candidateKey} message=${err instanceof Error ? err.message : "unknown"}`,
+          );
+          if (!res.headersSent) res.status(502).end();
+          else res.destroy();
+        });
+        streamed.body.pipe(res);
+        return true;
+      } catch (err) {
+        if (!isMissingObjectError(err) && httpStatusOfGet(err) !== 404) {
+          console.warn(
+            "[MEDIA_B2] get_fallback_error key=" +
+              candidateKey +
+              " message=" +
+              (err instanceof Error ? err.message : "unknown"),
+          );
+        }
+      }
+    }
     mediaLog("MEDIA_B2", { path: relativePath, keysTried: candidateKeys.length, found: 0 });
     return false;
   }

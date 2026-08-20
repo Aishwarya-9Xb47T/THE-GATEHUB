@@ -30,7 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToastStore } from "@/store/toastStore";
-import { classroomAssetErrorFromBody, classroomRenderedImageUrl } from "@/lib/classroom/classroomAssetUrls";
+import { classroomAssetErrorFromBody, classroomRenderedImageUrl, classroomThumbnailCandidateUrls } from "@/lib/classroom/classroomAssetUrls";
 import { shouldPollClassroomRender } from "@/lib/classroom/classroomRenderState";
 import { isOriginalPresentationVisual, usesOriginalPresentationSource } from "@/lib/classroom/originalPresentationUrls";
 import { apiUrl, getToken } from "@/lib/api";
@@ -880,18 +880,29 @@ export function InteractiveClassroomEditor() {
                         </span>
                         <div className="min-w-0 flex-1">
                           {(() => {
-                            const thumb = slide.thumbnail
+                            const thumbs = presentationId
+                              ? classroomThumbnailCandidateUrls(presentationId, slide.order)
+                              : [];
+                            const first = thumbs[0] || (slide.thumbnail
                               ? classroomRenderedImageUrl(presentationId, slide.order, slide.thumbnail)
-                              : null;
+                              : null);
                             return (
                               <div className="w-full h-16 bg-slate-900 rounded mb-1 overflow-hidden relative">
-                                {thumb ? (
+                                {first ? (
                                   <img
-                                    src={withUploadAuth(thumb)}
+                                    src={withUploadAuth(first)}
                                     alt=""
+                                    data-thumb-index="0"
                                     className="w-full h-full object-contain"
                                     onError={(event) => {
-                                      event.currentTarget.style.display = "none";
+                                      const img = event.currentTarget;
+                                      const index = Number(img.dataset.thumbIndex || "0") + 1;
+                                      if (index < thumbs.length) {
+                                        img.dataset.thumbIndex = String(index);
+                                        img.src = withUploadAuth(thumbs[index]);
+                                        return;
+                                      }
+                                      img.style.display = "none";
                                     }}
                                   />
                                 ) : null}

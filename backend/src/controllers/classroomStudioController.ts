@@ -92,12 +92,19 @@ export async function servePresentationAsset(req: Request, res: Response, next: 
     const { id, filename } = req.params;
     const kind =
       req.params.kind ||
-      (req.path.includes('/source/') ? 'source' : req.path.includes('/renders/') ? 'renders' : undefined);
+      (req.path.includes("/visuals/")
+        ? "visuals"
+        : req.path.includes("/source/")
+          ? "source"
+          : req.path.includes("/renders/")
+            ? "renders"
+            : undefined);
     const parsed = parseClassroomAssetFilename(kind as string, filename);
     if (!id || !parsed) {
       throw new AppError(400, "Invalid presentation asset path", true, {
         code: "CLASSROOM_ASSET_PATH_INVALID",
         stage: "routing",
+        reason: "INVALID_STORAGE_PATH",
       });
     }
 
@@ -114,9 +121,11 @@ export async function servePresentationAsset(req: Request, res: Response, next: 
     res.status(404).json({
       success: false,
       error: {
-        code: "CLASSROOM_ASSET_NOT_FOUND",
+        code: parsed.rest.includes("original.pptx") ? "ORIGINAL_PPTX_UNAVAILABLE" : "CLASSROOM_ASSET_NOT_FOUND",
         message: "Presentation asset not found",
         stage: "storage",
+        reason: "FILE_NOT_FOUND",
+        presentationId: id,
       },
     });
   } catch (error) {

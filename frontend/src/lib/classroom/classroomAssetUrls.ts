@@ -38,10 +38,24 @@ function paddedSlideFile(slideNumber: number, ext: "png" | "svg" = "png"): strin
 
 export function canonicalClassroomApiAsset(
   presentationId: string,
-  kind: "source" | "renders",
+  kind: "source" | "renders" | "visuals",
   filename: string,
 ): string {
   return `/api/classroom-studio/presentations/${presentationId}/assets/${kind}/${filename}`;
+}
+
+export function classroomThumbnailCandidateUrls(
+  presentationId: string,
+  slideNumber: number,
+): string[] {
+  const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
+  const padded = String(n).padStart(3, "0");
+  return [
+    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.svg`),
+    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.png`),
+    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.svg`),
+    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.png`),
+  ];
 }
 
 export function classroomRenderedImageUrl(

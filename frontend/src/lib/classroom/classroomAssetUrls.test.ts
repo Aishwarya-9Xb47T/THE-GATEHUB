@@ -3,6 +3,7 @@ import {
   canonicalClassroomApiAsset,
   classroomAssetErrorFromBody,
   classroomRenderedImageUrl,
+  classroomThumbnailCandidateUrls,
   classroomVisualFetchUrls,
   decodeSlideAltText,
   isCompatiblePptxContentType,
@@ -51,6 +52,12 @@ describe("classroomAssetUrls", () => {
     expect(isCompatiblePptxContentType("text/html")).toBe(false);
     expect(isCompatibleSvgContentType("application/json")).toBe(false);
     expect(isCompatiblePptxContentType("application/json")).toBe(false);
+  });
+
+  it("builds thumbnail candidates from the visual cache first", () => {
+    expect(classroomThumbnailCandidateUrls("abc", 2)[0]).toBe(
+      "/api/classroom-studio/presentations/abc/assets/visuals/2.svg",
+    );
   });
 
   it("builds the canonical PNG classroom visual URL from slide number", () => {

@@ -15,7 +15,7 @@ const INSTRUCTOR_EMAIL = process.env.SEED_INSTRUCTOR_EMAIL || "";
 const INSTRUCTOR_PASSWORD = process.env.SEED_INSTRUCTOR_PASSWORD || "";
 const STUDENT_EMAIL = process.env.SEED_STUDENT_EMAIL || "";
 const STUDENT_PASSWORD = process.env.SEED_STUDENT_PASSWORD || "";
-const PUBLIC_GOOGLE_ID = "1JcUxO92Ksa9vFSvY9_JrBXySEf2j1ARYs5-dwnMg6FQ";
+const PUBLIC_GOOGLE_ID = "1lxXd9se-LVhSdMromwCFlZd6joaMa52qHI-P70qG7pI";
 const PUBLIC_GOOGLE_URL = `https://docs.google.com/presentation/d/${PUBLIC_GOOGLE_ID}/edit`;
 const FORBIDDEN_UI = [
   "Converting PowerPoint to PDF",

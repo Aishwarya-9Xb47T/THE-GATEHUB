@@ -9,6 +9,7 @@ export const CLASSROOM_PREFIX = "classroom";
 export const CLASSROOM_LEGACY_PREFIX = "classroom-studio";
 export const CLASSROOM_SOURCE_REST = "source/original.pptx";
 export const CLASSROOM_EXPORT_PDF_REST = "source/export.pdf";
+export const CLASSROOM_VISUAL_DIR = "visuals";
 export const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 export const PDF_MIME = "application/pdf";
 export const SVG_MIME = "image/svg+xml";
@@ -45,6 +46,26 @@ export function canonicalSlidePngRelative(presentationId: string, slideNumber: n
 
 export function canonicalSlideSvgRelative(presentationId: string, slideNumber: number): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/renders/${paddedSlideSvg(slideNumber)}`;
+}
+
+export function visualFile(slideNumber: number, ext: "png" | "svg" = "svg"): string {
+  return `${Math.max(1, Math.floor(Number(slideNumber) || 1))}.${ext}`;
+}
+
+export function canonicalVisualRelative(
+  presentationId: string,
+  slideNumber: number,
+  ext: "png" | "svg" = "svg",
+): string {
+  return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_VISUAL_DIR}/${visualFile(slideNumber, ext)}`;
+}
+
+export function canonicalVisualApi(
+  presentationId: string,
+  slideNumber: number,
+  ext: "png" | "svg" = "svg",
+): string {
+  return `/api/classroom-studio/presentations/${presentationId}/assets/visuals/${visualFile(slideNumber, ext)}`;
 }
 
 export function canonicalSlidePngApi(presentationId: string, slideNumber: number): string {
@@ -175,8 +196,9 @@ export function buildOriginalSlideVisual(
     googleSlidesId: googleId,
     googleSlidesUrl: options.googleSlidesUrl,
     embedUrl,
-    renderedImageUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
-    thumbnailUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+    renderedImageUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
+    thumbnailUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
+    visualCacheUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
     storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
     mimeType: visualSource === "google_embed" ? "text/html" : PPTX_MIME,
     slideIndex,
@@ -296,7 +318,7 @@ export function sanitizeClassroomAssetRest(raw: string): string | null {
 }
 
 export function parseClassroomAssetFilename(kind: string, filename: string): { rest: string; mime: string } | null {
-  const safeKind = kind === "source" || kind === "renders" ? kind : null;
+  const safeKind = kind === "source" || kind === "renders" || kind === "visuals" ? kind : null;
   const raw = String(filename || "");
   if (!safeKind || !raw || /[\\/]/.test(raw) || raw.includes("..") || raw.includes("\0")) return null;
   const base = raw.split("?")[0].split("#")[0];
@@ -305,6 +327,18 @@ export function parseClassroomAssetFilename(kind: string, filename: string): { r
   if (safeKind === "source") {
     if (!/^(original|source)\.pptx$/i.test(base)) return null;
     return { rest: CLASSROOM_SOURCE_REST, mime: PPTX_MIME };
+  }
+
+  if (safeKind === "visuals") {
+    const visual = base.match(/^(?:slide-)?(\d{1,4})\.(svg|png)$/i);
+    if (!visual) return null;
+    const n = Number(visual[1]);
+    if (!Number.isFinite(n) || n < 1) return null;
+    const ext = visual[2].toLowerCase() === "png" ? "png" : "svg";
+    return {
+      rest: `${CLASSROOM_VISUAL_DIR}/${n}.${ext}`,
+      mime: ext === "png" ? PNG_MIME : SVG_MIME,
+    };
   }
 
   const slide = base.match(/^slide-(\d{1,4})\.(svg|png)$/i);
