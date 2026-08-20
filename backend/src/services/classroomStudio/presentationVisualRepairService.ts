@@ -9,7 +9,6 @@ import { headObject, isB2Configured } from "../b2StorageService.js";
 import {
   B2_UPLOAD_TIMEOUT_MS,
   describeClassroomRenderer,
-  isValidRenderedSvg,
   renderPresentationSlides,
   withDeadline,
 } from "./presentationRenderService.js";
@@ -22,12 +21,14 @@ import {
   sha256OfBuffer,
 } from "./classroomSourceResolver.js";
 import {
-  SVG_MIME,
+  PNG_MIME,
   buildSlideVisual,
   canonicalPublicPath,
+  canonicalSlidePngRelative,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
 } from "./classroomAssetPath.js";
+import { assertRenderablePng } from "./presentationLibreOfficeRender.js";
 import { CLASSROOM_RENDER_JOB_TIMEOUT_MS } from "./presentationAccess.js";
 import { classroomPptxPipelineLog } from "./classroomPipelineLog.js";
 
@@ -144,13 +145,18 @@ export async function inspectPresentationVisuals(presentationId: string) {
   const slideReports = [];
   for (const slide of slides) {
     const visual = (slide.content as { visual?: { src?: string; type?: string } } | null)?.visual;
+    const pngRelative = canonicalSlidePngRelative(presentationId, slide.order);
     const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
-    const svgHit = await headFirst(svgRelative);
+    const pngHit = await headFirst(pngRelative);
+    const svgHit = pngHit ? null : await headFirst(svgRelative);
     slideReports.push({
       slideId: slide.id,
       order: slide.order,
       visualType: visual?.type ?? null,
       visualSrc: typeof visual?.src === "string" ? visual.src : null,
+      pngRelative,
+      pngFound: Boolean(pngHit),
+      pngBytes: pngHit?.meta.contentLength ?? null,
       svgRelative,
       svgFound: Boolean(svgHit),
       svgBytes: svgHit?.meta.contentLength ?? null,
@@ -356,6 +362,12 @@ export async function renderAndPersistPresentationVisuals(
   const alreadyRendered = new Set<number>();
   if (options?.skipExisting) {
     for (const slide of presentation.slides) {
+      const pngRelative = canonicalSlidePngRelative(presentationId, slide.order);
+      const existingPng = await headFirst(pngRelative);
+      if (existingPng?.meta.contentLength && existingPng.meta.contentLength > 8_000) {
+        alreadyRendered.add(slide.order - 1);
+        continue;
+      }
       const svgRelative = canonicalSlideSvgRelative(presentationId, slide.order);
       const existing = await headFirst(svgRelative);
       if (existing?.meta.contentLength && existing.meta.contentLength > 8_000) {
@@ -373,35 +385,36 @@ export async function renderAndPersistPresentationVisuals(
 
   const outputDir = path.join(os.tmpdir(), `classroom-render-${presentationId}`);
   const persistedIndexes = new Set<number>(alreadyRendered);
-  const persistOne = async (render: { index: number; path: string; svgLength: number; svgText?: string }) => {
+  const persistOne = async (render: { index: number; path: string; svgLength?: number; svgText?: string; pngLength?: number }) => {
     if (persistedIndexes.has(render.index)) return;
-    const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
-    const diskPath = path.join(outputDir, path.basename(render.path));
-    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-start", relative);
+    const pngRelative = canonicalSlidePngRelative(presentationId, render.index + 1);
+    const pngName = path.basename(render.path).replace(/\.svg$/i, ".png");
+    const pngDiskPath = path.join(outputDir, pngName.endsWith(".png") ? pngName : `slide-${String(render.index + 1).padStart(3, "0")}.png`);
+    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-start", pngRelative);
     classroomPptxPipelineLog("visual_upload_started", {
       presentationId,
       slideNumber: render.index + 1,
-      sourceKey: `uploads/${relative}`,
+      sourceKey: `uploads/${pngRelative}`,
     });
-    let svgText = render.svgText;
-    if (!svgText) {
-      try {
-        svgText = await readFile(diskPath, "utf8");
-      } catch {
-        const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1} reason=missing on disk`);
-        (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
-        throw error;
-      }
-    }
-    if (!isValidRenderedSvg(svgText)) {
-      const error = new Error(`CLASSROOM_RENDER_INVALID_SVG slide=${render.index + 1}`);
-      (error as Error & { code?: string }).code = "CLASSROOM_RENDER_INVALID_SVG";
+    let png: Buffer;
+    try {
+      png = await readFile(pngDiskPath);
+    } catch {
+      const error = new Error(`CLASSROOM_RENDER_EMPTY_VISUAL slide=${render.index + 1} reason=missing PNG on disk`);
+      (error as Error & { code?: string }).code = "CLASSROOM_RENDER_EMPTY_VISUAL";
       throw error;
     }
-    await writeFile(diskPath, svgText, "utf8");
+    try {
+      assertRenderablePng(png);
+    } catch (error) {
+      const wrapped = error instanceof Error ? error : new Error(String(error));
+      (wrapped as Error & { code?: string }).code = "CLASSROOM_RENDER_EMPTY_VISUAL";
+      throw wrapped;
+    }
+    await writeFile(pngDiskPath, png);
     try {
       await withDeadline(
-        persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() }),
+        persistAtPublicRelative(pngDiskPath, pngRelative, PNG_MIME, { keepLocal: !isB2Configured() }),
         B2_UPLOAD_TIMEOUT_MS,
         "CLASSROOM_RENDER_B2_UPLOAD_FAILED",
         `CLASSROOM_RENDER_B2_UPLOAD_FAILED slide=${render.index + 1}`,
@@ -413,31 +426,35 @@ export async function renderAndPersistPresentationVisuals(
       throw wrapped;
     }
     if (isB2Configured()) {
-      const stored = await headObject(`uploads/${relative}`);
+      const stored = await headObject(`uploads/${pngRelative}`);
       if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
         const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1}`);
         (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
         throw error;
       }
-      if (stored.contentType && !/svg/i.test(stored.contentType)) {
+      const type = String(stored.contentType || "").toLowerCase();
+      if (type && /json|html|text\/plain/.test(type)) {
         const error = new Error(`CLASSROOM_RENDER_B2_VERIFY_FAILED slide=${render.index + 1} reason=contentType=${stored.contentType}`);
         (error as Error & { code?: string }).code = "CLASSROOM_RENDER_B2_VERIFY_FAILED";
         throw error;
       }
-      classroomRenderLogPersist(presentationId, render.index + 1, "B2_HEAD_VERIFIED", relative);
-      classroomRenderPersistLog(presentationId, render.index + 1, relative, stored.contentLength);
+      classroomRenderLogPersist(presentationId, render.index + 1, "B2_HEAD_VERIFIED", pngRelative);
+      classroomRenderPersistLog(presentationId, render.index + 1, pngRelative, stored.contentLength);
     } else {
-      classroomRenderPersistLog(presentationId, render.index + 1, relative, render.svgLength);
+      classroomRenderPersistLog(presentationId, render.index + 1, pngRelative, png.length);
     }
-    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-complete", relative);
+    classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-complete", pngRelative);
     classroomPptxPipelineLog("visual_upload_completed", {
       presentationId,
       slideNumber: render.index + 1,
-      sourceKey: `uploads/${relative}`,
+      sourceKey: `uploads/${pngRelative}`,
     });
-    console.info("[CLASSROOM_PPTX] visual_upload_complete", {
+    console.info("[CLASSROOM_RENDER]", {
       presentationId,
-      slide: render.index + 1,
+      slideIndex: render.index + 1,
+      imageGenerated: true,
+      imageStored: true,
+      visualUrl: `/api/classroom-studio/presentations/${presentationId}/assets/renders/${path.basename(pngRelative)}`,
     });
     setVisualRenderProgress(presentationId, {
       stage: "VISUAL_UPLOAD",
@@ -446,14 +463,14 @@ export async function renderAndPersistPresentationVisuals(
     });
     const slide = presentation.slides.find((item) => item.order === render.index + 1);
     if (slide) {
-      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-start", relative);
+      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-start", pngRelative);
       await prisma.slide.update({
         where: { id: slide.id },
         data: {
           content: withVisual(slide.content, presentationId, render.index, true) as object,
         },
       });
-      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-complete", relative);
+      classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-complete", pngRelative);
       classroomPptxPipelineLog("slide_persisted", {
         presentationId,
         slideId: slide.id,

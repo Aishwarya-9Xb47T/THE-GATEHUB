@@ -15,7 +15,6 @@ import * as powerPointParser from './powerPointParser.js';
 import * as googleSlidesAdapter from './googleSlidesAdapter.js';
 import { parsePDFPresentation } from './pdfImporter.js';
 import {
-  isValidRenderedSvg,
   renderPresentationSlides,
   validateSlideVisualCoverage,
 } from './presentationRenderService.js';
@@ -26,12 +25,13 @@ import {
 } from './presentationFidelityValidator.js';
 import {
   canonicalPublicPath,
-  canonicalSlideSvgRelative,
+  canonicalSlidePngRelative,
   canonicalSourceRelative,
   buildSlideVisual,
   PPTX_MIME,
-  SVG_MIME,
+  PNG_MIME,
 } from './classroomAssetPath.js';
+import { assertRenderablePng } from './presentationLibreOfficeRender.js';
 import {
   persistPptxBuffer,
   persistPdfBuffer,
@@ -375,6 +375,15 @@ async function persistImportedContent(
   if (options.isPptxPipeline) {
     for (const [index, slideData] of (importResult.slides ?? []).entries()) {
       const stats = powerPointParser.summarizeSlideElements(slideData.content?.elements);
+      console.info('[CLASSROOM_IMPORT_SLIDE]', {
+        presentationId,
+        slideIndex: index + 1,
+        structuredTextCharacters: stats.totalTextCharacters,
+        images: stats.imageCount,
+        shapes: stats.shapeCount,
+        tables: stats.tableCount,
+        visualStatus: 'pending',
+      });
       console.info('[CLASSROOM_IMPORT_VALIDATION]', {
         presentationId,
         sourceType: options.sourceType || 'powerpoint',
@@ -436,19 +445,21 @@ async function persistImportedContent(
     });
 
     for (const render of renderResult.renders) {
-      const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
-      const diskPath = path.join(renderDir, path.basename(render.path));
+      const relative = canonicalSlidePngRelative(presentationId, render.index + 1);
+      const diskPath = path.join(renderDir, path.basename(render.path).replace(/\.svg$/i, '.png'));
       if (!existsSync(diskPath)) {
-        console.warn('[Classroom import] Rendered SVG missing on disk', { presentationId, relative });
-        renderErrors.push(`Rendered SVG missing before storage: ${relative}`);
+        console.warn('[Classroom import] Rendered PNG missing on disk', { presentationId, relative });
+        renderErrors.push(`Rendered PNG missing before storage: ${relative}`);
         continue;
       }
-      const svgText = await readFile(diskPath, 'utf8');
-      if (!isValidRenderedSvg(svgText)) {
-        renderErrors.push(`Rendered SVG failed validation: ${relative}`);
+      const png = await readFile(diskPath);
+      try {
+        assertRenderablePng(png);
+      } catch (error) {
+        renderErrors.push(`Rendered PNG failed validation: ${relative}: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
-      await persistAtPublicRelative(diskPath, relative, SVG_MIME, { keepLocal: !isB2Configured() });
+      await persistAtPublicRelative(diskPath, relative, PNG_MIME, { keepLocal: !isB2Configured() });
       if (isB2Configured()) {
         const stored = await headObject(`uploads/${relative}`);
         if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
@@ -553,7 +564,7 @@ async function persistImportedContent(
       renderWarnings.push(`Asset missing before storage: ${relative}`);
       continue;
     }
-    const mime = relative.endsWith('.pptx') ? PPTX_MIME : relative.endsWith('.svg') ? SVG_MIME : undefined;
+    const mime = relative.endsWith('.pptx') ? PPTX_MIME : relative.endsWith('.png') ? PNG_MIME : undefined;
     try {
       await persistAtPublicRelative(diskPath, relative, mime, { keepLocal: true });
     } catch (error) {
@@ -887,6 +898,12 @@ export async function importPresentation(
       exists: true,
       status: committed.status,
       sourceType: committed.sourceType,
+      slideCount: committed._count.slides,
+    });
+    console.info('[CLASSROOM_IMPORT]', {
+      sourceType: committed.sourceType,
+      sourceName: input.title,
+      presentationId: committed.id,
       slideCount: committed._count.slides,
     });
     console.info('[CLASSROOM_IMPORT] stage=create-success', {

@@ -12,9 +12,18 @@ export const CLASSROOM_EXPORT_PDF_REST = "source/export.pdf";
 export const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 export const PDF_MIME = "application/pdf";
 export const SVG_MIME = "image/svg+xml";
+export const PNG_MIME = "image/png";
 
-export function paddedSlideFile(slideNumber: number): string {
-  return `slide-${String(slideNumber).padStart(3, "0")}.svg`;
+export function paddedSlideFile(slideNumber: number, ext: "png" | "svg" = "png"): string {
+  return `slide-${String(slideNumber).padStart(3, "0")}.${ext}`;
+}
+
+export function paddedSlidePng(slideNumber: number): string {
+  return paddedSlideFile(slideNumber, "png");
+}
+
+export function paddedSlideSvg(slideNumber: number): string {
+  return paddedSlideFile(slideNumber, "svg");
 }
 
 export function canonicalSourceRelative(presentationId: string): string {
@@ -30,12 +39,20 @@ export function canonicalExportPdfRelative(presentationId: string): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_EXPORT_PDF_REST}`;
 }
 
+export function canonicalSlidePngRelative(presentationId: string, slideNumber: number): string {
+  return `${CLASSROOM_PREFIX}/${presentationId}/renders/${paddedSlidePng(slideNumber)}`;
+}
+
 export function canonicalSlideSvgRelative(presentationId: string, slideNumber: number): string {
-  return `${CLASSROOM_PREFIX}/${presentationId}/renders/${paddedSlideFile(slideNumber)}`;
+  return `${CLASSROOM_PREFIX}/${presentationId}/renders/${paddedSlideSvg(slideNumber)}`;
+}
+
+export function canonicalSlidePngApi(presentationId: string, slideNumber: number): string {
+  return `/api/classroom-studio/presentations/${presentationId}/assets/renders/${paddedSlidePng(slideNumber)}`;
 }
 
 export function canonicalSlideSvgApi(presentationId: string, slideNumber: number): string {
-  return `/api/classroom-studio/presentations/${presentationId}/assets/renders/${paddedSlideFile(slideNumber)}`;
+  return `/api/classroom-studio/presentations/${presentationId}/assets/renders/${paddedSlideSvg(slideNumber)}`;
 }
 
 export function canonicalSourceApi(presentationId: string): string {
@@ -60,9 +77,10 @@ export function buildSlideVisual(
   };
   if (hasSvg) {
     return {
-      type: "svg",
-      src: canonicalSlideSvgApi(presentationId, slideIndex + 1),
-      storageKey: `uploads/${canonicalSlideSvgRelative(presentationId, slideIndex + 1)}`,
+      type: "image",
+      src: canonicalSlidePngApi(presentationId, slideIndex + 1),
+      storageKey: `uploads/${canonicalSlidePngRelative(presentationId, slideIndex + 1)}`,
+      mimeType: PNG_MIME,
       slideIndex,
       availability: "available",
       source,
@@ -125,11 +143,15 @@ export function parseClassroomAssetFilename(kind: string, filename: string): { r
     return { rest: CLASSROOM_SOURCE_REST, mime: PPTX_MIME };
   }
 
-  const slide = base.match(/^slide-(\d{1,4})\.svg$/i);
+  const slide = base.match(/^slide-(\d{1,4})\.(svg|png)$/i);
   if (!slide) return null;
   const n = Number(slide[1]);
   if (!Number.isFinite(n) || n < 1) return null;
-  return { rest: `renders/${paddedSlideFile(n)}`, mime: SVG_MIME };
+  const ext = slide[2].toLowerCase() === "png" ? "png" : "svg";
+  return {
+    rest: `renders/${paddedSlideFile(n, ext)}`,
+    mime: ext === "png" ? PNG_MIME : SVG_MIME,
+  };
 }
 
 export function classroomStorageRelatives(presentationId: string, rest: string): string[] {
@@ -149,6 +171,7 @@ export function requestedAssetBasename(rest: string): string {
 
 export function classroomAssetMime(rest: string): string {
   const base = requestedAssetBasename(rest).toLowerCase();
+  if (base.endsWith(".png")) return PNG_MIME;
   if (base.endsWith(".svg")) return SVG_MIME;
   if (base.endsWith(".pptx")) return PPTX_MIME;
   if (base.endsWith(".pdf")) return PDF_MIME;

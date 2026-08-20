@@ -15,7 +15,6 @@ import { pathToFileURL } from 'node:url';
 import { isValidRenderedSvg, withDeadline, type PresentationRenderResult, type SlideRenderResult } from './presentationRenderService.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
 import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
-import { flattenPptxMathForLibreOffice } from './pptxOfficeMathFlatten.js';
 
 const PDF_CONVERT_TIMEOUT_MS = 180_000;
 const PAGE_RENDER_TIMEOUT_MS = 45_000;
@@ -423,9 +422,12 @@ async function renderPdfPageToSvg(args: {
     }
     const png = await readFile(pngPath);
     const dims = assertRenderablePng(png);
-    const svg = wrapPngAsSvg(png);
-    if (!isValidRenderedSvg(svg)) {
-      throw new Error('CLASSROOM_RENDER_INVALID_SVG PNG wrap did not produce valid SVG');
+    let svg = '';
+    try {
+      svg = wrapPngAsSvg(png);
+      if (!isValidRenderedSvg(svg)) svg = '';
+    } catch {
+      svg = '';
     }
     classroomRenderLog({
       stage: 'pdf-to-png',
@@ -442,7 +444,7 @@ async function renderPdfPageToSvg(args: {
     try {
       const pngResult = await runCommand(
         args.pdftoppm,
-        ['-png', '-singlefile', '-r', '144', '-f', String(args.page), '-l', String(args.page), args.pdfPath, pngPrefix],
+        ['-png', '-singlefile', '-r', '192', '-f', String(args.page), '-l', String(args.page), args.pdfPath, pngPrefix],
         PAGE_RENDER_TIMEOUT_MS,
       );
       return await loadPng(pngResult, [pngPrefix], 'pdftoppm-png');
@@ -455,7 +457,7 @@ async function renderPdfPageToSvg(args: {
     const cairoPngPrefix = `${prefix}-cairo`;
     const pngResult = await runCommand(
       args.pdftocairo,
-      ['-png', '-singlefile', '-r', '144', '-f', String(args.page), '-l', String(args.page), args.pdfPath, cairoPngPrefix],
+      ['-png', '-singlefile', '-r', '192', '-f', String(args.page), '-l', String(args.page), args.pdfPath, cairoPngPrefix],
       PAGE_RENDER_TIMEOUT_MS,
     );
     try {
@@ -751,42 +753,13 @@ export async function renderPresentationSlidesLibreOffice(
         log({ stage: 'SHA256_MISMATCH', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', inputSha256, writtenSha, originalBytes: pptxBuffer.length, localBytes: written.length });
         return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
       }
-      let workingBuffer = written;
-      try {
-        const flattened = await flattenPptxMathForLibreOffice(written);
-        workingBuffer = flattened.buffer;
-        console.info('[CLASSROOM_PPTX]', {
-          presentationId,
-          validation: 'PASS',
-          slideCount: flattened.slideCount,
-          mathObjects: flattened.mathObjects,
-          alternateContent: flattened.alternateContent,
-          rasterized: flattened.rasterized,
-          inlined: flattened.inlined,
-          pdflatex: flattened.pdflatex,
-        });
-        log({
-          stage: 'PPTX_MATH_FLATTEN',
-          status: 'success',
-          mathObjects: flattened.mathObjects,
-          alternateContent: flattened.alternateContent,
-          rasterized: flattened.rasterized,
-          inlined: flattened.inlined,
-          workingCopyBytes: flattened.flattenedBytes,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        warnings.push(`PPTX math flatten failed; using original PPTX for LibreOffice (${message.slice(0, 180)})`);
-        console.error('[CLASSROOM_PPTX] flatten_failed', { presentationId, error: message.slice(0, 400) });
-      }
-      const pptxPath = path.join(workDir, 'source.pptx');
-      await writeFile(pptxPath, workingBuffer);
+      const pptxPath = originalPath;
       log({
         stage: 'PPTX_SOURCE_LOADED',
         status: 'success',
         bytes: pptxBuffer.length,
         sha256: inputSha256,
-        workingCopyBytes: workingBuffer.length,
+        workingCopyBytes: written.length,
         soffice: tools.soffice,
         pdfSource: 'libreoffice-pptx',
         version: readLibreOfficeVersionFile(),
@@ -800,7 +773,7 @@ export async function renderPresentationSlidesLibreOffice(
           executable: tools.soffice,
           input: pptxPath,
           originalBytes: pptxBuffer.length,
-          localBytes: workingBuffer.length,
+          localBytes: written.length,
         });
         const converted = await convertPptxToPdf({
           soffice: tools.soffice!,
@@ -808,7 +781,7 @@ export async function renderPresentationSlidesLibreOffice(
           workDir,
           profileDir,
           outputDir: convertDir,
-          sha256: sha256Hex(workingBuffer),
+          sha256: inputSha256,
           presentationId,
         });
         console.info('[CLASSROOM_PPTX]', {
@@ -858,6 +831,20 @@ export async function renderPresentationSlidesLibreOffice(
       const error = 'PDF_RENDER_FAILED could not determine PDF page count';
       log({ stage: 'PDF_READY', status: 'failure', errorCode: 'PDF_RENDER_FAILED', errorMessage: error });
       return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
+    }
+    const expectedSlides = archive?.slideCount && archive.slideCount > 0 ? archive.slideCount : pageCount;
+    if (expectedSlides !== pageCount) {
+      const message = `CLASSROOM_RENDER_PAGE_COUNT_MISMATCH expected=${expectedSlides} pdfPages=${pageCount}`;
+      warnings.push(message);
+      errors.push(message);
+      log({
+        stage: 'PDF_READY',
+        status: 'failure',
+        errorCode: 'CLASSROOM_RENDER_PAGE_COUNT_MISMATCH',
+        errorMessage: message,
+        sourceSlides: expectedSlides,
+        pdfPages: pageCount,
+      });
     }
     const sourceTextRuns = archive?.slides.reduce((sum, slide) => sum + slide.textRuns, 0) ?? 0;
     if (tools.pdftotext && sourceTextRuns > 0 && !pdfText.replace(/\s+/g, '')) {
@@ -912,18 +899,23 @@ export async function renderPresentationSlidesLibreOffice(
           png: pageSvg.pngPath,
           preview: previewSvg(pageSvg.svg),
         });
-        if (!isValidRenderedSvg(pageSvg.svg)) {
-          throw new Error('CLASSROOM_RENDER_INVALID_SVG output failed validation');
+        if (!pageSvg.pngPath) {
+          throw new Error('CLASSROOM_RENDER_EMPTY_VISUAL output failed validation');
         }
-        const fileName = `slide-${String(slide).padStart(3, '0')}.svg`;
-        const diskPath = path.join(outputDir, fileName);
-        await writeFile(diskPath, pageSvg.svg, 'utf8');
+        const pngName = `slide-${String(slide).padStart(3, '0')}.png`;
+        const pngDisk = path.join(outputDir, pngName);
         if (pageSvg.pngPath && existsSync(pageSvg.pngPath)) {
-          await writeFile(path.join(outputDir, `slide-${String(slide).padStart(3, '0')}.png`), await readFile(pageSvg.pngPath));
+          const png = await readFile(pageSvg.pngPath);
+          assertRenderablePng(png);
+          await writeFile(pngDisk, png);
+        } else {
+          throw new Error(`CLASSROOM_RENDER_EMPTY_VISUAL slide=${slide} reason=missing PNG`);
         }
+        const pngStat = await readFile(pngDisk);
         const render: SlideRenderResult = {
           index,
-          path: `renders/${fileName}`,
+          path: `renders/${pngName}`,
+          pngLength: pngStat.length,
           svgLength: pageSvg.svg.length,
           svgText: pageSvg.svg,
         };
@@ -947,7 +939,7 @@ export async function renderPresentationSlidesLibreOffice(
           total: pageCount,
           status: 'success',
           durationMs: Date.now() - started,
-          bytes: render.svgLength,
+          bytes: render.pngLength ?? render.svgLength,
         });
         classroomPptxPipelineLog('slide_render_completed', {
           presentationId,
@@ -987,7 +979,7 @@ export async function renderPresentationSlidesLibreOffice(
       status: renders.length === newlyExpected && errors.length === 0 ? 'success' : 'failure',
     });
     return {
-      success: renders.length === newlyExpected && errors.length === 0,
+      success: renders.length === newlyExpected && errors.length === 0 && expectedSlides === pageCount,
       slideCount: pageCount,
       renders,
       warnings,

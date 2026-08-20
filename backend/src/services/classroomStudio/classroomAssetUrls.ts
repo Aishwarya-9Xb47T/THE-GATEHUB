@@ -31,12 +31,16 @@ export function classroomAssetLookupRelatives(relativePath: string): string[] {
     restVariants.add("source/original.pptx");
   }
 
-  const slideMatch = rest.match(/^(renders\/slide-)(\d+)(\.svg)$/i);
+  const slideMatch = rest.match(/^(renders\/slide-)(\d+)(\.(?:svg|png))$/i);
   if (slideMatch) {
     const n = Number(slideMatch[2]);
+    const ext = slideMatch[3].toLowerCase();
     if (Number.isFinite(n) && n >= 0) {
-      restVariants.add(`${slideMatch[1]}${String(n).padStart(3, "0")}${slideMatch[3]}`);
-      restVariants.add(`${slideMatch[1]}${n}${slideMatch[3]}`);
+      restVariants.add(`${slideMatch[1]}${String(n).padStart(3, "0")}${ext}`);
+      restVariants.add(`${slideMatch[1]}${n}${ext}`);
+      const otherExt = ext === ".png" ? ".svg" : ".png";
+      restVariants.add(`${slideMatch[1]}${String(n).padStart(3, "0")}${otherExt}`);
+      restVariants.add(`${slideMatch[1]}${n}${otherExt}`);
     }
   }
 

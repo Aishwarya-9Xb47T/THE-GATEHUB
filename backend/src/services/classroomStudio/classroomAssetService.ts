@@ -27,12 +27,19 @@ function keyMatchesRequested(key: string, rest: string): boolean {
   if (normalizedKey.endsWith(`/${wanted}`) || normalizedKey.endsWith(wanted)) return true;
   const base = requestedAssetBasename(wanted);
   if (base && normalizedKey.endsWith(`/${base}`)) return true;
-  const slide = wanted.match(/slide-(\d+)\.svg$/i);
+  const slide = wanted.match(/slide-(\d+)\.(svg|png)$/i);
   if (slide) {
     const n = Number(slide[1]);
-    const padded = `slide-${String(n).padStart(3, "0")}.svg`;
-    const short = `slide-${n}.svg`;
-    return normalizedKey.endsWith(`/${padded}`) || normalizedKey.endsWith(`/${short}`);
+    const ext = slide[2].toLowerCase();
+    const other = ext === "png" ? "svg" : "png";
+    for (const suffix of [
+      `slide-${String(n).padStart(3, "0")}.${ext}`,
+      `slide-${n}.${ext}`,
+      `slide-${String(n).padStart(3, "0")}.${other}`,
+      `slide-${n}.${other}`,
+    ]) {
+      if (normalizedKey.endsWith(`/${suffix}`)) return true;
+    }
   }
   return false;
 }
@@ -122,7 +129,7 @@ export async function streamClassroomPresentationAsset(
       origin: options?.origin,
       range: options?.range,
       mimeType: classroomAssetMime(safeRest),
-      cacheControl: safeRest.endsWith(".svg")
+      cacheControl: /\.(svg|png)$/i.test(safeRest)
         ? "private, max-age=86400"
         : "private, max-age=3600",
     });
@@ -139,7 +146,7 @@ export async function streamClassroomPresentationAsset(
       origin: options?.origin,
       range: options?.range,
       mimeType: classroomAssetMime(safeRest),
-      cacheControl: safeRest.endsWith(".svg")
+      cacheControl: /\.(svg|png)$/i.test(safeRest)
         ? "private, max-age=86400"
         : "private, max-age=3600",
     });

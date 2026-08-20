@@ -84,8 +84,9 @@ export async function withDeadline<T>(
 export interface SlideRenderResult {
   index: number;
   path: string;
-  svgLength: number;
+  svgLength?: number;
   svgText?: string;
+  pngLength?: number;
 }
 
 export interface PresentationRenderProgress {

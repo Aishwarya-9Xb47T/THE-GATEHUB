@@ -1,7 +1,7 @@
 /**
  * Canonical Interactive Classroom slide media URLs.
  * Storage: /uploads/classroom/<presentationId>/source/original.pptx
- *          /uploads/classroom/<presentationId>/renders/slide-NNN.svg
+ *          /uploads/classroom/<presentationId>/renders/slide-NNN.png
  * Browser: /api/classroom-studio/presentations/<id>/assets/{source|renders}/<file>
  */
 
@@ -32,8 +32,8 @@ export function rewriteClassroomAssetRef(value: string, presentationId?: string)
   return trimmed;
 }
 
-function paddedSlideFile(slideNumber: number): string {
-  return `slide-${String(slideNumber).padStart(3, "0")}.svg`;
+function paddedSlideFile(slideNumber: number, ext: "png" | "svg" = "png"): string {
+  return `slide-${String(slideNumber).padStart(3, "0")}.${ext}`;
 }
 
 export function canonicalClassroomApiAsset(
@@ -47,7 +47,7 @@ export function canonicalClassroomApiAsset(
 export function classroomVisualFetchUrls(
   src: string | undefined,
   presentationId?: string,
-  kind: "svg" | "pptx" | "any" = "any",
+  kind: "svg" | "png" | "pptx" | "any" = "any",
 ): string[] {
   if (kind === "pptx") {
     if (!presentationId) return [];
@@ -55,16 +55,17 @@ export function classroomVisualFetchUrls(
   }
 
   const rewritten = rewriteClassroomAssetRef(src || "", presentationId);
-  const apiRender = rewritten.match(/\/api\/classroom-studio\/presentations\/([^/]+)\/assets\/renders\/slide-(\d+)\.svg$/i);
-  if (kind === "svg" || apiRender) {
-    const match = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/renders\/slide-(\d+)\.svg$/i);
-    const id = apiRender?.[1] || match?.[1] || presentationId;
-    const n = Number(apiRender?.[2] || match?.[2]);
-    if (!id || !Number.isFinite(n) || n < 1) {
-      if (kind === "svg") return [];
-    } else {
-      return [canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n))];
-    }
+  const apiRender = rewritten.match(/\/api\/classroom-studio\/presentations\/([^/]+)\/assets\/renders\/slide-(\d+)\.(png|svg)$/i);
+  const uploadRender = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/renders\/slide-(\d+)\.(png|svg)$/i);
+  const id = apiRender?.[1] || uploadRender?.[1] || presentationId;
+  const n = Number(apiRender?.[2] || uploadRender?.[2]);
+  if (id && Number.isFinite(n) && n >= 1) {
+    if (kind === "svg") return [canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n, "svg"))];
+    if (kind === "png") return [canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n, "png"))];
+    return [
+      canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n, "png")),
+      canonicalClassroomApiAsset(id, "renders", paddedSlideFile(n, "svg")),
+    ];
   }
 
   const uploadMatch = rewritten.match(/\/uploads\/classroom(?:-studio)?\/([^/]+)\/(source|renders)\/([^/]+)$/i);
@@ -78,6 +79,19 @@ export function classroomVisualFetchUrls(
 export function isSvgMarkup(text: string): boolean {
   const trimmed = text.trimStart().toLowerCase();
   return trimmed.startsWith("<svg") || (trimmed.startsWith("<?xml") && trimmed.includes("<svg"));
+}
+
+export function isCompatibleRasterContentType(contentType: string | null): boolean {
+  const type = (contentType || "").toLowerCase();
+  if (!type) return true;
+  if (type.includes("json") || type.includes("html") || type.includes("text/plain")) return false;
+  return (
+    type.includes("image/png")
+    || type.includes("image/jpeg")
+    || type.includes("image/svg")
+    || type.includes("xml")
+    || type.includes("octet-stream")
+  );
 }
 
 export function isCompatibleSvgContentType(contentType: string | null): boolean {

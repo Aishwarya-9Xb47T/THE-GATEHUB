@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import {
   canonicalPublicPath,
+  canonicalSlidePngRelative,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
 } from "../classroomAssetPath.js";
@@ -13,6 +14,12 @@ describe("existing presentation repair contract", () => {
     );
     expect(canonicalSlideSvgRelative(presentationId, 2)).toBe(
       "classroom/cmsy6g8sr00b7owbuj0gvy1rb/renders/slide-002.svg",
+    );
+    expect(canonicalSlidePngRelative(presentationId, 2)).toBe(
+      "classroom/cmsy6g8sr00b7owbuj0gvy1rb/renders/slide-002.png",
+    );
+    expect(canonicalPublicPath(canonicalSlidePngRelative(presentationId, 2))).toBe(
+      "/uploads/classroom/cmsy6g8sr00b7owbuj0gvy1rb/renders/slide-002.png",
     );
     expect(canonicalPublicPath(canonicalSlideSvgRelative(presentationId, 2))).toBe(
       "/uploads/classroom/cmsy6g8sr00b7owbuj0gvy1rb/renders/slide-002.svg",

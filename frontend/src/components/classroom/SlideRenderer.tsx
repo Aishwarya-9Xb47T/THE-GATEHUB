@@ -16,16 +16,11 @@
  */
 
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import { PptxRenderer } from 'pptx-svg';
-import pptxWasmUrl from 'pptx-svg/wasm?url';
 import { fetchAuthenticatedUpload, withUploadAuth } from '@/lib/courseMediaUrls';
-import { stripPptxSvgDefaultTableGridLines } from '@/lib/pptxSvgPostProcess';
 import {
-  classroomAssetErrorFromBody,
   classroomVisualFetchUrls,
   decodeSlideAltText,
-  isCompatiblePptxContentType,
-  isCompatibleSvgContentType,
+  isCompatibleRasterContentType,
   isOfficeGeneratedAlt,
   isSvgMarkup,
   rewriteClassroomAssetRef,
@@ -135,7 +130,7 @@ type RenderDiagnostic = {
   structuredElementCount: number;
   nativeSvgLength: number;
   fallbackReason?: string;
-  activeRenderer: 'pre-rendered-svg' | 'client-pptx-wasm' | 'raster-image' | 'structured-fallback' | 'none';
+  activeRenderer: 'pre-rendered-svg' | 'raster-image' | 'structured-fallback' | 'none';
 };
 
 // ─── Slide Normalization ──────────────────────────────────────────────────────
@@ -854,10 +849,8 @@ function resolveSlideAssetUrl(src: string | undefined, presentationId?: string):
   return rewritten;
 }
 
-const pptxBufferCache = new Map<string, ArrayBuffer>();
-
 export function clearClassroomPptxBufferCache() {
-  pptxBufferCache.clear();
+  /* PPTX WASM is no longer used as a classroom visual source. */
 }
 
 async function fetchFirstSuccessfulUpload(urls: string[]): Promise<{ response: Response; url: string } | null> {
@@ -881,47 +874,16 @@ async function fetchFirstSuccessfulUpload(urls: string[]): Promise<{ response: R
   return null;
 }
 
-async function loadCachedPptxBuffer(urls: string[]): Promise<ArrayBuffer> {
-  for (const url of urls) {
-    const cached = pptxBufferCache.get(url) || pptxBufferCache.get(presentationCacheKey(url) || "");
-    if (cached) return cached;
-  }
-  const found = await fetchFirstSuccessfulUpload(urls);
-  if (!found) {
-    const formatted = formatPptxVisualError(404);
-    throw Object.assign(new Error(formatted.message), { code: formatted.code });
-  }
-  const contentType = found.response.headers.get('content-type');
-  if (!isCompatiblePptxContentType(contentType)) {
-    const preview = await found.response.clone().text();
-    const parsed = classroomAssetErrorFromBody(safeJson(preview));
-    throw Object.assign(
-      new Error(parsed?.message || 'PowerPoint source response was not a PPTX file.'),
-      { code: parsed?.code || 'CLASSROOM_ASSET_INVALID' },
-    );
-  }
-  const buffer = await found.response.arrayBuffer();
-  const header = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
-  if (buffer.byteLength < 4 || header[0] !== 0x50 || header[1] !== 0x4b) {
-    throw Object.assign(new Error('PowerPoint source file is empty or invalid.'), { code: 'CLASSROOM_PPTX_INVALID' });
-  }
-  const cacheKey = presentationCacheKey(urls[0]);
-  pptxBufferCache.set(found.url, buffer);
-  if (cacheKey) pptxBufferCache.set(cacheKey, buffer);
-  return buffer;
-}
-
-function presentationCacheKey(url: string): string | null {
-  const match = url.match(/\/presentations\/([^/]+)\/assets\//);
-  return match ? `presentation:${match[1]}` : null;
-}
-
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+async function blobLooksLikeSlideVisual(blob: Blob): Promise<boolean> {
+  if (blob.size < 32) return false;
+  const buffer = typeof blob.arrayBuffer === 'function'
+    ? await blob.arrayBuffer()
+    : await new Response(blob).arrayBuffer();
+  const header = new Uint8Array(buffer).slice(0, 256);
+  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) return true;
+  if (header[0] === 0xff && header[1] === 0xd8) return true;
+  const preview = new TextDecoder().decode(header).trimStart().toLowerCase();
+  return isSvgMarkup(preview);
 }
 
 function ImageElement({ element, theme: _theme }: { element: NormalizedElement; theme?: ThemeColors }) {
@@ -1580,6 +1542,7 @@ export function SlideRenderer({
   const slide = useMemo(() => normalizeSlide(content), [content]);
   const [fitScale, setFitScale] = useState(1);
   const [nativeSvg, setNativeSvg] = useState<string | null>(null);
+  const [nativeImageUrl, setNativeImageUrl] = useState<string | null>(null);
   const [nativeVisualError, setNativeVisualError] = useState<{ code: string; message: string } | null>(null);
   const [renderWaitTimedOut, setRenderWaitTimedOut] = useState(false);
 
@@ -1589,6 +1552,7 @@ export function SlideRenderer({
     if (raw.type === 'pptx' || raw.type === 'svg' || raw.type === 'image') return raw;
     return undefined;
   }, [content]);
+  const format = String((content as any)?.format ?? 'unknown');
 
   const logRenderDiagnostic = useCallback((diag: RenderDiagnostic) => {
     if (import.meta.env.DEV) {
@@ -1616,7 +1580,7 @@ export function SlideRenderer({
   }, []);
 
   useEffect(() => {
-    const rendering = ['rendering', 'uploading', 'extracting', 'source_stored'].includes(pipelineStatus || '');
+    const rendering = ['rendering', 'uploading', 'extracting', 'source_stored', 'rendering_partial'].includes(pipelineStatus || '');
     if (!rendering) {
       setRenderWaitTimedOut(false);
       return;
@@ -1628,11 +1592,11 @@ export function SlideRenderer({
   useEffect(() => {
     let cancelled = false;
     const slideIndex = Math.max(0, Number(visual?.slideIndex ?? (slideNumber != null ? slideNumber - 1 : 0)));
-    const format = String((content as any)?.format ?? 'unknown');
     const structuredElementCount = slide.elements.length;
 
-    if (!visual?.src) {
+    if (!visual?.src && !presentationId) {
       setNativeSvg(null);
+      setNativeImageUrl(null);
       setNativeVisualError(null);
       logRenderDiagnostic({
         presentationId,
@@ -1659,56 +1623,70 @@ export function SlideRenderer({
           presentationId,
           slideId,
           slideIndex,
-          type: visual.type,
-          src: visual.src,
+          type: visual?.type,
+          src: visual?.src,
         });
       }
 
       try {
-        const applySvg = (svg: string, mode: RenderDiagnostic['activeRenderer'], visualSrc: string) => {
-          if (cancelled) return;
-          setNativeSvg(stripPptxSvgDefaultTableGridLines(svg));
-          setNativeVisualError(null);
-          logRenderDiagnostic({
-            presentationId,
-            slideId,
-            slideIndex,
-            format,
-            hasVisual: true,
-            visualType: visual.type,
-            visualSrc,
-            nativeRendererAttempted: true,
-            nativeRendererSucceeded: true,
-            structuredRendererUsed: false,
-            structuredElementCount,
-            nativeSvgLength: svg.length,
-            activeRenderer: mode,
-          });
-        };
+        const n = slideNumber ?? slideIndex + 1;
+        const rendering = ['rendering', 'uploading', 'extracting', 'source_stored', 'rendering_partial'].includes(pipelineStatus || '');
+        const urls = [
+          ...classroomVisualFetchUrls(visual?.src, presentationId, 'any'),
+          ...(presentationId
+            ? classroomVisualFetchUrls(
+              `/api/classroom-studio/presentations/${presentationId}/assets/renders/slide-${String(n).padStart(3, '0')}.png`,
+              presentationId,
+              'any',
+            )
+            : []),
+        ].filter((url, index, list) => list.indexOf(url) === index);
 
-        const rendering = ['rendering', 'uploading', 'extracting', 'source_stored'].includes(pipelineStatus || '');
-        if (rendering && presentationId) {
-          const n = slideNumber ?? slideIndex + 1;
-          const svgUrls = classroomVisualFetchUrls(
-            `/api/classroom-studio/presentations/${presentationId}/assets/renders/slide-${String(n).padStart(3, '0')}.svg`,
-            presentationId,
-            'svg',
-          );
-          const found = await fetchFirstSuccessfulUpload(svgUrls);
-          if (found) {
-            const contentType = found.response.headers.get('content-type');
-            const svg = await found.response.text();
-            if (isSvgMarkup(svg) && !svg.startsWith('ERROR:') && isCompatibleSvgContentType(contentType)) {
-              applySvg(svg, 'pre-rendered-svg', found.url);
+        const found = await fetchFirstSuccessfulUpload(urls);
+        if (found) {
+          const contentType = found.response.headers.get('content-type');
+          if (isCompatibleRasterContentType(contentType)) {
+            const blob = await found.response.clone().blob();
+            if (await blobLooksLikeSlideVisual(blob)) {
+              const objectUrl = URL.createObjectURL(blob);
+              if (cancelled) {
+                URL.revokeObjectURL(objectUrl);
+                return;
+              }
+              setNativeImageUrl((previous) => {
+                if (previous) URL.revokeObjectURL(previous);
+                return objectUrl;
+              });
+              setNativeSvg(null);
+              setNativeVisualError(null);
+              logRenderDiagnostic({
+                presentationId,
+                slideId,
+                slideIndex,
+                format,
+                hasVisual: true,
+                visualType: visual?.type,
+                visualSrc: found.url,
+                nativeRendererAttempted: true,
+                nativeRendererSucceeded: true,
+                structuredRendererUsed: false,
+                structuredElementCount,
+                nativeSvgLength: blob.size,
+                activeRenderer: found.url.includes('.svg') ? 'pre-rendered-svg' : 'raster-image',
+              });
               return;
             }
           }
-          if (renderWaitTimedOut) {
-            throw Object.assign(
-              new Error('Slide rendering timed out. Retry rendering.'),
-              { code: 'CLASSROOM_RENDER_FAILED' },
-            );
-          }
+        }
+
+        if (visual?.availability === 'failed' || visual?.errorCode === 'CLASSROOM_RENDER_SLIDE_FAILED') {
+          throw Object.assign(
+            new Error(String(visual.errorMessage || 'Slide visual unavailable')),
+            { code: 'CLASSROOM_RENDER_SLIDE_FAILED' },
+          );
+        }
+
+        if (rendering && !renderWaitTimedOut) {
           const total = slideCount || n;
           const progress = renderProgressSlide || n;
           const stageLabel =
@@ -1723,98 +1701,16 @@ export function SlideRenderer({
                     : `Rendering slide ${progress}…`;
           throw Object.assign(new Error(stageLabel), { code: 'CLASSROOM_RENDERING' });
         }
-        if (pipelineStatus === 'render_failed') {
-          const detail = typeof visual.errorMessage === 'string' && visual.errorMessage.trim()
+
+        const failedCode = pipelineStatus === 'render_failed' || renderWaitTimedOut
+          ? 'CLASSROOM_RENDER_FAILED'
+          : 'CLASSROOM_ASSET_NOT_FOUND';
+        const failedMessage = pipelineStatus === 'render_failed' || renderWaitTimedOut
+          ? (typeof visual?.errorMessage === 'string' && visual.errorMessage.trim()
             ? visual.errorMessage
-            : 'Slide visual rendering failed. Retry rendering.';
-          throw Object.assign(new Error(detail), {
-            code: 'CLASSROOM_RENDER_FAILED',
-          });
-        }
-
-        const slideFailed =
-          visual.availability === 'failed'
-          || visual.errorCode === 'CLASSROOM_RENDER_SLIDE_FAILED';
-        if (slideFailed && presentationId) {
-          const n = slideNumber ?? slideIndex + 1;
-          const svgUrls = classroomVisualFetchUrls(
-            visual.type === 'svg' ? visual.src : `/api/classroom-studio/presentations/${presentationId}/assets/renders/slide-${String(n).padStart(3, '0')}.svg`,
-            presentationId,
-            'svg',
-          );
-          const found = await fetchFirstSuccessfulUpload(svgUrls);
-          if (found) {
-            const contentType = found.response.headers.get('content-type');
-            const svg = await found.response.text();
-            if (isSvgMarkup(svg) && !svg.startsWith('ERROR:') && isCompatibleSvgContentType(contentType)) {
-              applySvg(svg, 'pre-rendered-svg', found.url);
-              return;
-            }
-          }
-          throw Object.assign(
-            new Error(String(visual.errorMessage || 'Slide visual unavailable')),
-            { code: 'CLASSROOM_RENDER_SLIDE_FAILED' },
-          );
-        }
-
-        const renderPptxWasm = async (pptxSrcHint?: string) => {
-          const pptxSrc = pptxSrcHint
-            || (visual.type === 'pptx' ? visual.src : undefined)
-            || (typeof visual.source === 'object' && visual.source && 'src' in visual.source
-              ? String((visual.source as { src?: string }).src || '')
-              : '');
-          const urls = classroomVisualFetchUrls(pptxSrc || undefined, presentationId, 'pptx');
-          const buffer = await loadCachedPptxBuffer(urls);
-          const renderer = new PptxRenderer();
-          await renderer.init(pptxWasmUrl);
-          await renderer.loadPptx(buffer);
-          const svg = renderer.renderSlideSvg(slideIndex);
-          if (!svg?.trim() || svg.startsWith('ERROR:') || !isSvgMarkup(svg)) {
-            throw new Error(`PowerPoint renderer returned no SVG for slide index ${slideIndex}.`);
-          }
-          applySvg(svg, 'client-pptx-wasm', urls[0] || pptxSrc);
-        };
-
-        if (visual.type === 'svg') {
-          const svgUrls = classroomVisualFetchUrls(visual.src, presentationId, 'svg');
-          const found = await fetchFirstSuccessfulUpload(svgUrls);
-          if (found) {
-            const contentType = found.response.headers.get('content-type');
-            const svg = await found.response.text();
-            if (isSvgMarkup(svg) && !svg.startsWith('ERROR:') && isCompatibleSvgContentType(contentType)) {
-              applySvg(svg, 'pre-rendered-svg', found.url);
-              return;
-            }
-            console.info('[CLASSROOM_SLIDE]', {
-              code: 'CLASSROOM_ASSET_INVALID',
-              presentationId,
-              slideIndex,
-              stage: 'svg-body',
-            });
-          }
-          await renderPptxWasm(
-            typeof visual.source === 'object' && visual.source && 'src' in visual.source
-              ? String((visual.source as { src?: string }).src || '')
-              : undefined,
-          );
-          return;
-        }
-
-        if (visual.type === 'image') {
-          const imageUrls = classroomVisualFetchUrls(visual.src, presentationId, 'any');
-          const found = await fetchFirstSuccessfulUpload(imageUrls);
-          if (!found) {
-            const formatted = formatPptxVisualError(404);
-            throw Object.assign(new Error(formatted.message), { code: formatted.code });
-          }
-          const blob = await found.response.blob();
-          const objectUrl = URL.createObjectURL(blob);
-          const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><image href="${objectUrl}" width="100" height="100" preserveAspectRatio="xMidYMid meet"/></svg>`;
-          applySvg(svg, 'raster-image', found.url);
-          return;
-        }
-
-        await renderPptxWasm();
+            : 'Slide visual rendering failed. Retry rendering.')
+          : 'The PowerPoint visual was not found in storage.';
+        throw Object.assign(new Error(failedMessage), { code: failedCode });
       } catch (error) {
         const message = error instanceof Error ? error.message : formatPptxVisualError(null, 'Unknown visual render error').message;
         const code = error && typeof error === 'object' && 'code' in error
@@ -1829,6 +1725,10 @@ export function SlideRenderer({
         });
         if (!cancelled) {
           setNativeSvg(null);
+          setNativeImageUrl((previous) => {
+            if (previous) URL.revokeObjectURL(previous);
+            return null;
+          });
           setNativeVisualError({ code, message });
           logRenderDiagnostic({
             presentationId,
@@ -1836,14 +1736,14 @@ export function SlideRenderer({
             slideIndex,
             format,
             hasVisual: true,
-            visualType: visual.type,
-            visualSrc: visual.src,
+            visualType: visual?.type,
+            visualSrc: visual?.src,
             nativeRendererAttempted: true,
             nativeRendererSucceeded: false,
-            structuredRendererUsed: structuredElementCount > 0,
+            structuredRendererUsed: false,
             structuredElementCount,
             nativeSvgLength: 0,
-            activeRenderer: structuredElementCount > 0 ? 'structured-fallback' : 'none',
+            activeRenderer: 'none',
             fallbackReason: message,
           });
         }
@@ -1854,8 +1754,12 @@ export function SlideRenderer({
 
     return () => {
       cancelled = true;
+      setNativeImageUrl((previous) => {
+        if (previous) URL.revokeObjectURL(previous);
+        return null;
+      });
     };
-  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount, renderProgressSlide, renderStage, renderWaitTimedOut]);
+  }, [visual?.type, visual?.src, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, slideNumber, presentationId, slideId, format, slide.elements.length, logRenderDiagnostic, pipelineStatus, renderWaitTimedOut]);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {
@@ -1926,6 +1830,81 @@ export function SlideRenderer({
 
   const scaledW = slideWidthPx * fitScale;
   const scaledH = slideHeightPx * fitScale;
+  const showSourceVisual = Boolean(visual);
+  const sourceVisualReady = Boolean(nativeImageUrl);
+
+  const sourceVisualStatus = nativeVisualError ? (
+    <div
+      data-testid="classroom-visual-error"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'grid',
+        placeItems: 'center',
+        padding: 40,
+        textAlign: 'center',
+        background: '#0f172a',
+        color: '#e2e8f0',
+        zIndex: 10,
+      }}
+    >
+      <div>
+        <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>
+          {nativeVisualError.code === 'CLASSROOM_RENDERING'
+            ? 'Slide visual is still rendering'
+            : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
+              ? 'Slide visual rendering failed. Retry.'
+              : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED'
+                ? 'Slide visual rendering failed. Retry.'
+                : 'Slide visual rendering failed. Retry.'}
+        </p>
+        <p style={{ fontSize: 14, margin: '0 0 12px', color: '#94a3b8', maxWidth: 420 }}>
+          {nativeVisualError.code === 'CLASSROOM_RENDERING'
+            ? nativeVisualError.message
+            : 'The original slide image could not be loaded. Structured extraction is kept for search and interactions, but it is not shown as the classroom visual.'}
+        </p>
+        <p style={{ fontSize: 12, margin: 0, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>
+          Code: {nativeVisualError.code}
+          {slideNumber != null ? ` · Slide: ${slideNumber}` : ''}
+          {presentationId ? ` · Presentation: ${presentationId}` : ''}
+        </p>
+        {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
+          <button
+            type="button"
+            onClick={onRepair}
+            disabled={repairing}
+            style={{
+              marginTop: 16,
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: 0,
+              background: '#6d28d9',
+              color: 'white',
+              fontWeight: 600,
+              cursor: repairing ? 'wait' : 'pointer',
+            }}
+          >
+            {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED' ? 'Retry this slide' : 'Retry rendering'}
+          </button>
+        )}
+      </div>
+    </div>
+  ) : (
+    <div
+      data-testid="classroom-visual-loading"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'grid',
+        placeItems: 'center',
+        background: '#0f172a',
+        color: '#e2e8f0',
+        zIndex: 10,
+      }}
+    >
+      Loading slide visual…
+    </div>
+  );
 
   return (
     <div
@@ -1953,7 +1932,7 @@ export function SlideRenderer({
           flexShrink: 0,
           position: 'relative',
           boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
-          ...(nativeSvg ? {} : backgroundCSS(slide.background, slide.theme)),
+          ...((showSourceVisual && sourceVisualReady) || nativeSvg ? {} : backgroundCSS(slide.background, slide.theme)),
         }}
       >
         <div
@@ -1969,7 +1948,25 @@ export function SlideRenderer({
             transition: 'transform 120ms ease',
           }}
         >
-          {nativeSvg ? (
+          {showSourceVisual && sourceVisualReady ? (
+            <img
+              data-testid="classroom-slide-visual"
+              src={nativeImageUrl ?? ''}
+              alt={title || `Slide ${slideNumber ?? ''}`}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                background: '#000',
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            />
+          ) : showSourceVisual ? (
+            sourceVisualStatus
+          ) : nativeSvg ? (
             <div
               dangerouslySetInnerHTML={{ __html: nativeSvg }}
               style={{
@@ -1994,122 +1991,6 @@ export function SlideRenderer({
                   debugGeometry={debugGeometry}
                 />
               ))}
-              {nativeVisualError && !slide.elements.length ? (
-                <div
-                  data-testid="classroom-visual-error"
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'grid',
-                    placeItems: 'center',
-                    padding: 40,
-                    textAlign: 'center',
-                    background: '#f8fafc',
-                    color: '#334155',
-                  }}
-                >
-                  <div>
-                    <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>
-                      {nativeVisualError.code === 'CLASSROOM_RENDERING'
-                        ? 'Rendering slide visuals'
-                        : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
-                          ? 'Rendering failed'
-                          : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED'
-                            ? 'Slide visual unavailable'
-                            : 'Presentation asset unavailable'}
-                    </p>
-                    <p style={{ fontSize: 14, margin: '0 0 12px', color: '#64748b', maxWidth: 420 }}>
-                      {nativeVisualError.message}
-                    </p>
-                    <p style={{ fontSize: 12, margin: 0, color: '#94a3b8', fontFamily: 'ui-monospace, monospace' }}>
-                      Code: {nativeVisualError.code}
-                      {slideNumber != null ? ` · Slide: ${slideNumber}` : ''}
-                      {presentationId ? ` · Presentation: ${presentationId}` : ''}
-                    </p>
-                    {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
-                      <button
-                        type="button"
-                        onClick={onRepair}
-                        disabled={repairing}
-                        style={{
-                          marginTop: 16,
-                          padding: '8px 14px',
-                          borderRadius: 8,
-                          border: 0,
-                          background: '#6d28d9',
-                          color: 'white',
-                          fontWeight: 600,
-                          cursor: repairing ? 'wait' : 'pointer',
-                        }}
-                      >
-                        {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED' ? 'Retry this slide' : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED' ? 'Retry rendering' : 'Regenerate slide visuals'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : nativeVisualError ? (
-                <div
-                  data-testid="classroom-visual-status"
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    left: 8,
-                    right: 8,
-                    zIndex: 20,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    background: nativeVisualError.code === 'CLASSROOM_RENDERING' ? 'rgba(15,23,42,0.82)' : 'rgba(127,29,29,0.9)',
-                    color: '#fff',
-                    fontSize: 12,
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  <span>
-                    {nativeVisualError.code === 'CLASSROOM_RENDERING'
-                      ? nativeVisualError.message || 'Generating slide visual…'
-                      : 'Slide visual unavailable. Extracted content is shown.'}
-                  </span>
-                  {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
-                    <button
-                      type="button"
-                      onClick={onRepair}
-                      disabled={repairing}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: 0,
-                        background: '#fff',
-                        color: '#111827',
-                        fontWeight: 600,
-                        cursor: repairing ? 'wait' : 'pointer',
-                      }}
-                    >
-                      {repairing ? 'Retrying…' : 'Retry visual'}
-                    </button>
-                  )}
-                </div>
-              ) : visual?.src ? (
-                <div
-                  data-testid="classroom-visual-loading"
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    zIndex: 20,
-                    padding: '6px 10px',
-                    borderRadius: 8,
-                    background: 'rgba(15,23,42,0.7)',
-                    color: '#fff',
-                    fontSize: 12,
-                  }}
-                >
-                  Loading slide visual…
-                </div>
-              ) : null}
             </>
           )}
 
@@ -2132,33 +2013,24 @@ export function SlideRenderer({
             />
           )}
 
-          {/* Footer */}
-          {slide.footer && (
+          {/* Footer / page number only for manually authored slides */}
+          {!showSourceVisual && slide.footer && (
             <div style={{ position: 'absolute', bottom: 8, left: 20, fontSize: 10, color: '#64748b', zIndex: 9990 }}>
               {slide.footer}
             </div>
           )}
-
-          {/* Page number */}
-          {(slide.pageNumber ?? slideNumber) && (
+          {!showSourceVisual && (slide.pageNumber ?? slideNumber) && (
             <div style={{ position: 'absolute', bottom: 8, right: 16, fontSize: 10, color: '#64748b', zIndex: 9990 }}>
               {slide.pageNumber ?? slideNumber}
             </div>
           )}
 
-          {/* Empty slide fallback — shown inside the canvas */}
-          {!nativeSvg && !slide.elements.length && !nativeVisualError && (
+          {!showSourceVisual && !nativeSvg && !slide.elements.length && !nativeVisualError && (
             <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', padding: 40, textAlign: 'center', color: '#64748b' }}>
               <div>
                 <p style={{ fontSize: 24, fontWeight: 600, color: '#334155', margin: '0 0 8px' }}>{title ?? 'Untitled slide'}</p>
                 <p style={{ fontSize: 14, margin: 0 }}>This slide has no visible objects.</p>
               </div>
-            </div>
-          )}
-
-          {nativeVisualError && nativeSvg && (
-            <div style={{ position: 'absolute', top: 8, left: 8, right: 8, padding: '6px 10px', background: 'rgba(254, 226, 226, 0.95)', color: '#991b1b', fontSize: 11, zIndex: 9998, borderRadius: 4, pointerEvents: 'none' }}>
-              {nativeVisualError.code}: {nativeVisualError.message}
             </div>
           )}
         </div>
