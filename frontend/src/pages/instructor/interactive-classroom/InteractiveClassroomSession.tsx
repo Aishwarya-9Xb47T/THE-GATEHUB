@@ -15,6 +15,7 @@ import { classroomAssetErrorFromBody } from "@/lib/classroom/classroomAssetUrls"
 import { apiUrl, getToken, getWsConnectTarget } from "@/lib/api";
 import { getUserIdFromToken } from "@/lib/auth";
 import { SlideRenderer } from "@/components/classroom/SlideRenderer";
+import { InstructorPollResults } from "@/components/classroom/InstructorPollResults";
 import { ClassroomLiveShell } from "@/components/classroom/ClassroomLiveShell";
 import { parseSlide } from "@/lib/slideParser/index";
 import { CreatePollDialog, type CreatePollPayload } from "@/components/classroom/CreatePollDialog";
@@ -442,6 +443,9 @@ export function InteractiveClassroomSession() {
           ].slice(0, 30));
         }
         setSession((current) => current ? { ...current, participants: current.participants.map((participant) => participant.user.id === message.data.userId ? { ...participant, hasResponded: true } as Participant : participant) } : current);
+        if (sessionRef.current?.activeInteractionId) {
+          void fetchResponseSummary(sessionRef.current.activeInteractionId);
+        }
         break;
       }
       case "participant:state":
@@ -845,6 +849,8 @@ export function InteractiveClassroomSession() {
       setClosedPollId(pollId);
       if (result.summary) setSummary(result.summary);
       setPollRemaining(0);
+      setSession((current) => current ? { ...current, activeInteractionId: null } : current);
+      toast({ title: "Poll closed — resuming presentation" });
       void fetchPollHistory();
     } catch {
       await endInteraction();
@@ -985,6 +991,13 @@ export function InteractiveClassroomSession() {
   const parsedSlide = currentSlide ? parseSlide(currentSlide) : null;
   const pollContent = activeInteraction
     ? resolvePollContent(activeInteraction, { title: parsedSlide?.question || currentSlide?.title, parsedOptions: parsedSlide?.options })
+    : null;
+  const livePoll = session.activeInteractionId
+    ? currentSlide?.interactions.find((item) => item.id === session.activeInteractionId)
+      || session.presentation.slides.flatMap((slide) => slide.interactions).find((item) => item.id === session.activeInteractionId)
+    : undefined;
+  const livePollContent = livePoll
+    ? resolvePollContent(livePoll, { title: parsedSlide?.question || currentSlide?.title, parsedOptions: parsedSlide?.options })
     : null;
   const interactionContent = pollContent
     ? { question: pollContent.question, options: pollContent.options }
@@ -1167,21 +1180,36 @@ export function InteractiveClassroomSession() {
       }
       stage={
             currentSlide ? (
-                <SlideRenderer
-                  content={currentSlide.content}
-                  title={currentSlide.title}
-                  slideNumber={currentSlide.order}
-                  presentationId={session.presentation.id}
-                  slideId={currentSlide.id}
-                  onPointerMove={broadcastPointer}
-                  pointer={pointer}
-                  className="w-full h-full max-h-full rounded-lg"
-                  canRepair
-                  repairing={repairingVisuals}
-                  pipelineStatus={session.presentation.status}
-                  slideCount={session.presentation.slides.length}
-                  onRepair={() => void repairVisuals()}
-                />
+              <div className="relative h-full w-full">
+                <div className={session.activeInteractionId ? "pointer-events-none invisible absolute inset-0" : "h-full w-full"}>
+                  <SlideRenderer
+                    content={currentSlide.content}
+                    title={currentSlide.title}
+                    slideNumber={currentSlide.order}
+                    presentationId={session.presentation.id}
+                    slideId={currentSlide.id}
+                    onPointerMove={session.activeInteractionId ? undefined : broadcastPointer}
+                    pointer={session.activeInteractionId ? null : pointer}
+                    className="w-full h-full max-h-full rounded-lg"
+                    canRepair
+                    repairing={repairingVisuals}
+                    pipelineStatus={session.presentation.status}
+                    slideCount={session.presentation.slides.length}
+                    onRepair={() => void repairVisuals()}
+                  />
+                </div>
+                {session.activeInteractionId ? (
+                  <div className="absolute inset-0">
+                    <InstructorPollResults
+                      question={livePollContent?.question || summary?.question || currentSlide.title}
+                      options={livePollContent?.options?.length ? livePollContent.options : (summary?.optionStats ?? [])}
+                      summary={summary}
+                      participantCount={session.participants.length}
+                      onClosePoll={() => void closeActivePoll()}
+                    />
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="text-center">
                 <p className="text-muted-foreground">This presentation has no visible slides.</p>
