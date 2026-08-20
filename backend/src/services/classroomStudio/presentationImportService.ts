@@ -162,7 +162,11 @@ function collectImportWarnings(importResult: ImportResult): string[] {
     }
   }
 
-  warnings.push(...collectFontWarnings(slides));
+  const fontWarnings = collectFontWarnings(slides);
+  if (fontWarnings.length) {
+    console.info('[CLASSROOM_IMPORT] non-web-safe-fonts', { count: fontWarnings.length });
+  }
+
   return warnings;
 }
 
@@ -333,21 +337,39 @@ async function persistImportedContent(
   const jsonSafe = (value: unknown) =>
     JSON.parse(JSON.stringify(value, (_key, item) => (item === undefined ? null : item)));
 
+  const slimElement = (el: any): any => {
+    if (!el || typeof el !== 'object') return el;
+    const next = { ...el };
+    if (next.chart && typeof next.chart === 'object') {
+      next.chart = {
+        chartType: next.chartType ?? next.chart.chartType,
+        fallback: next.chart.fallback ?? next.fallback,
+      };
+    }
+    if (Array.isArray(next.children)) next.children = next.children.map(slimElement);
+    return next;
+  };
+
   await prisma.slide.createMany({
-    data: importResult.slides!.map((slideData, index) => ({
-      presentationId,
-      order: index + 1,
-      title: slideData.title || `Slide ${index + 1}`,
-      content: jsonSafe(
-        replaceAssets({
-          ...slideData.content,
-          ...(options.isPptxPipeline
-            ? { visual: buildSlideVisual(presentationId, index, false) }
-            : {}),
-        }),
-      ),
-      notes: slideData.notes,
-    })),
+    data: importResult.slides!.map((slideData, index) => {
+      const contentRest = { ...((slideData.content ?? {}) as Record<string, unknown>) };
+      delete contentRest.ooxml;
+      return {
+        presentationId,
+        order: index + 1,
+        title: slideData.title || `Slide ${index + 1}`,
+        content: jsonSafe(
+          replaceAssets({
+            ...contentRest,
+            elements: Array.isArray(contentRest.elements) ? contentRest.elements.map(slimElement) : [],
+            ...(options.isPptxPipeline
+              ? { visual: buildSlideVisual(presentationId, index, false) }
+              : {}),
+          }),
+        ),
+        notes: slideData.notes,
+      };
+    }),
   });
 
   if (options.isPptxPipeline) {

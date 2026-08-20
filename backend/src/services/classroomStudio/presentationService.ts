@@ -139,8 +139,8 @@ export async function getPresentationById(
   const failedVisual = (failedSlide?.content as { visual?: { errorCode?: string; errorMessage?: string } } | null)?.visual;
 
   let status = presentation.status;
+  const { isExclusiveVisualRenderRunning } = await import('./presentationVisualRepairService.js');
   if (status === 'rendering') {
-    const { isExclusiveVisualRenderRunning } = await import('./presentationVisualRepairService.js');
     const action = reconcileInFlightRender({
       status,
       rendered: renderProgress.rendered,
@@ -165,6 +165,22 @@ export async function getPresentationById(
       await prisma.presentation.update({
         where: { id: presentation.id },
         data: { status: 'render_failed' },
+      }).catch(() => undefined);
+    }
+  } else if (status === 'ready' && slides.length > 0 && renderProgress.rendered < slides.length) {
+    status = renderProgress.rendered > 0 ? 'rendering_partial' : (
+      isExclusiveVisualRenderRunning(presentation.id) ? 'rendering' : 'render_failed'
+    );
+    console.warn('[CLASSROOM_RENDER] ready_without_visuals', {
+      presentationId: presentation.id,
+      rendered: renderProgress.rendered,
+      total: slides.length,
+      status,
+    });
+    if (status !== 'rendering') {
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status },
       }).catch(() => undefined);
     }
   }

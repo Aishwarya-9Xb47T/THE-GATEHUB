@@ -52,6 +52,8 @@ describe("classroomAssetPath", () => {
       { order: 3, content: { visual: { type: "pptx", availability: "missing" } } },
     ]);
     expect(slideVisualIsReady({ visual: { type: "svg", availability: "available" } })).toBe(true);
+    expect(slideVisualIsReady({ visual: { type: "svg" } })).toBe(false);
+    expect(slideVisualIsReady({ visual: { type: "pptx", availability: "missing" } })).toBe(false);
     expect(progress).toEqual({ rendered: 1, total: 3, currentSlide: 2 });
   });
 });

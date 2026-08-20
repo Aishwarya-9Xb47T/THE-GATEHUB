@@ -140,12 +140,9 @@ export function InteractiveClassroomCreate() {
           if (authResponse.ok && authData.success && authData.presentationId) {
             console.info("[CLASSROOM_FRONTEND] create-response-presentation-id=" + authData.presentationId);
             console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + authData.presentationId);
-            const warnCount = authData.warnings?.length ?? 0;
             toast({
-              title: "Success",
-              description: warnCount
-                ? `Imported ${authData.slideCount ?? 0} slides with ${warnCount} extraction warning(s)`
-                : `Imported ${authData.slideCount ?? 0} slides successfully`,
+              title: "Google Slides imported",
+              description: `${authData.slideCount ?? 0} slides saved. Opening editor…`,
             });
             navigate(`/instructor/interactive-classroom/presentations/${authData.presentationId}/editor`);
             return;
@@ -180,12 +177,9 @@ export function InteractiveClassroomCreate() {
         }
 
         if (data.success && data.presentationId) {
-          const warnCount = data.warnings?.length ?? 0;
           toast({
-            title: "Success",
-            description: warnCount
-              ? `Imported ${data.slidesImported ?? 0} slides with ${warnCount} extraction warning(s)`
-              : `Imported ${data.slidesImported ?? 0} slides successfully`,
+            title: "Google Slides imported",
+            description: `${data.slidesImported ?? data.slideCount ?? 0} slides saved. Opening editor…`,
           });
           navigate(`/instructor/interactive-classroom/presentations/${data.presentationId}/editor`);
           return;
@@ -272,8 +266,6 @@ export function InteractiveClassroomCreate() {
           payload.code === "CLASSROOM_RENDER_FAILED" ||
           payload.overallStatus === "render_failed" ||
           errorObj?.code === "CLASSROOM_RENDER_FAILED";
-        const extractionCount = payload.extractionWarnings?.length ?? 0;
-        const warnCount = payload.warnings?.length ?? 0;
 
         if (id && payload.success === true) {
           setPipelineLabel("Opening editor…");
@@ -297,15 +289,10 @@ export function InteractiveClassroomCreate() {
               description: `${payload.slidesSucceeded ?? 0} of ${payload.slideCount ?? 0} slides rendered.`,
               variant: "destructive",
             });
-          } else if (extractionCount || warnCount) {
-            toast({
-              title: "Success",
-              description: `PowerPoint imported with ${extractionCount || warnCount} extraction warning(s)`,
-            });
           } else {
             toast({
-              title: "Success",
-              description: "PowerPoint imported successfully",
+              title: "PowerPoint imported",
+              description: `${payload.slideCount ?? 0} slides saved. Opening editor…`,
             });
           }
           console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + id);

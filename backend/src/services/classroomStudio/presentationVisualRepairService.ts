@@ -266,7 +266,7 @@ export async function regeneratePresentationVisuals(
         ? { relative: resolved.relative, bytes: resolved.bytes, sha256: downloadedSha }
         : await persistPptxBuffer(presentationId, pptxBuffer);
     return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
-      skipExisting: false,
+      skipExisting: true,
       sourceRelative: persistedSource.relative,
       sourceBytes: persistedSource.bytes,
       sourceSha256: persistedSource.sha256 ?? downloadedSha,

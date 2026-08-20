@@ -82,10 +82,9 @@ export function buildSlideVisual(
 
 export function slideVisualIsReady(content: unknown): boolean {
   if (!content || typeof content !== "object" || Array.isArray(content)) return false;
-  const visual = (content as { visual?: { type?: string; availability?: string } }).visual;
+  const visual = (content as { visual?: { availability?: string } }).visual;
   if (!visual || typeof visual !== "object") return false;
-  if (visual.availability === "available") return true;
-  return visual.type === "svg" && visual.availability !== "missing";
+  return visual.availability === "available";
 }
 
 export function computeClassroomRenderProgress(

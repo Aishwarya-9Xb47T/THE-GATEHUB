@@ -218,12 +218,14 @@ function normalizeLine(el: any): BorderLine | null | undefined {
   return undefined;
 }
 
-function normalizeTransform(pos: any, slideWidth: number, slideHeight: number): Transform {
+function normalizeTransform(pos: any, _slideWidth: number, _slideHeight: number, childExtent?: { width?: number; height?: number }): Transform {
+  const width = Number(pos?.width ?? 0) || Number(childExtent?.width ?? 0);
+  const height = Number(pos?.height ?? 0) || Number(childExtent?.height ?? 0);
   return {
     x: Number(pos?.x ?? 0),
     y: Number(pos?.y ?? 0),
-    width: Number(pos?.width ?? slideWidth * 0.2),
-    height: Number(pos?.height ?? slideHeight * 0.1),
+    width,
+    height,
     rotation: Number(pos?.rotation ?? 0),
     flipH: Boolean(pos?.flipH),
     flipV: Boolean(pos?.flipV),
@@ -231,7 +233,7 @@ function normalizeTransform(pos: any, slideWidth: number, slideHeight: number): 
 }
 
 function normalizeElement(el: any, index: number, slideWidth: number, slideHeight: number): NormalizedElement {
-  let transform = normalizeTransform(el.position, slideWidth, slideHeight);
+  let transform = normalizeTransform(el.position ?? el.transform, slideWidth, slideHeight, el.childExtent);
   const paragraphs = normalizeParagraphs(el.paragraphs);
   const columns: number[] | undefined = Array.isArray(el.columns) ? el.columns.map(Number) : undefined;
 
@@ -277,6 +279,19 @@ function normalizeElement(el: any, index: number, slideWidth: number, slideHeigh
   const children: NormalizedElement[] | undefined = Array.isArray(el.children)
     ? el.children.map((c: any, i: number) => normalizeElement(c, i, slideWidth, slideHeight))
     : undefined;
+
+  if (el.type === 'group' && children?.length) {
+    if (!transform.width || !transform.height) {
+      let maxX = 0;
+      let maxY = 0;
+      for (const child of children) {
+        maxX = Math.max(maxX, child.transform.x + child.transform.width);
+        maxY = Math.max(maxY, child.transform.y + child.transform.height);
+      }
+      if (!transform.width) transform.width = maxX;
+      if (!transform.height) transform.height = maxY;
+    }
+  }
 
   const hyperlink = el.hyperlink && (el.hyperlink.url || el.hyperlink.toolTip)
     ? { url: el.hyperlink.url, toolTip: el.hyperlink.toolTip, external: el.hyperlink.external }
@@ -1310,7 +1325,9 @@ function GroupElement({ element, theme, ctx }: { element: NormalizedElement; the
 function isElementVisible(el: NormalizedElement): boolean {
   const hasText = Boolean(el.paragraphs?.some(p => p.runs?.some((r: any) => r.text) || p.text));
   const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded', 'group', 'equation'].includes(el.type);
-  if (el.type === 'equation' && hasText) return true;
+  if (hasText) return true;
+  if (el.type === 'group' && (el.children?.length ?? 0) > 0) return true;
+  if (el.type === 'image' && el.src) return true;
   // Skip zero-size elements (both dims must be zero — a zero-width line still exists)
   if (el.transform.width === 0 && el.transform.height === 0) return false;
   // Images with no src get a placeholder, so we still render them

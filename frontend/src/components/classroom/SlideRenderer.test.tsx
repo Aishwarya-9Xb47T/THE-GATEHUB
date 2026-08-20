@@ -341,4 +341,41 @@ describe('SlideRenderer', () => {
     expect(screen.queryByTestId('classroom-visual-error')).toBeNull();
     expect(document.getElementById('equation-1')?.textContent).toContain('Output(1,1) = 2');
   });
+
+  it('renders grouped text even when the group extent is 0', () => {
+    const content = {
+      version: 2,
+      size: { width: 12_192_000, height: 6_858_000 },
+      background: { type: 'solid', color: '#ffffff' },
+      elements: [
+        {
+          id: 'group-1',
+          type: 'group',
+          transform: { x: 274320, y: 822960, width: 0, height: 0, rotation: 0, flipH: false, flipV: false },
+          childExtent: { width: 8_229_600, height: 2_743_200 },
+          zIndex: 1,
+          children: [
+            {
+              id: 'channel-1',
+              type: 'text',
+              transform: { x: 0, y: 0, width: 4_000_000, height: 365_760, rotation: 0, flipH: false, flipV: false },
+              zIndex: 1,
+              paragraphs: [
+                {
+                  text: 'Channel 1',
+                  level: 0,
+                  runs: [{ text: 'Channel 1', style: { sz: 1800 } }],
+                  style: {},
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    render(<SlideRenderer content={content as any} title="Grouped slide" />);
+    expect(document.getElementById('channel-1')?.textContent).toContain('Channel 1');
+    expect(screen.queryByTestId('classroom-visual-error')).toBeNull();
+  });
 });

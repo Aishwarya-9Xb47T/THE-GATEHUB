@@ -98,12 +98,36 @@ function formatSourceType(sourceType: string): string {
   return labels[sourceType] ?? sourceType.replace(/_/g, " ");
 }
 
+function collectSlideText(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const node = value as {
+    text?: unknown;
+    paragraphs?: Array<{ text?: unknown }>;
+    children?: unknown[];
+    rows?: Array<{ cells?: unknown[] }>;
+    elements?: unknown[];
+  };
+  const parts: string[] = [];
+  if (typeof node.text === "string") parts.push(node.text);
+  for (const paragraph of node.paragraphs ?? []) {
+    if (typeof paragraph?.text === "string") parts.push(paragraph.text);
+  }
+  for (const child of node.children ?? []) parts.push(collectSlideText(child));
+  for (const row of node.rows ?? []) {
+    for (const cell of row.cells ?? []) parts.push(collectSlideText(cell));
+  }
+  for (const element of node.elements ?? []) parts.push(collectSlideText(element));
+  return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+}
+
 function getSlideDisplayTitle(slide: Slide): string {
   const trimmed = slide.title?.trim();
-  if (trimmed && trimmed !== "undefined" && trimmed !== "null") {
+  if (trimmed && trimmed !== "undefined" && trimmed !== "null" && !/^Slide\s+\d+$/i.test(trimmed)) {
     return trimmed;
   }
-  return `Slide ${slide.order}`;
+  const nested = collectSlideText(slide.content).slice(0, 120);
+  if (nested) return nested;
+  return trimmed || `Slide ${slide.order}`;
 }
 
 export function InteractiveClassroomEditor() {
@@ -129,6 +153,7 @@ export function InteractiveClassroomEditor() {
   const autosaveTimer = useRef<number | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const lastSavedSnapshot = useRef<string>("");
+  const autoRepairAttempted = useRef(false);
 
   const slides = presentation?.slides ?? [];
   const selectedSlide = useMemo(
@@ -240,8 +265,12 @@ export function InteractiveClassroomEditor() {
   }, [fetchPresentation]);
 
   useEffect(() => {
+    autoRepairAttempted.current = false;
+  }, [presentationId]);
+
+  useEffect(() => {
     const status = presentation?.status;
-    if (!status || !["rendering", "uploading", "extracting", "source_stored"].includes(status)) return;
+    if (!status || !["rendering", "uploading", "extracting", "source_stored", "rendering_partial"].includes(status)) return;
     const timer = window.setInterval(() => {
       void fetchPresentation({ silent: true });
     }, 3000);
@@ -280,7 +309,7 @@ export function InteractiveClassroomEditor() {
     }
   };
 
-  const handleRegenerateVisuals = async () => {
+  const handleRegenerateVisuals = async (options?: { silent?: boolean }) => {
     if (!presentationId) return;
     setRepairingVisuals(true);
     try {
@@ -294,41 +323,68 @@ export function InteractiveClassroomEditor() {
           code: "CLASSROOM_REGENERATE_FAILED",
           message: typeof body?.error === "string" ? body.error : "Unable to regenerate the slide visuals.",
         };
-        toast({
-          title: "Unable to regenerate the slide visuals.",
-          description: `Code: ${parsed.code}${parsed.message ? ` — ${parsed.message}` : ""}`,
-          variant: "destructive",
-        });
+        if (!options?.silent) {
+          toast({
+            title: "Unable to regenerate the slide visuals.",
+            description: `Code: ${parsed.code}${parsed.message ? ` — ${parsed.message}` : ""}`,
+            variant: "destructive",
+          });
+        }
         return;
       }
       const result = await response.json().catch(() => null);
       if (result?.code === "CLASSROOM_RENDERING") {
-        toast({
-          title: "Generating slide visuals",
-          description: "Rendering continues in the background. This page will update as each slide finishes.",
-        });
-        await fetchPresentation();
+        if (!options?.silent) {
+          toast({
+            title: "Generating slide visuals",
+            description: "Rendering continues in the background. This page will update as each slide finishes.",
+          });
+        }
+        await fetchPresentation({ silent: true });
         return;
       }
       if (result?.code === "CLASSROOM_RENDER_PARTIAL") {
-        toast({
-          title: "Some slide visuals could not be generated",
-          description: `${result.slidesSucceeded ?? 0} succeeded, ${result.slidesFailed ?? 0} failed${result.method ? ` • ${result.method}` : ""}.`,
-          variant: "destructive",
-        });
-      } else {
+        if (!options?.silent) {
+          toast({
+            title: "Some slide visuals could not be generated",
+            description: `${result.slidesSucceeded ?? 0} succeeded, ${result.slidesFailed ?? 0} failed${result.method ? ` • ${result.method}` : ""}.`,
+            variant: "destructive",
+          });
+        }
+      } else if (!options?.silent) {
         toast({
           title: "Slide visuals regenerated",
           description: result?.method ? `Renderer: ${result.method}. Reloading the presentation.` : "Reloading the presentation.",
         });
       }
-      await fetchPresentation();
+      await fetchPresentation({ silent: true });
     } catch {
-      toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });
+      if (!options?.silent) {
+        toast({ title: "Regenerate failed", description: "Could not reach the presentation repair service.", variant: "destructive" });
+      }
     } finally {
       setRepairingVisuals(false);
     }
   };
+
+  useEffect(() => {
+    if (!presentation || !presentationId || autoRepairAttempted.current || repairingVisuals) return;
+    const rendered = presentation.renderProgress?.rendered ?? presentation.renderedVisuals ?? 0;
+    const total = slides.length;
+    const status = presentation.status;
+    const missingVisuals = total > 0 && rendered < total;
+    const shouldRepair =
+      status === "render_failed"
+      || (status === "ready" && missingVisuals)
+      || (status === "rendering_partial" && missingVisuals);
+    if (!shouldRepair) return;
+    autoRepairAttempted.current = true;
+    toast({
+      title: "Generating slide visuals",
+      description: "Imported slides are available. Missing visuals will render in the background.",
+    });
+    void handleRegenerateVisuals({ silent: true });
+  }, [presentation, presentationId, slides.length, repairingVisuals, toast]);
 
   const fetchActiveSession = useCallback(async (options?: { silent?: boolean }) => {
     if (!presentationId) return null;

@@ -48,8 +48,73 @@ const text = (value: unknown): string =>
       : '';
 
 const MATH_XML_RE = /<(a14:m|m:oMathPara|m:oMath)\b[\s\S]*?<\/\1>/gi;
+const ALTERNATE_CONTENT_RE = /<mc:AlternateContent\b[^>]*>[\s\S]*?<\/mc:AlternateContent>/gi;
 const MAX_PPTX_SLIDES = 2000;
 const MAX_PPTX_ASSET_BYTES = 80 * 1024 * 1024;
+
+/** Decode a small set of XML text entities used in a:t / m:t. */
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+/**
+ * PowerPoint wraps many drawings (groups, Ink, 2010+ shapes, OMML) in
+ * mc:AlternateContent. The structured extractor must see Choice *and*
+ * Fallback children — otherwise tree['p:sp'] / tree['p:grpSp'] are empty
+ * and the editor stores title-only / empty slides.
+ */
+export function unwrapAlternateContentForExtraction(xml: string): string {
+  let out = xml;
+  for (let pass = 0; pass < 16; pass += 1) {
+    ALTERNATE_CONTENT_RE.lastIndex = 0;
+    const next = out.replace(ALTERNATE_CONTENT_RE, (block) => {
+      const choice = block.match(/<mc:Choice\b[^>]*>([\s\S]*?)<\/mc:Choice>/i)?.[1] ?? '';
+      const fallback = block.match(/<mc:Fallback\b[^>]*>([\s\S]*?)<\/mc:Fallback>/i)?.[1] ?? '';
+      if (choice && fallback && choice !== fallback) return `${choice}${fallback}`;
+      return choice || fallback;
+    });
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+export function salvageVisibleTextFromXml(slideXml: string): string[] {
+  const out: string[] = [];
+  const re = /<(?:a|m):t\b[^>]*>([^<]*)<\/(?:a|m):t>/g;
+  for (const match of slideXml.matchAll(re)) {
+    const value = decodeXmlText(match[1] ?? '').trim();
+    if (value) out.push(value);
+  }
+  return out;
+}
+
+function hoistAlternateContent(node: any): void {
+  if (!node || typeof node !== 'object') return;
+  const alt = node['mc:AlternateContent'];
+  if (alt) {
+    for (const block of A(alt)) {
+      const choice = block?.['mc:Choice'];
+      const fallback = block?.['mc:Fallback'];
+      for (const preferred of [choice, fallback]) {
+        if (!preferred || typeof preferred !== 'object') continue;
+        for (const [key, val] of Object.entries(preferred)) {
+          if (key.startsWith('@_') || key === '#text') continue;
+          node[key] = node[key] == null ? val : [...A(node[key]), ...A(val as any)];
+        }
+      }
+    }
+    delete node['mc:AlternateContent'];
+  }
+  for (const val of Object.values(node)) {
+    if (val && typeof val === 'object') hoistAlternateContent(val);
+  }
+}
 
 export function extractMathFromXml(slideXml: string): Array<{ plain: string; xml: string }> {
   const seen = new Set<string>();
@@ -344,12 +409,14 @@ function groupTransform(grpSpPr: any) {
   const ext   = xfrm['a:ext']   ?? {};
   const chOff = xfrm['a:chOff'] ?? {};
   const chExt = xfrm['a:chExt'] ?? {};
+  const childWidth = Number(chExt['@_cx'] ?? 0);
+  const childHeight = Number(chExt['@_cy'] ?? 0);
   return {
     position: {
       x: Number(off['@_x'] ?? 0),
       y: Number(off['@_y'] ?? 0),
-      width: Number(ext['@_cx'] ?? 0),
-      height: Number(ext['@_cy'] ?? 0),
+      width: Number(ext['@_cx'] ?? 0) || childWidth,
+      height: Number(ext['@_cy'] ?? 0) || childHeight,
       rotation: Number(xfrm['@_rot'] ?? 0) / 60000,
       flipH: xfrm['@_flipH'] === '1',
       flipV: xfrm['@_flipV'] === '1',
@@ -1126,13 +1193,14 @@ export async function parsePowerPoint(
         }
 
         const part = rel.target;
-        const source = await read(part);
-        if (!source) {
+        const sourceRaw = await read(part);
+        if (!sourceRaw) {
           const msg = `Slide part not found: ${part}`;
           slideErrors.push({ slide: slideNumber, error: msg });
           slides.push(createSlideErrorPlaceholder(slideNumber, presentation, msg));
           continue;
         }
+        const source = unwrapAlternateContentForExtraction(sourceRaw);
 
       const document = xml.parse(source)['p:sld'];
       const rels = relationshipsFromXml(
@@ -1141,6 +1209,7 @@ export async function parsePowerPoint(
       );
 
       const tree = document?.['p:cSld']?.['p:spTree'] ?? {};
+      hoistAlternateContent(tree);
       const elements: any[] = [];
 
       // ── add() helper ─────────────────────────────────────────────────────
@@ -1173,7 +1242,7 @@ export async function parsePowerPoint(
         const isHidden = node?.['p:spPr']?.['p:style']?.['@_hidden'] === '1' ||
                          document?.['@_show'] === '0';
         const hasText = value.paragraphs && value.paragraphs.length > 0;
-        const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded', 'equation'].includes(kind);
+        const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded', 'equation', 'group'].includes(kind);
         const hasFill = value.fill && value.fill.type !== 'none';
         const hasLine = value.line !== null && value.line !== undefined;
 
@@ -1359,11 +1428,13 @@ export async function parsePowerPoint(
       // ── Layout reference ──────────────────────────────────────────────────
       const layoutRelation = Object.values(rels).find(r => r.type.endsWith('/slideLayout'));
       const layoutPart = layoutRelation && !layoutRelation.external ? layoutRelation.target : undefined;
-      const layoutXml = layoutPart ? await read(layoutPart) : undefined;
+      const layoutXmlRaw = layoutPart ? await read(layoutPart) : undefined;
+      const layoutXml = layoutXmlRaw ? unwrapAlternateContentForExtraction(layoutXmlRaw) : undefined;
       let layoutParsed: any = undefined;
       let layoutRels: Relationships = {};
       if (layoutXml && layoutPart) {
         layoutParsed = xml.parse(layoutXml);
+        if (layoutParsed) hoistAlternateContent(layoutParsed);
         const layoutRelPath = `${layoutPart.slice(0, layoutPart.lastIndexOf('/'))}/_rels/${layoutPart.slice(layoutPart.lastIndexOf('/') + 1)}.rels`;
         layoutRels = relationshipsFromXml(layoutPart, await read(layoutRelPath));
         const layoutDecorations = await parseLayoutDecorations(layoutParsed, layoutRels, index, assetUrl);
@@ -1376,9 +1447,13 @@ export async function parsePowerPoint(
       const titleShape = A(tree['p:sp']).find((s: any) =>
         ['title', 'ctrTitle'].includes(s['p:nvSpPr']?.['p:nvPr']?.['p:ph']?.['@_type']),
       );
-      const titleText = titleShape
+      let titleText = titleShape
         ? paragraphs(titleShape['p:txBody'], rels).map((p: any) => p.text).join(' ').trim()
-        : (elements.find(e => e.type === 'text')?.paragraphs?.[0]?.text || `Slide ${slideNumber}`).trim() || `Slide ${slideNumber}`;
+        : '';
+      if (!titleText) {
+        const nested = collectElementText({ children: elements }).replace(/\s+/g, ' ').trim();
+        titleText = nested.slice(0, 120) || `Slide ${slideNumber}`;
+      }
 
       const slideWidth = Number(presentation?.['p:sldSz']?.['@_cx'] ?? 12192000);
       const slideHeight = Number(presentation?.['p:sldSz']?.['@_cy'] ?? 6858000);
@@ -1391,6 +1466,39 @@ export async function parsePowerPoint(
           paragraphs: [{ text: math.plain, runs: [{ text: math.plain, style: { latin: 'Cambria Math' } }], style: {} }],
           metadata: { source: 'omml', ommlXml: math.xml },
         });
+      }
+
+      const stats = summarizeSlideElements(elements);
+      if (stats.totalTextCharacters === 0 && stats.imageCount === 0 && stats.tableCount === 0) {
+        const salvaged = salvageVisibleTextFromXml(source);
+        if (salvaged.length) {
+          add('text', {
+            'p:spPr': {
+              'a:xfrm': {
+                'a:off': { '@_x': '457200', '@_y': '457200' },
+                'a:ext': {
+                  '@_cx': String(Math.max(914400, slideWidth - 914400)),
+                  '@_cy': String(Math.max(914400, slideHeight - 914400)),
+                },
+              },
+            },
+          }, {
+            paragraphs: salvaged.map((line) => ({
+              text: line,
+              runs: [{ text: line, style: {} }],
+              style: {},
+            })),
+          });
+          console.warn('[CLASSROOM_IMPORT] salvaged-text-from-xml', {
+            slide: slideNumber,
+            lines: salvaged.length,
+          });
+        }
+      }
+
+      if (!titleText || /^Slide\s+\d+$/i.test(titleText)) {
+        const nested = collectElementText({ children: elements }).replace(/\s+/g, ' ').trim();
+        if (nested) titleText = nested.slice(0, 120);
       }
 
       for (const [indexInSlide, element] of elements.entries()) {
@@ -1472,13 +1580,6 @@ export async function parsePowerPoint(
           elements,
           transition: document?.['p:transition'],
           timing: options.preserveAnimations ? document?.['p:timing'] : undefined,
-          ooxml: {
-            slidePart: part,
-            layoutPart,
-            layout: layoutParsed,
-            layoutRelationships: layoutRels,
-            relationships: rels,
-          },
         },
       });
 
