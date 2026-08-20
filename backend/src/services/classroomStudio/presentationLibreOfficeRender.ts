@@ -14,6 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isValidRenderedSvg, withDeadline, type PresentationRenderResult, type SlideRenderResult } from './presentationRenderService.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
+import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
 import { flattenPptxMathForLibreOffice } from './pptxOfficeMathFlatten.js';
 
 const PDF_CONVERT_TIMEOUT_MS = 180_000;

@@ -124,4 +124,21 @@ describe("LibreOffice classroom renderer contract", () => {
     expect(message).toContain("exit=1");
     expect(message).not.toBe("CLASSROOM_RENDER_FAILED");
   });
+
+  it("does not throw classroomPptxPipelineLog is not defined on the shared Google/PPTX render entry", async () => {
+    const { renderPresentationSlidesLibreOffice } = await import("../presentationLibreOfficeRender.js");
+    const pptx = await buildConvolutionDeckPptx();
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lo-shared-entry-"));
+    const pptxResult = await renderPresentationSlidesLibreOffice(pptx, dir, {
+      presentationId: "regression-pptx",
+    });
+    const googleResult = await renderPresentationSlidesLibreOffice(pptx, dir, {
+      presentationId: "regression-google",
+      pdfBuffer: Buffer.alloc(0),
+    });
+    expect(pptxResult.errors.join(" ")).not.toMatch(/classroomPptxPipelineLog is not defined/);
+    expect(googleResult.errors.join(" ")).not.toMatch(/classroomPptxPipelineLog is not defined/);
+    expect(pptxResult.method).toBe("libreoffice-pdf");
+    expect(googleResult.method).toBe("libreoffice-pdf");
+  });
 });
