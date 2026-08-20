@@ -1040,7 +1040,7 @@ export async function importPresentation(req: Request, res: Response, next: Next
         return res.status(400).json({
           success: false,
           stage: 'validation',
-          error: 'Upload a valid .pptx PowerPoint Open XML file',
+          error: 'Invalid or corrupted PowerPoint file.',
         });
       }
       console.info('[Classroom import] ZIP validated', { fileName: file.originalname });

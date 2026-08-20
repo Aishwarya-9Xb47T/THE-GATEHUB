@@ -28,6 +28,7 @@ import {
   canonicalSlidePngRelative,
   canonicalSlidePngApi,
   canonicalSourceRelative,
+  buildOriginalSlideVisual,
   buildSlideVisual,
   PPTX_MIME,
   PNG_MIME,
@@ -41,9 +42,8 @@ import {
   sha256OfBuffer,
 } from './classroomSourceResolver.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
-import { renderAndPersistPresentationVisuals, startExclusiveVisualRender, setVisualRenderProgress, getVisualRenderProgress, finalizeFailedRenderJob } from './presentationVisualRepairService.js';
+import { renderAndPersistPresentationVisuals, startExclusiveVisualRender } from './presentationVisualRepairService.js';
 import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
-import { slideVisualIsReady } from './classroomAssetPath.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -209,7 +209,9 @@ async function resolveImportFromInput(
         );
         if ('error' in exportResult) {
           throw new AppError(400, exportResult.error, true, {
-            code: 'GOOGLE_SLIDES_FETCH_FAILED',
+            code: /permission|private|auth|login|403/i.test(exportResult.error)
+              ? 'GOOGLE_SLIDES_PERMISSION_REQUIRED'
+              : 'GOOGLE_SLIDES_NOT_ACCESSIBLE',
             stage: 'google-export',
           });
         }
@@ -226,7 +228,7 @@ async function resolveImportFromInput(
         });
       } else {
         throw new AppError(400, 'Source URL or exported file is required for Google Slides import', true, {
-          code: 'GOOGLE_SLIDES_ACCESS_FAILED',
+          code: 'GOOGLE_SLIDES_ID_INVALID',
           stage: 'google-url',
         });
       }
@@ -626,23 +628,84 @@ function overallStatusFromPipeline(args: {
   return 'render_failed';
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function createOriginalSourceSlides(args: {
+  presentationId: string;
+  slideCount: number;
+  sourceType: 'powerpoint' | 'google_slides';
+  visualSource?: 'original_pptx' | 'google_embed';
+  googleSlidesUrl?: string;
+}) {
+  const googleSlidesId = args.googleSlidesUrl ? getGooglePresentationId(args.googleSlidesUrl) : undefined;
+  await prisma.slide.createMany({
+    data: Array.from({ length: args.slideCount }, (_, index) => ({
+      presentationId: args.presentationId,
+      order: index + 1,
+      title: `Slide ${index + 1}`,
+      content: {
+        version: 2,
+        format: 'ooxml',
+        visual: buildOriginalSlideVisual(args.presentationId, index, {
+          sourceType: args.sourceType,
+          visualSource: args.visualSource,
+          googleSlidesId: args.sourceType === 'google_slides' ? googleSlidesId : undefined,
+          googleSlidesUrl: args.googleSlidesUrl,
+          extractionStatus: 'pending',
+        }),
+        elements: [],
+      },
+    })),
+  });
 }
 
-async function waitForFirstRenderedSlide(presentationId: string, timeoutMs: number): Promise<boolean> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const slide = await prisma.slide.findFirst({
-      where: { presentationId, order: 1 },
-      select: { content: true },
+async function enrichExtractedContentInBackground(args: {
+  presentationId: string;
+  buffer: Buffer;
+  sourceType: 'powerpoint' | 'google_slides';
+  visualSource?: 'original_pptx' | 'google_embed';
+  googleSlidesUrl?: string;
+}) {
+  try {
+    const importResult = await powerPointParser.parsePowerPoint(args.buffer, DEFAULT_PPTX_OPTIONS);
+    if (importResult.success && importResult.slides?.length) {
+      const slides = await prisma.slide.findMany({
+        where: { presentationId: args.presentationId },
+        orderBy: { order: 'asc' },
+      });
+      const googleSlidesId = args.googleSlidesUrl ? getGooglePresentationId(args.googleSlidesUrl) : undefined;
+      for (const [index, slide] of slides.entries()) {
+        const extracted = importResult.slides[index];
+        if (!extracted) continue;
+        const contentRest = { ...((extracted.content ?? {}) as Record<string, unknown>) };
+        delete contentRest.ooxml;
+        await prisma.slide.update({
+          where: { id: slide.id },
+          data: {
+            title: extracted.title || slide.title,
+            notes: extracted.notes,
+            content: {
+              ...contentRest,
+              visual: buildOriginalSlideVisual(args.presentationId, index, {
+                sourceType: args.sourceType,
+                visualSource: args.visualSource,
+                googleSlidesId: args.sourceType === 'google_slides' ? googleSlidesId : undefined,
+                googleSlidesUrl: args.googleSlidesUrl,
+                extractionStatus: 'complete',
+              }),
+            },
+          },
+        });
+      }
+      console.info('[CLASSROOM_IMPORT] background_extraction_complete', {
+        presentationId: args.presentationId,
+        slides: importResult.slides.length,
+      });
+    }
+  } catch (error) {
+    console.warn('[CLASSROOM_IMPORT] background_extraction_failed', {
+      presentationId: args.presentationId,
+      error: error instanceof Error ? error.message : String(error),
     });
-    if (slideVisualIsReady(slide?.content)) return true;
-    const progress = getVisualRenderProgress(presentationId);
-    if (progress?.stage === 'FAILED') return false;
-    await sleep(400);
   }
-  return false;
 }
 
 export async function importPresentation(
@@ -659,6 +722,9 @@ export async function importPresentation(
 
   const isPptxPipeline = input.sourceType === 'powerpoint' || input.sourceType === 'google_slides';
   const onProgress = input.onProgress ?? (async () => undefined);
+  const providedSourceFile = Boolean(input.file);
+  const originalVisualSource: 'original_pptx' | 'google_embed' =
+    input.sourceType === 'google_slides' && providedSourceFile ? 'google_embed' : 'original_pptx';
 
   const presentation = await prisma.presentation.create({
     data: {
@@ -678,7 +744,7 @@ export async function importPresentation(
   try {
     if (input.sourceType === 'powerpoint') {
       if (!sourceFileBuffer || !isValidPptxBuffer(sourceFileBuffer)) {
-        throw new AppError(400, 'Upload a valid .pptx PowerPoint Open XML file', true, {
+        throw new AppError(400, 'Invalid or corrupted PowerPoint file.', true, {
           code: 'CLASSROOM_PPTX_INVALID',
           stage: 'validation',
         });
@@ -727,11 +793,108 @@ export async function importPresentation(
           sourceUrl: canonicalPublicPath(stored.relative),
         },
       });
-      await onProgress({ stage: 'extract', percent: 28, message: 'Extracting slides…' });
+    }
+
+    if (input.sourceType === 'google_slides' && !sourceFileBuffer && input.sourceUrl) {
+      await onProgress({ stage: 'source', percent: 16, message: 'Loading Google Slides…' });
+      const googleId = getGooglePresentationId(input.sourceUrl);
+      const exportResult = await googleSlidesAdapter.exportGoogleSlidesToPptxForUser(
+        googleId,
+        input.instructorId,
+      );
+      if ('error' in exportResult) {
+        throw new AppError(400, exportResult.error, true, {
+          code: /permission|private|auth|login|403/i.test(exportResult.error)
+            ? 'GOOGLE_SLIDES_PERMISSION_REQUIRED'
+            : 'GOOGLE_SLIDES_NOT_ACCESSIBLE',
+          stage: 'google-export',
+        });
+      }
+      sourceFileBuffer = exportResult.fileBuffer;
+    }
+
+    if (isPptxPipeline && sourceFileBuffer) {
+      if (!sourceStored) {
+        await onProgress({ stage: 'source', percent: 18, message: 'Saving source…' });
+        requireDurableClassroomStorage();
+        const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
+        sourceStored = true;
+        const inspection = await inspectPptxArchive(sourceFileBuffer).catch(() => null);
+        if (inspection) {
+          console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_B', inspection));
+        }
+        await prisma.presentation.update({
+          where: { id: presentation.id },
+          data: {
+            status: 'source_stored',
+            ...(input.sourceType === 'google_slides'
+              ? { sourceUrl: input.sourceUrl }
+              : { sourceUrl: canonicalPublicPath(stored.relative) }),
+          },
+        });
+      }
+
+      const inspection = await inspectPptxArchive(sourceFileBuffer);
+      const slideCount = inspection.slideCount;
+      if (!slideCount) {
+        throw new AppError(400, 'Invalid or corrupted PowerPoint file.', true, {
+          code: 'CLASSROOM_PPTX_INVALID',
+          stage: 'validation',
+        });
+      }
+
+      await onProgress({ stage: 'ready', percent: 70, message: 'Opening presentation…' });
+      await createOriginalSourceSlides({
+        presentationId: presentation.id,
+        slideCount,
+        sourceType: input.sourceType,
+        visualSource: originalVisualSource,
+        googleSlidesUrl: input.sourceType === 'google_slides' ? input.sourceUrl : undefined,
+      });
       await prisma.presentation.update({
         where: { id: presentation.id },
-        data: { status: 'extracting' },
+        data: { status: 'ready' },
       });
+
+      const buffer = sourceFileBuffer;
+      void enrichExtractedContentInBackground({
+        presentationId: presentation.id,
+        buffer,
+        sourceType: input.sourceType,
+        visualSource: originalVisualSource,
+        googleSlidesUrl: input.sourceType === 'google_slides' ? input.sourceUrl : undefined,
+      });
+
+      await onProgress({ stage: 'ready', percent: 100, message: 'Presentation ready.' });
+      const sourceRelative = canonicalSourceRelative(presentation.id);
+      const committed = await prisma.presentation.findUnique({
+        where: { id: presentation.id },
+        include: { _count: { select: { slides: true } } },
+      });
+      console.info('[CLASSROOM_IMPORT] stage=create-success', {
+        presentationId: presentation.id,
+        overallStatus: 'ready',
+        visualSource: input.sourceType === 'google_slides' ? 'google_embed' : 'original_pptx',
+        slideCount: committed?._count.slides,
+      });
+      return {
+        presentationId: presentation.id,
+        slideCount: committed?._count.slides ?? slideCount,
+        sourceSlideCount: slideCount,
+        warnings: [],
+        extractionWarnings: [],
+        renderErrors: [],
+        sourcePptxStatus: sourceStored ? 'stored' : 'failed',
+        extractionStatus: 'pending',
+        visualRenderStatus: 'complete',
+        overallStatus: 'ready',
+        renderedCount: slideCount,
+        slidesSucceeded: slideCount,
+        slidesFailed: 0,
+        failedSlideNumbers: [],
+        sourceKey: `uploads/${sourceRelative}`,
+        code: 'CLASSROOM_SOURCE_READY',
+      };
     }
 
     const resolved = await resolveImportFromInput({ ...input, file: sourceFileBuffer });
@@ -739,45 +902,6 @@ export async function importPresentation(
     const importResult = resolved.importResult;
     const extractionWarnings = collectImportWarnings(importResult);
     const sourceSlideCount = importResult.metadata?.sourceSlideCount as number | undefined;
-
-    if (isPptxPipeline && sourceFileBuffer && !sourceStored) {
-      await onProgress({ stage: 'source', percent: 18, message: 'Saving source…' });
-      requireDurableClassroomStorage();
-      const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
-      sourceStored = true;
-      if (input.sourceType === 'google_slides') {
-        const inspection = await inspectPptxArchive(sourceFileBuffer).catch(() => null);
-        if (inspection) {
-          console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_B', inspection));
-        }
-        console.info('[CLASSROOM_SOURCE]', {
-          sourceType: 'google-slides',
-          presentationId: presentation.id,
-          pptxBytes: sourceFileBuffer.length,
-          sha256: stored.sha256,
-          zipValid: inspection?.zipValid,
-          slides: inspection?.slideCount,
-          hasDirectPdf: Boolean(resolved.pdfFileBuffer),
-          pdfBytes: resolved.pdfFileBuffer?.length,
-        });
-      }
-      await prisma.presentation.update({
-        where: { id: presentation.id },
-        data: {
-          status: 'source_stored',
-          ...(input.sourceType === 'google_slides' ? {} : { sourceUrl: canonicalPublicPath(stored.relative) }),
-        },
-      });
-    }
-
-    if (isPptxPipeline && resolved.pdfFileBuffer) {
-      await persistPdfBuffer(presentation.id, resolved.pdfFileBuffer).catch((error) => {
-        console.warn('[CLASSROOM_SOURCE] export_pdf_persist_failed', {
-          presentationId: presentation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }
 
     const persistResult = await persistImportedContent(
       presentation.id,
@@ -808,61 +932,6 @@ export async function importPresentation(
           : {}),
       },
     });
-
-    if (isPptxPipeline && persistResult.visualRenderStatus === 'pending' && sourceFileBuffer) {
-      const buffer = sourceFileBuffer;
-      const pdfBuf = resolved.pdfFileBuffer;
-      const presentationId = presentation.id;
-      console.info('[CLASSROOM_RENDER] background_start', {
-        presentationId,
-        bytes: buffer.length,
-        hasDirectPdf: Boolean(pdfBuf),
-        pdfSource: pdfBuf ? 'google-native-pdf' : 'libreoffice-pptx',
-        slides: persistResult.expectedCount,
-      });
-      classroomPptxPipelineLog('source_resolved', {
-        presentationId,
-        sourceType: input.sourceType,
-        originalBytes: buffer.length,
-        hasDirectPdf: Boolean(pdfBuf),
-        slideCount: persistResult.expectedCount,
-      });
-      const { job } = startExclusiveVisualRender(presentationId, () =>
-        renderAndPersistPresentationVisuals(presentationId, buffer, {
-          skipExisting: true,
-          sourceRelative: canonicalSourceRelative(presentationId),
-          sourceBytes: buffer.length,
-          sourceSha256: sha256OfBuffer(buffer),
-          pdfBuffer: pdfBuf,
-        }),
-      );
-      job.catch(async (error) => {
-        console.error('[Classroom import] Background slide render failed', {
-          presentationId,
-          error: error instanceof Error ? error.message : String(error),
-          details: error instanceof AppError ? error.details : undefined,
-        });
-        await finalizeFailedRenderJob({
-          presentationId,
-          expected: persistResult.expectedCount,
-          error,
-        });
-      });
-      const firstReady = await waitForFirstRenderedSlide(presentationId, 12_000);
-      if (firstReady) {
-        persistResult.renderedCount = Math.max(persistResult.renderedCount, 1);
-        persistResult.visualRenderStatus = persistResult.expectedCount <= 1 ? 'complete' : 'pending';
-        overallStatus = overallStatusFromPipeline({
-          isPptxPipeline,
-          visualRenderStatus: persistResult.visualRenderStatus,
-          expectedCount: persistResult.expectedCount,
-        });
-        await prisma.presentation.update({
-          where: { id: presentationId },
-          data: { status: overallStatus },
-        }).catch(() => undefined);
-      }
-    }
 
     const result: ImportPresentationResult = {
       presentationId: presentation.id,

@@ -10,6 +10,7 @@ import {
   isPublicUploadPath,
   normalizeUploadRelativePath,
 } from "../utils/uploadMedia.js";
+import { classroomAssetAccessDecision } from "../services/classroomStudio/classroomAssetAccess.js";
 
 export { isPublicUploadPath, normalizeUploadRelativePath };
 
@@ -98,6 +99,53 @@ export async function requireUploadAccess(req: AuthRequest, res: Response, next:
     .split("?")[0]
     .replace(/^\/uploads\/?/i, "");
   const relative = normalizeUploadRelativePath(fromOriginal || req.path || "");
+  const classroomMatch = relative.match(/^(classroom(?:-studio)?)\/([^/]+)\//i);
+
+  if (classroomMatch) {
+    const user = await identifyUploadUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Authentication required to access uploads" });
+    }
+    const presentationId = classroomMatch[2];
+    const presentation = await prisma.presentation.findUnique({
+      where: { id: presentationId },
+      select: { id: true, instructorId: true },
+    });
+    if (!presentation) {
+      return res.status(404).json({ success: false, error: "Presentation asset not found" });
+    }
+    let allowed = classroomAssetAccessDecision({
+      userId: user.id,
+      role: user.role,
+      instructorId: presentation.instructorId,
+      isParticipant: false,
+    });
+    if (!allowed) {
+      const participant = await prisma.classroomParticipant.findFirst({
+        where: { userId: user.id, session: { presentationId } },
+        select: { id: true },
+      });
+      allowed = classroomAssetAccessDecision({
+        userId: user.id,
+        role: user.role,
+        instructorId: presentation.instructorId,
+        isParticipant: Boolean(participant),
+      });
+    }
+    if (!allowed) {
+      return res.status(403).json({ success: false, error: "Not authorized to access this presentation file" });
+    }
+    if (!req.user) {
+      req.user = {
+        id: user.id,
+        email: "",
+        role: user.role,
+        firstName: "",
+        lastName: "",
+      };
+    }
+    return next();
+  }
 
   if (isPublicUploadPath(relative)) {
     return next();

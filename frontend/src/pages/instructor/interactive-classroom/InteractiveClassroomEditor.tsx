@@ -32,6 +32,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useToastStore } from "@/store/toastStore";
 import { classroomAssetErrorFromBody, classroomRenderedImageUrl } from "@/lib/classroom/classroomAssetUrls";
 import { shouldPollClassroomRender } from "@/lib/classroom/classroomRenderState";
+import { isOriginalPresentationVisual, usesOriginalPresentationSource } from "@/lib/classroom/originalPresentationUrls";
 import { apiUrl, getToken } from "@/lib/api";
 import { unwrapClassroomPresentation } from "@/lib/classroom/parseClassroomImportResponse";
 import { withUploadAuth } from "@/lib/courseMediaUrls";
@@ -78,6 +79,7 @@ interface Presentation {
   title: string;
   description?: string;
   sourceType: string;
+  sourceUrl?: string;
   status: string;
   slides: Slide[];
   renderProgress?: { rendered: number; total: number; currentSlide: number; stage?: string };
@@ -407,9 +409,13 @@ export function InteractiveClassroomEditor() {
     const total = slides.length;
     const status = presentation.status;
     const missingVisuals = total > 0 && rendered < total;
+    const originalVisualReady = slides.some((slide) => isOriginalPresentationVisual(slide.content?.visual))
+      || presentation.sourceType === "powerpoint"
+      || presentation.sourceType === "google_slides";
     const polling = shouldPollClassroomRender(presentation);
     const shouldRepair =
-      !polling
+      !originalVisualReady
+      && !polling
       && (
         status === "render_failed"
         || (status === "ready" && missingVisuals)
@@ -874,17 +880,23 @@ export function InteractiveClassroomEditor() {
                         </span>
                         <div className="min-w-0 flex-1">
                           {(() => {
-                            const thumb = classroomRenderedImageUrl(presentationId, slide.order, slide.thumbnail || slide.content?.visual?.renderedImageUrl);
-                            return thumb ? (
-                              <img
-                                src={withUploadAuth(thumb)}
-                                alt=""
-                                className="w-full h-16 object-contain bg-slate-900 rounded mb-1"
-                                onError={(event) => {
-                                  event.currentTarget.style.display = "none";
-                                }}
-                              />
-                            ) : null;
+                            const thumb = slide.thumbnail
+                              ? classroomRenderedImageUrl(presentationId, slide.order, slide.thumbnail)
+                              : null;
+                            return (
+                              <div className="w-full h-16 bg-slate-900 rounded mb-1 overflow-hidden relative">
+                                {thumb ? (
+                                  <img
+                                    src={withUploadAuth(thumb)}
+                                    alt=""
+                                    className="w-full h-full object-contain"
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                ) : null}
+                              </div>
+                            );
                           })()}
                           <p className="text-sm font-medium truncate">{title}</p>
                           <div className="flex items-center gap-1 mt-0.5">
@@ -1025,10 +1037,12 @@ export function InteractiveClassroomEditor() {
                   className="w-full h-full max-h-full"
                   canRepair
                   repairing={repairingVisuals}
-                  pipelineStatus={presentation.status}
+                  pipelineStatus={usesOriginalPresentationSource(presentation.sourceType, selectedSlide?.content?.visual) ? "ready" : presentation.status}
                   slideCount={slides.length}
-                  renderProgressSlide={presentation.renderProgress?.currentSlide}
-                  renderStage={presentation.renderProgress?.stage}
+                  renderProgressSlide={usesOriginalPresentationSource(presentation.sourceType, selectedSlide?.content?.visual) ? undefined : presentation.renderProgress?.currentSlide}
+                  renderStage={usesOriginalPresentationSource(presentation.sourceType, selectedSlide?.content?.visual) ? undefined : presentation.renderProgress?.stage}
+                  sourceType={presentation.sourceType}
+                  sourceUrl={presentation.sourceUrl}
                   onRepair={() => void handleRetrySlide(selectedSlide.id)}
                 />
               </div>

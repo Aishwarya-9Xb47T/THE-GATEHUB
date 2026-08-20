@@ -114,7 +114,9 @@ export function isPublicUploadPath(relativePath: string): boolean {
     normalized.startsWith("invoices/") ||
     normalized.startsWith("videos/") ||
     normalized.startsWith("pdfs/") ||
-    normalized.startsWith("attachments/")
+    normalized.startsWith("attachments/") ||
+    normalized.startsWith("classroom/") ||
+    normalized.startsWith("classroom-studio/")
   ) {
     return false;
   }

@@ -84,6 +84,8 @@ export interface StudentViewData {
   presentation: {
     id: string;
     title: string;
+    sourceType?: string;
+    sourceUrl?: string;
     slides: Slide[];
   };
   instructor: { id: string; firstName: string; lastName: string; avatar?: string };
@@ -612,11 +614,11 @@ export function useStudentClassroom({ sessionId }: UseStudentClassroomOptions) {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log('[StudentClassroom] WebSocket connected successfully', { sessionId: sid, userId });
+      console.info('[StudentClassroom] WebSocket connected successfully', { sessionId: sid, userId });
     };
 
-    ws.onerror = (error) => {
-      console.error('[StudentClassroom] WebSocket error', { sessionId: sid, error });
+    ws.onerror = () => {
+      console.info('[StudentClassroom] WebSocket handshake interrupted', { sessionId: sid });
     };
 
     ws.onclose = () => {

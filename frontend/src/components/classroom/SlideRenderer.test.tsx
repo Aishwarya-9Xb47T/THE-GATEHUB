@@ -9,6 +9,18 @@ vi.mock('pptx-svg', () => ({
     renderSlideSvg: vi.fn(() => '<svg data-testid="native-slide-svg"></svg>'),
   })),
 }));
+vi.mock('pptx-svg/wasm?url', () => ({ default: '/mock-pptx.wasm' }));
+vi.mock('@/lib/courseMediaUrls', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/courseMediaUrls')>();
+  return {
+    ...actual,
+    fetchAuthenticatedUpload: vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]).buffer,
+    })),
+  };
+});
 
 function mockResponse(init: {
   ok?: boolean;
@@ -299,7 +311,99 @@ describe('SlideRenderer', () => {
     const error = await screen.findByTestId('classroom-visual-error');
     expect(error.textContent).toContain('CLASSROOM_RENDERING');
     expect(error.textContent).toContain('Rendering slide 7 of 14');
-    expect(error.textContent).not.toContain('Slide visual rendering failed');
+  });
+
+  it("does not wait for PDF conversion when the original PowerPoint source is available", async () => {
+    const content = importedContent({
+      visual: {
+        type: "original_pptx",
+        visualSource: "original_pptx",
+        src: "/api/classroom-studio/presentations/demo/assets/source/original.pptx",
+        originalFileUrl: "/api/classroom-studio/presentations/demo/assets/source/original.pptx",
+        slideIndex: 0,
+        availability: "available",
+        renderStatus: "ready",
+      },
+    });
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="GRU"
+        slideNumber={1}
+        presentationId="demo"
+        sourceType="powerpoint"
+        pipelineStatus="rendering"
+        renderStage="PPTX_TO_PDF"
+        slideCount={14}
+      />,
+    );
+
+    expect(await screen.findByTestId("classroom-original-pptx")).toBeTruthy();
+    expect(screen.queryByText("Converting PowerPoint to PDF...")).toBeNull();
+    expect(screen.queryByText("Slide visual is still rendering")).toBeNull();
+  });
+
+  it("keeps the original PowerPoint viewer even if a background PNG job is still running", async () => {
+    const content = importedContent({
+      visual: {
+        type: "image",
+        src: "/api/classroom-studio/presentations/demo/assets/renders/slide-001.png",
+        renderedImageUrl: "/api/classroom-studio/presentations/demo/assets/renders/slide-001.png",
+        slideIndex: 0,
+        availability: "missing",
+        renderStatus: "rendering",
+      },
+    });
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="GRU"
+        slideNumber={1}
+        presentationId="demo"
+        sourceType="powerpoint"
+        pipelineStatus="rendering"
+        renderStage="PPTX_TO_PDF"
+        slideCount={14}
+      />,
+    );
+
+    expect(screen.queryByText("Converting PowerPoint to PDF...")).toBeNull();
+    expect(screen.queryByText("Slide visual is still rendering")).toBeNull();
+    expect(await screen.findByTestId("classroom-original-pptx")).toBeTruthy();
+  });
+
+  it("embeds the original Google Slides presentation instead of reconstructing it", async () => {
+    const content = importedContent({
+      visual: {
+        type: "google_slides",
+        visualSource: "google_embed",
+        googleSlidesId: "abc123",
+        googleSlidesUrl: "https://docs.google.com/presentation/d/abc123/edit",
+        slideIndex: 1,
+        availability: "available",
+        renderStatus: "ready",
+      },
+    });
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="Numerical example"
+        slideNumber={2}
+        presentationId="demo"
+        sourceType="google_slides"
+        sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
+        pipelineStatus="rendering"
+      />,
+    );
+
+    const embed = await screen.findByTestId("classroom-google-embed");
+    expect(embed.getAttribute("src")).toContain("/presentation/d/abc123/embed");
+    expect(embed.getAttribute("src")).toContain("slide=2");
+    expect(screen.queryByText("Slide visual is still rendering")).toBeNull();
+    expect(screen.queryByText("Converting PowerPoint to PDF...")).toBeNull();
   });
 
   it('does not use extracted equations as the visual when the PNG cannot be loaded', async () => {

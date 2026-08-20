@@ -13,7 +13,9 @@ export default defineConfig({
   cacheDir: 'node_modules/.vite',
   optimizeDeps: {
     include: ["pdfjs-dist", "react-pdf"],
+    exclude: ["pptx-svg"],
   },
+  assetsInclude: ["**/*.wasm"],
   build: {
     rollupOptions: {
       output: {

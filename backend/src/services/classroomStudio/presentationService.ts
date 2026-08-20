@@ -9,6 +9,7 @@ import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
 import {
   aggregatePresentationRenderStatus,
   computeClassroomRenderProgress,
+  isOriginalVisualSource,
   readSlideVisual,
   slideVisualIsFailed,
 } from './classroomAssetPath.js';
@@ -135,18 +136,28 @@ export async function getPresentationById(
   const jobProgress = visualRepair.getVisualRenderProgress(presentation.id);
   const renderJob = visualRepair.getClassroomRenderJob(presentation.id);
   const exclusiveRunning = visualRepair.isExclusiveVisualRenderRunning(presentation.id);
-  if (jobProgress) {
+  const originalSourceReady = slides.length > 0
+    && slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)));
+  if (jobProgress && !originalSourceReady) {
     renderProgress.stage = jobProgress.stage;
     if (jobProgress.currentSlide > 0) renderProgress.currentSlide = jobProgress.currentSlide;
     if (jobProgress.totalSlides > 0) renderProgress.total = jobProgress.totalSlides;
   }
-  const failedSlide = slides.find((slide) => slideVisualIsFailed(slide.content));
+  const failedSlide = originalSourceReady ? undefined : slides.find((slide) => slideVisualIsFailed(slide.content));
   const failedVisual = (failedSlide?.content as { visual?: { errorCode?: string; errorMessage?: string } } | null)?.visual;
 
   const importLocked = ['import_failed', 'extraction_failed', 'uploading', 'extracting'].includes(presentation.status);
   const hasVisualPipeline = slides.some((slide) => readSlideVisual(slide.content));
   let status = presentation.status;
-  if (!importLocked && hasVisualPipeline) {
+  if (originalSourceReady) {
+    status = 'ready';
+    if (presentation.status !== 'ready') {
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: 'ready' },
+      }).catch(() => undefined);
+    }
+  } else if (!importLocked && hasVisualPipeline) {
     const aggregated = aggregatePresentationRenderStatus({
       slides,
       exclusiveRunning,

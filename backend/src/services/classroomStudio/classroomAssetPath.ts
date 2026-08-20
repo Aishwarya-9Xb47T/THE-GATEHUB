@@ -66,9 +66,19 @@ export function canonicalPublicPath(relative: string): string {
 export type SlideRenderStatus = "pending" | "rendering" | "ready" | "failed";
 export type PresentationRenderStatus = "rendering" | "rendering_partial" | "ready" | "render_failed";
 
+export type OriginalVisualSource = "original_pptx" | "google_embed";
+
+export function googleSlidesEmbedUrl(presentationId: string, slideNumber: number): string {
+  const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
+  return `https://docs.google.com/presentation/d/${encodeURIComponent(presentationId)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+}
+
 export type SlideVisualRecord = {
+  type?: string;
   availability?: string;
   renderStatus?: string;
+  visualSource?: OriginalVisualSource | "rendered_png";
+  extractionStatus?: string;
   errorCode?: string;
   errorMessage?: string;
   jobId?: string;
@@ -76,6 +86,10 @@ export type SlideVisualRecord = {
   renderGeneration?: number;
   sourceHash?: string;
   renderedImageUrl?: string;
+  originalFileUrl?: string;
+  googleSlidesId?: string;
+  googleSlidesUrl?: string;
+  embedUrl?: string;
 };
 
 export function readSlideVisual(content: unknown): SlideVisualRecord | null {
@@ -97,6 +111,10 @@ export function buildSlideVisual(
     attempt?: number;
     renderGeneration?: number;
     rendererVersion?: string;
+    visualSource?: OriginalVisualSource | "rendered_png";
+    extractionStatus?: string;
+    googleSlidesId?: string;
+    googleSlidesUrl?: string;
   },
 ): Record<string, unknown> {
   const renderedImageUrl = canonicalSlidePngApi(presentationId, slideIndex + 1);
@@ -125,13 +143,67 @@ export function buildSlideVisual(
     attempt: extra?.attempt,
     renderGeneration: extra?.renderGeneration,
     rendererVersion: extra?.rendererVersion,
+    visualSource: extra?.visualSource,
+    extractionStatus: extra?.extractionStatus,
+    googleSlidesId: extra?.googleSlidesId,
+    googleSlidesUrl: extra?.googleSlidesUrl,
     source,
   };
+}
+
+export function buildOriginalSlideVisual(
+  presentationId: string,
+  slideIndex: number,
+  options: {
+    sourceType: "powerpoint" | "google_slides";
+    visualSource?: OriginalVisualSource;
+    googleSlidesId?: string;
+    googleSlidesUrl?: string;
+    extractionStatus?: string;
+  },
+): Record<string, unknown> {
+  const originalFileUrl = canonicalSourceApi(presentationId);
+  const googleId = options.googleSlidesId;
+  const embedUrl = googleId ? googleSlidesEmbedUrl(googleId, slideIndex + 1) : undefined;
+  const visualSource: OriginalVisualSource = options.visualSource
+    ?? (options.sourceType === "google_slides" && googleId ? "google_embed" : "original_pptx");
+  return {
+    type: visualSource === "google_embed" ? "google_slides" : "original_pptx",
+    visualSource,
+    src: embedUrl || originalFileUrl,
+    originalFileUrl,
+    googleSlidesId: googleId,
+    googleSlidesUrl: options.googleSlidesUrl,
+    embedUrl,
+    renderedImageUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+    thumbnailUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+    storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
+    mimeType: visualSource === "google_embed" ? "text/html" : PPTX_MIME,
+    slideIndex,
+    availability: "available",
+    renderStatus: "ready",
+    extractionStatus: options.extractionStatus ?? "pending",
+    renderError: null,
+    source: {
+      type: "pptx",
+      src: originalFileUrl,
+      storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
+      slideIndex,
+    },
+  };
+}
+
+export function isOriginalVisualSource(visual?: SlideVisualRecord | null): boolean {
+  return visual?.visualSource === "original_pptx"
+    || visual?.visualSource === "google_embed"
+    || visual?.type === "original_pptx"
+    || visual?.type === "google_slides";
 }
 
 export function slideVisualIsReady(content: unknown): boolean {
   const visual = readSlideVisual(content);
   if (!visual) return false;
+  if (isOriginalVisualSource(visual) && visual.availability !== "failed") return true;
   return visual.availability === "available" || visual.renderStatus === "ready";
 }
 
@@ -139,6 +211,7 @@ export function slideVisualIsInFlight(content: unknown): boolean {
   if (slideVisualIsReady(content)) return false;
   const visual = readSlideVisual(content);
   if (!visual) return false;
+  if (isOriginalVisualSource(visual)) return false;
   if (visual.renderStatus === "failed" || visual.availability === "failed") return false;
   return visual.renderStatus === "pending"
     || visual.renderStatus === "rendering"

@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
-import { aggregatePresentationRenderStatus, readSlideVisual } from './classroomAssetPath.js';
+import { aggregatePresentationRenderStatus, isOriginalVisualSource, readSlideVisual } from './classroomAssetPath.js';
 import { getClassroomRenderJob, isExclusiveVisualRenderRunning } from './presentationVisualRepairService.js';
 import type {
   ClassroomSession,
@@ -39,7 +39,11 @@ function withRewrittenSlideAssets<T extends {
     content: rewriteClassroomAssetTree(slide.content, presentationId),
   }));
   const hasVisualPipeline = rewrittenSlides.some((slide) => readSlideVisual(slide.content));
-  const status = hasVisualPipeline
+  const originalSourceReady = rewrittenSlides.length > 0
+    && rewrittenSlides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)));
+  const status = originalSourceReady
+    ? 'ready'
+    : hasVisualPipeline
     ? aggregatePresentationRenderStatus({
       slides: rewrittenSlides,
       exclusiveRunning: isExclusiveVisualRenderRunning(presentationId),

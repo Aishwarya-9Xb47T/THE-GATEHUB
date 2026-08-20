@@ -29,6 +29,7 @@ import {
   canonicalSourceRelative,
   aggregatePresentationRenderStatus,
   isStaleSlideRenderWrite,
+  isOriginalVisualSource,
   readSlideVisual,
   slideVisualIsInFlight,
   slideVisualIsReady,
@@ -83,6 +84,26 @@ function withVisual(
     content && typeof content === "object" && !Array.isArray(content)
       ? { ...(content as Record<string, unknown>) }
       : {};
+  const existing = readSlideVisual(content);
+  if (isOriginalVisualSource(existing)) {
+    if (hasRenderedImage) {
+      base.visual = {
+        ...existing,
+        renderedImageUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+        thumbnailUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+        availability: "available",
+        renderStatus: "ready",
+        sourceHash: extra?.sourceHash ?? existing.sourceHash,
+        jobId: extra?.jobId ?? existing.jobId,
+        attempt: extra?.attempt ?? existing.attempt,
+        renderGeneration: extra?.renderGeneration ?? existing.renderGeneration,
+      };
+      return base;
+    }
+    if (extra?.renderStatus === "rendering" || extra?.renderStatus === "failed") {
+      return base;
+    }
+  }
   base.visual = buildSlideVisual(presentationId, slideIndex, hasRenderedImage, error, {
     ...extra,
     rendererVersion: CLASSROOM_RENDERER_VERSION,
@@ -238,16 +259,29 @@ async function writePresentationStatusIfCurrentJob(args: {
     });
     return;
   }
+  let nextStatus = args.status;
+  if (nextStatus !== "ready") {
+    const slides = await prisma.slide.findMany({
+      where: { presentationId: args.presentationId },
+      select: { content: true },
+    });
+    if (
+      slides.length > 0
+      && slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)))
+    ) {
+      nextStatus = "ready";
+    }
+  }
   logRenderState({
     presentationId: args.presentationId,
     from: current?.status,
-    to: args.status,
+    to: nextStatus,
     reason: args.reason,
     jobId: args.jobId ?? current?.jobId,
   });
   await prisma.presentation.update({
     where: { id: args.presentationId },
-    data: { status: args.status },
+    data: { status: nextStatus },
   }).catch(() => undefined);
 }
 
@@ -426,6 +460,8 @@ export async function regeneratePresentationVisuals(
   });
 
   const expected = presentation.slides.length;
+  const originalSourceReady = presentation.slides.length > 0
+    && presentation.slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)));
   const canonicalRelative = canonicalSourceRelative(presentationId);
   console.info("[CLASSROOM_RENDER]", {
     presentationId,
@@ -434,10 +470,12 @@ export async function regeneratePresentationVisuals(
     sourceBytes: resolved.bytes,
     reuseSource: resolved.relative === canonicalRelative,
   });
-  await prisma.presentation.update({
-    where: { id: presentationId },
-    data: { status: "rendering" },
-  });
+  if (!originalSourceReady) {
+    await prisma.presentation.update({
+      where: { id: presentationId },
+      data: { status: "rendering" },
+    });
+  }
 
   const { started, job, generation } = startExclusiveVisualRender(presentationId, async () => {
     setVisualRenderProgress(presentationId, {
@@ -703,6 +741,7 @@ export async function renderAndPersistPresentationVisuals(
   for (const slide of presentation.slides) {
     if (alreadyRendered.has(slide.order - 1) || (options?.pages && !options.pages.includes(slide.order))) continue;
     const existing = readSlideVisual(slide.content);
+    if (isOriginalVisualSource(existing)) continue;
     if (isStaleSlideRenderWrite(existing, {
       jobId: job.jobId,
       attempt: job.attempt,
@@ -936,7 +975,7 @@ export async function renderAndPersistPresentationVisuals(
   await prisma.presentation.update({
     where: { id: presentationId },
     data: {
-      sourceUrl: canonicalPublicPath(sourceRelative),
+      ...(presentation.sourceType === "google_slides" ? {} : { sourceUrl: canonicalPublicPath(sourceRelative) }),
       thumbnail: readyIndexes.has(0) ? canonicalSlidePngApi(presentationId, 1) : undefined,
     },
   }).catch(() => undefined);

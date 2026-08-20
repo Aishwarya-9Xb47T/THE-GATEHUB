@@ -117,9 +117,18 @@ export function InteractiveClassroomCreate() {
 
       if (sourceType === "google_slides") {
         const sourceUrl = formData.sourceUrl.trim();
+        const openImportedPresentation = (presentationId: string, slideCount?: number) => {
+          console.info("[CLASSROOM_FRONTEND] create-response-presentation-id=" + presentationId);
+          console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + presentationId);
+          toast({
+            title: "Google Slides imported",
+            description: `${slideCount ?? 0} slides saved. Opening the original presentation…`,
+          });
+          navigate(`/instructor/interactive-classroom/presentations/${presentationId}/editor`);
+        };
 
-        // Authenticated import for private decks when Google is connected
-        if (googleAuth?.authenticated) {
+        const tryAuthenticatedImport = async (): Promise<{ presentationId: string; slideCount?: number } | null> => {
+          if (!googleAuth?.authenticated) return null;
           const authResponse = await fetch(apiUrl("/api/classroom-studio/import"), {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/json" },
@@ -138,21 +147,13 @@ export function InteractiveClassroomCreate() {
             success: authData?.success,
           });
           if (authResponse.ok && authData.success && authData.presentationId) {
-            console.info("[CLASSROOM_FRONTEND] create-response-presentation-id=" + authData.presentationId);
-            console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + authData.presentationId);
-            toast({
-              title: "Google Slides imported",
-              description: `${authData.slideCount ?? 0} slides saved. Opening editor…`,
-            });
-            navigate(`/instructor/interactive-classroom/presentations/${authData.presentationId}/editor`);
-            return;
+            return { presentationId: authData.presentationId, slideCount: authData.slideCount };
           }
-          if (!authResponse.ok && authData.error) {
-            console.warn("[Classroom import] Authenticated Google import failed, trying public import", authData.error);
-          }
-        }
+          console.warn("[Classroom import] Authenticated Google import failed", authData.error);
+          return null;
+        };
 
-        // Public import: export PPTX and run canonical parser pipeline
+        // Public decks must use the official Google embed. Only fall back to OAuth PPTX export when the deck is private.
         const response = await fetch(apiUrl("/api/classroom-studio/google-slides/import-public"), {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
@@ -165,7 +166,17 @@ export function InteractiveClassroomCreate() {
 
         const data = await response.json();
 
+        if (data.success && data.presentationId) {
+          openImportedPresentation(data.presentationId, data.slidesImported ?? data.slideCount);
+          return;
+        }
+
         if (data.requiresAuthentication) {
+          const authImported = await tryAuthenticatedImport();
+          if (authImported) {
+            openImportedPresentation(authImported.presentationId, authImported.slideCount);
+            return;
+          }
           setRequiresAuthPrompt(data.message || "This presentation is private. Connect your Google account or make it public.");
           toast({
             title: "Private Presentation",
@@ -173,15 +184,6 @@ export function InteractiveClassroomCreate() {
             variant: "destructive",
           });
           setLoading(false);
-          return;
-        }
-
-        if (data.success && data.presentationId) {
-          toast({
-            title: "Google Slides imported",
-            description: `${data.slidesImported ?? data.slideCount ?? 0} slides saved. Opening editor…`,
-          });
-          navigate(`/instructor/interactive-classroom/presentations/${data.presentationId}/editor`);
           return;
         }
 
@@ -213,12 +215,12 @@ export function InteractiveClassroomCreate() {
             setPipelineLabel("Uploading PowerPoint…");
           };
           request.upload.onload = () => {
-            setPipelineLabel("Importing presentation…");
+        setPipelineLabel("Opening presentation…");
             setUploadProgress((current) => Math.max(current ?? 0, 12));
           };
           request.timeout = 600_000;
           request.onerror = () => reject(new Error("Upload failed. Check your network connection and try again."));
-          request.ontimeout = () => reject(new Error("Import timed out while extracting slides. Please retry; the presentation is created only after slide content is saved."));
+          request.ontimeout = () => reject(new Error("Import timed out. Please retry the upload."));
           const applyProgressFromBody = () => {
             const text = request.responseText || "";
             const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -277,6 +279,11 @@ export function InteractiveClassroomCreate() {
                 ? `Code: ${errorObj.code}${errorObj.method ? ` • ${errorObj.method}` : ""}`
                 : "Use Regenerate slide visuals in the editor.",
               variant: "destructive",
+            });
+          } else if (payload.code === "CLASSROOM_SOURCE_READY" || payload.overallStatus === "ready") {
+            toast({
+              title: "PowerPoint imported",
+              description: `${payload.slideCount ?? 0} slides saved. Opening the original presentation…`,
             });
           } else if (payload.overallStatus === "rendering" || payload.code === "CLASSROOM_RENDERING") {
             toast({
@@ -558,12 +565,12 @@ export function InteractiveClassroomCreate() {
                 Back
               </Button>
               <Button onClick={handleCreate} disabled={loading} size="lg">
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Importing...
-                  </>
-                ) : (
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Opening...
+                      </>
+                    ) : (
                   <>
                     Create Presentation
                     <Sparkles className="w-4 h-4 ml-2" />

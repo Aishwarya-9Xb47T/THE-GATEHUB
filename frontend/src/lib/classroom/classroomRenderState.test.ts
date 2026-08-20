@@ -5,6 +5,24 @@ import {
 } from "./classroomRenderState";
 
 describe("classroomRenderState", () => {
+  it("treats original PPTX/Google visual sources as ready without PDF conversion", () => {
+    expect(
+      classroomSlideUiState({
+        visual: { type: "original_pptx", visualSource: "original_pptx", availability: "available", renderStatus: "ready" },
+        pipelineStatus: "rendering",
+        imageReady: false,
+      }),
+    ).toBe("ready");
+    expect(
+      classroomSlideUiState({
+        visual: { type: "image", availability: "missing", renderStatus: "rendering" },
+        pipelineStatus: "rendering",
+        sourceType: "powerpoint",
+        imageReady: false,
+      }),
+    ).toBe("ready");
+  });
+
   it("treats a stale presentation render_failed as rendering while the slide is still in flight", () => {
     expect(
       classroomSlideUiState({
@@ -59,6 +77,15 @@ describe("classroomRenderState", () => {
         slides: [
           { content: { visual: { renderStatus: "ready", availability: "available" } } },
           { content: { visual: { renderStatus: "ready", availability: "available" } } },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      shouldPollClassroomRender({
+        status: "ready",
+        renderJob: { status: "RENDERING" },
+        slides: [
+          { content: { visual: { type: "original_pptx", visualSource: "original_pptx", availability: "available", renderStatus: "ready" } } },
         ],
       }),
     ).toBe(false);

@@ -23,6 +23,8 @@ import {
   isOfficeGeneratedAlt,
   rewriteClassroomAssetRef,
 } from '@/lib/classroom/classroomAssetUrls';
+import { OriginalPresentationViewer, clearClassroomPptxBufferCache as clearOriginalPptxCache } from '@/components/classroom/OriginalPresentationViewer';
+import { usesOriginalPresentationSource } from '@/lib/classroom/originalPresentationUrls';
 import { classroomImageCacheKey, classroomSlideUiState } from '@/lib/classroom/classroomRenderState';
 import { resolveColor, buildGradient } from './engine/colorResolver';
 import {
@@ -113,6 +115,8 @@ export type SlideRendererProps = {
   slideCount?: number;
   renderProgressSlide?: number;
   renderStage?: string;
+  sourceType?: string;
+  sourceUrl?: string;
 };
 
 type RenderDiagnostic = {
@@ -831,7 +835,7 @@ function resolveSlideAssetUrl(src: string | undefined, presentationId?: string):
 }
 
 export function clearClassroomPptxBufferCache() {
-  /* PPTX WASM is no longer used as a classroom visual source. */
+  clearOriginalPptxCache();
 }
 
 function ImageElement({ element, theme: _theme }: { element: NormalizedElement; theme?: ThemeColors }) {
@@ -1484,6 +1488,8 @@ export function SlideRenderer({
   slideCount,
   renderProgressSlide,
   renderStage,
+  sourceType,
+  sourceUrl,
 }: SlideRendererProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const slideCanvasRef = useRef<HTMLDivElement>(null);
@@ -1499,8 +1505,7 @@ export function SlideRenderer({
   const visual = useMemo(() => {
     const raw = (content as any)?.visual;
     if (!raw || typeof raw !== 'object') return undefined;
-    if (raw.type === 'pptx' || raw.type === 'svg' || raw.type === 'image') return raw;
-    return undefined;
+    return raw;
   }, [content]);
   const format = String((content as any)?.format ?? 'unknown');
   const slideIndex = Math.max(0, Number(visual?.slideIndex ?? (slideNumber != null ? slideNumber - 1 : 0)));
@@ -1521,9 +1526,11 @@ export function SlideRenderer({
     visual,
     pipelineStatus,
     imageReady,
+    sourceType,
   });
   const pipelineRendering = uiState === 'rendering';
   const visualFailed = uiState === 'failed';
+  const useOriginalViewer = Boolean(presentationId && usesOriginalPresentationSource(sourceType, visual));
 
   const logRenderDiagnostic = useCallback((diag: RenderDiagnostic) => {
     if (import.meta.env.DEV) {
@@ -1561,6 +1568,11 @@ export function SlideRenderer({
   }, [uiState, presentationId]);
 
   useEffect(() => {
+    if (useOriginalViewer) {
+      setNativeVisualError(null);
+      setNativeImageUrl(null);
+      return;
+    }
     const loadNativeVisual = async () => {
       if (!visual && !presentationId) {
         setNativeVisualError(null);
@@ -1612,7 +1624,7 @@ export function SlideRenderer({
     };
 
     void loadNativeVisual();
-  }, [visual?.type, visual?.src, visual?.renderedImageUrl, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, visualFailed, displayImageSrc, pipelineRendering, pipelineStatus, renderWaitTimedOut, slideNumber, presentationId, slideId, resolvedSlideNumber, slideCount, renderProgressSlide, renderStage, uiState]);
+  }, [useOriginalViewer, visual?.type, visual?.src, visual?.renderedImageUrl, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, visualFailed, displayImageSrc, pipelineRendering, pipelineStatus, renderWaitTimedOut, slideNumber, presentationId, slideId, resolvedSlideNumber, slideCount, renderProgressSlide, renderStage, uiState]);
 
   useEffect(() => {
     if (imageRetryTimer.current != null) {
@@ -1696,8 +1708,46 @@ export function SlideRenderer({
 
   const scaledW = slideWidthPx * fitScale;
   const scaledH = slideHeightPx * fitScale;
-  const showSourceVisual = Boolean(visual);
+  const showSourceVisual = Boolean(visual) && !useOriginalViewer;
   const sourceVisualReady = imageReady;
+
+  if (useOriginalViewer) {
+    return (
+      <div
+        ref={wrapperRef}
+        className={`flex items-center justify-center bg-[#F7F8FA] ${className}`}
+        onPointerMove={handlePointer}
+        style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' }}
+      >
+        <OriginalPresentationViewer
+          presentationId={presentationId}
+          slideNumber={resolvedSlideNumber}
+          sourceType={sourceType || (visual?.type === 'google_slides' ? 'google_slides' : 'powerpoint')}
+          sourceUrl={sourceUrl || visual?.googleSlidesUrl}
+          googleSlidesId={visual?.googleSlidesId}
+          visualSource={visual?.visualSource}
+          className="w-full h-full"
+        />
+        {pointer && (
+          <span
+            style={{
+              pointerEvents: 'none',
+              position: 'absolute',
+              zIndex: 9999,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              background: '#ef4444',
+              border: '2px solid white',
+              boxShadow: '0 0 6px rgba(0,0,0,.4)',
+              left: `calc(${pointer.x}% - 8px)`,
+              top: `calc(${pointer.y}% - 8px)`,
+            }}
+          />
+        )}
+      </div>
+    );
+  }
 
   const sourceVisualStatus = nativeVisualError ? (
     <div

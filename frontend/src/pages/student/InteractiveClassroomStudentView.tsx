@@ -191,6 +191,8 @@ export function InteractiveClassroomStudentView() {
             pollResults={classroom.pollResults}
             remainingSeconds={classroom.pollRemaining}
             presentationId={classroom.viewData?.presentation.id}
+            sourceType={classroom.viewData?.presentation.sourceType}
+            sourceUrl={classroom.viewData?.presentation.sourceUrl}
           />
         </div>
 

@@ -20,6 +20,7 @@ import { ClassroomLiveShell } from "@/components/classroom/ClassroomLiveShell";
 import { parseSlide } from "@/lib/slideParser/index";
 import { CreatePollDialog, type CreatePollPayload } from "@/components/classroom/CreatePollDialog";
 import { formatPollTimer, parsePollOptions, remainingSeconds, resolvePollContent } from "@/lib/classroom/pollOptions";
+import { usesOriginalPresentationSource } from "@/lib/classroom/originalPresentationUrls";
 
 interface Slide {
   id: string;
@@ -67,6 +68,8 @@ interface SessionData {
     id: string;
     title: string;
     status?: string;
+    sourceType?: string;
+    sourceUrl?: string;
     slides: Slide[];
   };
   participants: Participant[];
@@ -308,29 +311,34 @@ export function InteractiveClassroomSession() {
   const connectWebSocket = useCallback(() => {
     const userId = getUserIdFromToken() || "instructor";
     const { protocol, host } = getWsConnectTarget();
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+    }
     const wsUrl = `${protocol}://${host}/ws/classroom-studio?sessionId=${sessionId}&userId=${userId}&role=instructor&token=${encodeURIComponent(getToken() || "")}`;
-    console.log("[WS] Instructor connecting", { sessionId, userId, wsUrl });
+    console.info("[WS] Instructor connecting", { sessionId, userId });
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log("[WS] Instructor connected successfully", { sessionId, userId });
+      console.info("[WS] Instructor connected successfully", { sessionId, userId });
       reconnectAttempt.current = 0;
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log("[WS] Instructor received message", { type: message.type, sessionId });
+        console.info("[WS] Instructor received message", { type: message.type, sessionId });
         handleWebSocketMessage(message);
       } catch { /* ignore malformed frames */ }
     };
 
-    ws.onerror = (error) => {
-      console.error("[WS] Instructor WebSocket error", { sessionId, error });
+    ws.onerror = () => {
+      console.info("[WS] Instructor WebSocket handshake interrupted", { sessionId });
     };
 
     ws.onclose = () => {
-      console.log("[WS] Instructor disconnected — scheduling reconnect", { sessionId, attempt: reconnectAttempt.current });
+      console.info("[WS] Instructor disconnected — scheduling reconnect", { sessionId, attempt: reconnectAttempt.current });
       const delay = WS_RECONNECT_DELAYS[Math.min(reconnectAttempt.current, WS_RECONNECT_DELAYS.length - 1)] ?? 16000;
       reconnectAttempt.current += 1;
       reconnectTimer.current = window.setTimeout(() => {
@@ -1193,8 +1201,10 @@ export function InteractiveClassroomSession() {
                     className="w-full h-full max-h-full rounded-lg"
                     canRepair
                     repairing={repairingVisuals}
-                    pipelineStatus={session.presentation.status}
+                    pipelineStatus={usesOriginalPresentationSource(session.presentation.sourceType, currentSlide.content?.visual) ? "ready" : session.presentation.status}
                     slideCount={session.presentation.slides.length}
+                    sourceType={session.presentation.sourceType}
+                    sourceUrl={session.presentation.sourceUrl}
                     onRepair={() => void repairVisuals()}
                   />
                 </div>

@@ -115,6 +115,9 @@ describe("published Learning Universe video access", () => {
     expect(isPublicUploadPath("projects/p1/lecture.mp4")).toBe(false);
     expect(isPublicUploadPath("/uploads/projects/p1/lecture.mp4")).toBe(false);
     expect(isPublicUploadPath("latex/pdfs/paper.pdf")).toBe(false);
+    expect(isPublicUploadPath("classroom/pres-1/source/original.pptx")).toBe(false);
+    expect(isPublicUploadPath("classroom/pres-1/renders/slide-001.png")).toBe(false);
+    expect(isPublicUploadPath("/uploads/classroom-studio/pres-1/source/original.pptx")).toBe(false);
   });
 
   it("normalizes /uploads prefixes so B2 keys are not doubled", () => {

@@ -36,6 +36,8 @@ interface Props {
   pollResults?: any;
   remainingSeconds?: number | null;
   presentationId?: string;
+  sourceType?: string;
+  sourceUrl?: string;
 }
 
 function formatResponseLabel(response: unknown): string {
@@ -61,6 +63,8 @@ export function StudentSlideViewer({
   pollResults,
   remainingSeconds,
   presentationId,
+  sourceType,
+  sourceUrl,
 }: Props) {
   const isLocked = navigation === 'locked';
   const [overlayDismissed, setOverlayDismissed] = useState(false);
@@ -124,6 +128,8 @@ export function StudentSlideViewer({
                 presentationId={presentationId}
                 pointer={pointer}
                 className="w-full h-full"
+                sourceType={sourceType}
+                sourceUrl={sourceUrl}
               />
           </div>
         ) : (

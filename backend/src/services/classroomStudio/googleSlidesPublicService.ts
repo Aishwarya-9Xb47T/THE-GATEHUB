@@ -31,7 +31,7 @@ export function validateAndExtractGoogleSlidesId(url: string): ValidationResult 
   if (!match || !match[1]) {
     return {
       valid: false,
-      error: 'Invalid Google Slides URL. Expected format: https://docs.google.com/presentation/d/PRESENTATION_ID/edit',
+      error: 'INVALID_URL: Invalid Google Slides URL. Expected format: https://docs.google.com/presentation/d/PRESENTATION_ID/edit',
     };
   }
 
@@ -135,33 +135,31 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
   if (!validation.valid || !validation.presentationId) {
     return {
       success: false,
-      error: `GOOGLE_SLIDES_ACCESS_FAILED: ${validation.error || 'Invalid Google Slides URL'}`,
+      error: validation.error?.includes('INVALID_URL')
+        ? validation.error
+        : `INVALID_URL: ${validation.error || 'Invalid Google Slides URL'}`,
     };
   }
 
   try {
-    const [pdfResult, pptxResult] = await Promise.all([
-      downloadPublicGoogleSlidesPdf(validation.presentationId),
-      downloadPublicGoogleSlidesPptx(validation.presentationId),
-    ]);
+    const pptxResult = await downloadPublicGoogleSlidesPptx(validation.presentationId);
 
-    if (pdfResult && typeof pdfResult === 'object' && !Buffer.isBuffer(pdfResult) && 'requiresAuthentication' in pdfResult && pdfResult.requiresAuthentication) {
-      if ('requiresAuthentication' in pptxResult) {
-        return {
-          success: false,
-          requiresAuthentication: true,
-          message: 'message' in pptxResult ? String(pptxResult.message) : 'SOURCE_PERMISSION_DENIED',
-        };
-      }
-    }
     if ('requiresAuthentication' in pptxResult) {
-      return { success: false, requiresAuthentication: true, message: pptxResult.message };
+      return {
+        success: false,
+        requiresAuthentication: true,
+        message: pptxResult.message,
+        error: 'GOOGLE_SLIDES_PERMISSION_REQUIRED',
+      };
     }
     if ('error' in pptxResult) {
-      return { success: false, error: pptxResult.error };
+      return {
+        success: false,
+        error: pptxResult.error.startsWith('SOURCE_NOT_FOUND')
+          ? `GOOGLE_SLIDES_NOT_ACCESSIBLE: ${pptxResult.error}`
+          : pptxResult.error,
+      };
     }
-
-    const pdfBuffer = Buffer.isBuffer(pdfResult) ? pdfResult : undefined;
 
     const result = await presentationImportService.importPresentation({
       instructorId: input.instructorId,
@@ -170,7 +168,6 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
       sourceType: 'google_slides',
       sourceUrl: input.url.trim(),
       file: pptxResult.fileBuffer,
-      pdfFile: pdfBuffer,
       options: {
         extractNotes: true,
         generateThumbnails: false,

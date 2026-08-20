@@ -90,4 +90,24 @@ describe("classroomAssetPath", () => {
       { jobId: "job-a", attempt: 1, renderGeneration: 1, renderStatus: "failed" },
     )).toBe(true);
   });
+
+  it("treats original PPTX/Google visuals as ready even while thumbnail jobs run", () => {
+    const slides = Array.from({ length: 14 }, (_, index) => ({
+      content: {
+        visual: {
+          type: "original_pptx",
+          visualSource: "original_pptx",
+          availability: "available",
+          renderStatus: "ready",
+          slideIndex: index,
+        },
+      },
+    }));
+    expect(slideVisualIsReady(slides[0]?.content)).toBe(true);
+    expect(aggregatePresentationRenderStatus({
+      slides,
+      exclusiveRunning: true,
+      jobStatus: "RENDERING",
+    })).toBe("ready");
+  });
 });

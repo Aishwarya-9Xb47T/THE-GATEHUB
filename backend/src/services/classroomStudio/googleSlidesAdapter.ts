@@ -5,7 +5,7 @@
 
 import { google } from 'googleapis';
 import { getValidAccessToken } from '../googleWorkspace/googleOAuth.js';
-import { exportSlidesToPptxBuffer, exportSlidesToPdfBuffer } from '../googleWorkspace/googleDriveAPI.js';
+import { exportSlidesToPptxBuffer } from '../googleWorkspace/googleDriveAPI.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import type { ImportResult, GoogleSlidesImportOptions } from './types.js';
 
@@ -635,22 +635,11 @@ export async function exportGoogleSlidesToPptxForUser(
       return { error: 'Google Slides export did not return a valid PPTX file.' };
     }
 
-    let pdfBuffer: Buffer | undefined;
-    try {
-      pdfBuffer = await exportSlidesToPdfBuffer(tokens, presentationId);
-      if (pdfBuffer.length < 100 || !pdfBuffer.subarray(0, 4).equals(Buffer.from('%PDF'))) {
-        pdfBuffer = undefined;
-      }
-    } catch (pdfErr) {
-      console.warn('[Google Slides export] Direct PDF export not available, will use LibreOffice conversion', pdfErr);
-    }
-
     console.info('[Google Slides export] Authenticated presentation downloaded', {
       presentationId,
       pptxBytes: fileBuffer.length,
-      pdfBytes: pdfBuffer?.length,
     });
-    return { fileBuffer, pdfBuffer };
+    return { fileBuffer };
   } catch (error) {
     console.error('[Google Slides export] Failed:', error);
     return {
