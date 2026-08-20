@@ -2939,10 +2939,24 @@ model Presentation {
   course        Course?            @relation(fields: [courseId], references: [id])
   slides        Slide[]
   sessions      ClassroomSession[]
+  originalFile  PresentationOriginalFile?
 
   @@index([instructorId])
   @@index([courseId])
   @@index([status])
+}
+
+// Durable original.pptx when object storage (B2) is not configured (e.g. Render disk).
+model PresentationOriginalFile {
+  presentationId String   @id @map("presentation_id")
+  bytes          Bytes
+  size           Int
+  sha256         String   @db.VarChar(64)
+  mimeType       String   @default("application/vnd.openxmlformats-officedocument.presentationml.presentation") @map("mime_type")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  presentation Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
 }
 
 model Slide {

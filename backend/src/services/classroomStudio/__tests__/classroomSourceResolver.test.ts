@@ -5,6 +5,7 @@ import {
   isCompatiblePptxContentType,
   isValidPptxBuffer,
   persistPptxBuffer,
+  requireDurableClassroomStorage,
   storeClassroomSourcePptx,
 } from "../classroomSourceResolver.js";
 
@@ -36,5 +37,33 @@ describe("classroom PPTX source storage", () => {
     expect(isValidPptxBuffer(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]))).toBe(true);
     expect(isValidPptxBuffer(Buffer.alloc(0))).toBe(false);
     expect(isValidPptxBuffer(Buffer.from("{}"))).toBe(false);
+  });
+
+  it("does not block hosted imports when the object-storage bucket is unset", () => {
+    const previous = {
+      NODE_ENV: process.env.NODE_ENV,
+      RENDER: process.env.RENDER,
+      B2_APPLICATION_KEY_ID: process.env.B2_APPLICATION_KEY_ID,
+      B2_APPLICATION_KEY: process.env.B2_APPLICATION_KEY,
+      B2_BUCKET_NAME: process.env.B2_BUCKET_NAME,
+      B2_ENDPOINT: process.env.B2_ENDPOINT,
+      B2_REGION: process.env.B2_REGION,
+    };
+    process.env.NODE_ENV = "production";
+    process.env.RENDER = "true";
+    delete process.env.B2_APPLICATION_KEY_ID;
+    delete process.env.B2_APPLICATION_KEY;
+    delete process.env.B2_BUCKET_NAME;
+    delete process.env.B2_ENDPOINT;
+    delete process.env.B2_REGION;
+    expect(() => requireDurableClassroomStorage()).not.toThrow();
+    process.env.NODE_ENV = previous.NODE_ENV;
+    if (previous.RENDER == null) delete process.env.RENDER;
+    else process.env.RENDER = previous.RENDER;
+    for (const [key, value] of Object.entries(previous)) {
+      if (key === "NODE_ENV" || key === "RENDER") continue;
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 });

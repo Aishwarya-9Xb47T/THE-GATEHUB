@@ -55,6 +55,13 @@ export function classroomImportErrorMessage(payload: ClassroomImportPayload | nu
   if (code === "CLASSROOM_B2_VERIFY_FAILED" || code === "CLASSROOM_B2_UPLOAD_FAILED") {
     return "PowerPoint upload verification failed. Please retry.";
   }
+  if (
+    code === "CLASSROOM_B2_NOT_CONFIGURED" ||
+    code === "CRITICAL_PPTX_STORAGE_FAILED" ||
+    code === "ORIGINAL_PPTX_STORAGE_FAILED"
+  ) {
+    return "The PowerPoint file could not be stored. Please retry the upload.";
+  }
   const raw =
     typeof error === "string"
       ? error

@@ -33,6 +33,24 @@ describe("parseClassroomImportNdjson", () => {
     expect(classroomImportErrorMessage(payload)).toBe("PowerPoint upload verification failed. Please retry.");
   });
 
+  it("maps missing object-storage configuration to a retryable store error", () => {
+    expect(
+      classroomImportErrorMessage({
+        success: false,
+        error: {
+          code: "CLASSROOM_B2_NOT_CONFIGURED",
+          message: "The storage bucket for PowerPoint files is not configured.",
+        },
+      }),
+    ).toBe("The PowerPoint file could not be stored. Please retry the upload.");
+    expect(
+      classroomImportErrorMessage({
+        success: false,
+        error: { code: "CRITICAL_PPTX_STORAGE_FAILED", message: "critical" },
+      }),
+    ).toBe("The PowerPoint file could not be stored. Please retry the upload.");
+  });
+
   it("does not navigate using payload.id from an unrelated object", () => {
     expect(classroomImportPresentationId({ success: true, id: "slide-or-job" })).toBeNull();
     expect(classroomImportPresentationId({ success: true, presentation: { id: "cmt-nested" } })).toBe("cmt-nested");

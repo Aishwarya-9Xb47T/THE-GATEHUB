@@ -301,6 +301,49 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
   return null;
 }
 
+export function streamMemoryUpload(
+  res: Response,
+  body: Buffer,
+  options?: { range?: string; method?: string; mimeType?: string; origin?: string; cacheControl?: string }
+): boolean {
+  const size = body.length;
+  if (size <= 0) return false;
+  const mime = options?.mimeType || "application/octet-stream";
+  const inspected = inspectByteRange(options?.range, size);
+  applyUploadCorsHeaders(res, options?.origin);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Content-Type", mime);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
+
+  if (inspected.type === "unsatisfiable") {
+    sendUnsatisfiableRange(res, size);
+    return true;
+  }
+
+  if (inspected.type === "valid") {
+    const chunk = body.subarray(inspected.start, inspected.end + 1);
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${inspected.start}-${inspected.end}/${size}`);
+    res.setHeader("Content-Length", String(chunk.length));
+    if (options?.method === "HEAD") {
+      res.end();
+      return true;
+    }
+    res.end(chunk);
+    return true;
+  }
+
+  res.status(200);
+  res.setHeader("Content-Length", String(size));
+  if (options?.method === "HEAD") {
+    res.end();
+    return true;
+  }
+  res.end(body);
+  return true;
+}
+
 export function streamLocalUpload(
   res: Response,
   filePath: string,

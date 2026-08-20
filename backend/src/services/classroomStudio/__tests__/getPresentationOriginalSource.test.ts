@@ -10,13 +10,13 @@ describe("getPresentationOriginalSource diagnostics", () => {
     })).toBe("PRESENTATION_NOT_FOUND");
   });
 
-  it("reports ephemeral hosts without B2 as a filesystem mismatch", () => {
+  it("reports a missing file on hosted environments when no durable copy exists", () => {
     expect(diagnoseMissingOriginalSource({
       presentationFound: true,
       sourceUrl: "/uploads/classroom/abc/source/original.pptx",
       b2Configured: false,
       ephemeralHost: true,
-    })).toBe("DEPLOYED_FILESYSTEM_MISMATCH");
+    })).toBe("FILE_NOT_FOUND");
   });
 
   it("reports a missing source URL as an unpersisted upload", () => {

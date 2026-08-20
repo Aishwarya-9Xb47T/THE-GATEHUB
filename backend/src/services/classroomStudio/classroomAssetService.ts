@@ -3,10 +3,10 @@ import { prisma } from "../../utils/prisma.js";
 import { AppError } from "../../middlewares/errorHandler.js";
 import { type Role } from "../../utils/roles.js";
 import { getObjectStream, listObjectKeys } from "../b2StorageService.js";
-import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload } from "../../middlewares/persistUpload.js";
+import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload, streamMemoryUpload } from "../../middlewares/persistUpload.js";
 import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
 import { classroomAssetAccessDecision } from "./classroomAssetAccess.js";
-import { getPresentationOriginalSource } from "./classroomSourceResolver.js";
+import { getPresentationOriginalSource, readOriginalPptxFromDatabase } from "./classroomSourceResolver.js";
 import {
   CLASSROOM_SOURCE_REST,
   PPTX_MIME,
@@ -135,17 +135,8 @@ export async function streamClassroomPresentationAsset(
 
   if (safeRest === CLASSROOM_SOURCE_REST || /(^|\/)original\.pptx$/i.test(safeRest)) {
     const source = await getPresentationOriginalSource(presentationId);
-    if (!source.exists) {
-      throw new AppError(404, "Original PowerPoint was not found in storage", true, {
-        code: "ORIGINAL_PPTX_UNAVAILABLE",
-        stage: "storage",
-        reason: source.reason || "FILE_NOT_FOUND",
-        presentationId,
-        sourceKey: source.relativeStoragePath,
-      });
-    }
 
-    if (source.origin === "local" && source.absoluteStoragePath) {
+    if (source.exists && source.origin === "local" && source.absoluteStoragePath) {
       const streamed = await streamLocalUpload(res, source.absoluteStoragePath, {
         range: options?.range,
         method: options?.method,
@@ -213,15 +204,36 @@ export async function streamClassroomPresentationAsset(
           key: source.key,
           error: error instanceof Error ? error.message : String(error),
         });
-        throw new AppError(404, "Original PowerPoint was not found in storage", true, {
-          code: "ORIGINAL_PPTX_UNAVAILABLE",
-          stage: "storage",
-          reason: "FILE_NOT_FOUND",
-          presentationId,
-          sourceKey: source.relativeStoragePath,
-        });
       }
     }
+
+    const stored = await readOriginalPptxFromDatabase(presentationId);
+    if (stored) {
+      const streamed = streamMemoryUpload(res, stored.buffer, {
+        range: options?.range,
+        method: options?.method,
+        origin: options?.origin,
+        mimeType: PPTX_MIME,
+        cacheControl: "private, max-age=3600",
+      });
+      if (streamed) {
+        console.info("[CLASSROOM_ASSET] streamed", {
+          presentationId,
+          relative: source.relativeStoragePath,
+          origin: "database",
+          status: 200,
+        });
+        return true;
+      }
+    }
+
+    throw new AppError(404, "Original PowerPoint was not found in storage", true, {
+      code: "ORIGINAL_PPTX_UNAVAILABLE",
+      stage: "storage",
+      reason: source.reason || "FILE_NOT_FOUND",
+      presentationId,
+      sourceKey: source.relativeStoragePath,
+    });
   }
 
   const relatives = [

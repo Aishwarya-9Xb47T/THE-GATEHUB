@@ -309,6 +309,7 @@ export async function duplicatePresentation(
   const original = await prisma.presentation.findUnique({
     where: { id },
     include: {
+      originalFile: true,
       slides: {
         include: {
           interactions: true,
@@ -336,6 +337,16 @@ export async function duplicatePresentation(
       status: 'draft',
       instructorId,
       courseId: original.courseId,
+      originalFile: original.originalFile
+        ? {
+            create: {
+              bytes: original.originalFile.bytes,
+              size: original.originalFile.size,
+              sha256: original.originalFile.sha256,
+              mimeType: original.originalFile.mimeType,
+            },
+          }
+        : undefined,
       slides: {
         create: original.slides.map((slide) => ({
           order: slide.order,
