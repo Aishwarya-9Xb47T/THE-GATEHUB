@@ -59,5 +59,16 @@ describe("failed import status", () => {
         nowMs: now,
       }),
     ).toBe("ready");
+    expect(
+      reconcileInFlightRender({
+        status: "rendering",
+        rendered: 0,
+        total: 11,
+        exclusiveRunning: false,
+        inflight: 11,
+        updatedAtMs: now - 9 * 60 * 1000,
+        nowMs: now,
+      }),
+    ).toBe("keep_rendering");
   });
 });

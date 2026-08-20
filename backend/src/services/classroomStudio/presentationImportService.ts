@@ -41,7 +41,7 @@ import {
   sha256OfBuffer,
 } from './classroomSourceResolver.js';
 import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
-import { renderAndPersistPresentationVisuals, startExclusiveVisualRender, setVisualRenderProgress, getVisualRenderProgress } from './presentationVisualRepairService.js';
+import { renderAndPersistPresentationVisuals, startExclusiveVisualRender, setVisualRenderProgress, getVisualRenderProgress, finalizeFailedRenderJob } from './presentationVisualRepairService.js';
 import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
 import { slideVisualIsReady } from './classroomAssetPath.js';
 import type {
@@ -581,9 +581,11 @@ async function persistImportedContent(
     }
   }
 
-  const failedSlideNumbers = importResult.slides!
-    .map((_, index) => index + 1)
-    .filter((order) => !renderedByIndex.has(order - 1));
+  const failedSlideNumbers = options.deferRender
+    ? []
+    : importResult.slides!
+      .map((_, index) => index + 1)
+      .filter((order) => !renderedByIndex.has(order - 1));
   const visualRenderStatus: PersistOutcome['visualRenderStatus'] = !options.isPptxPipeline
     ? 'skipped'
     : options.deferRender
@@ -840,21 +842,11 @@ export async function importPresentation(
           error: error instanceof Error ? error.message : String(error),
           details: error instanceof AppError ? error.details : undefined,
         });
-        setVisualRenderProgress(presentationId, {
-          stage: 'FAILED',
-          currentSlide: 0,
-          totalSlides: persistResult.expectedCount,
+        await finalizeFailedRenderJob({
+          presentationId,
+          expected: persistResult.expectedCount,
+          error,
         });
-        const current = await prisma.presentation.findUnique({
-          where: { id: presentationId },
-          select: { status: true },
-        });
-        if (current?.status === 'rendering') {
-          await prisma.presentation.update({
-            where: { id: presentationId },
-            data: { status: 'render_failed' },
-          }).catch(() => undefined);
-        }
       });
       const firstReady = await waitForFirstRenderedSlide(presentationId, 12_000);
       if (firstReady) {
@@ -1063,16 +1055,11 @@ export async function updatePresentationFromSource(
         presentationId,
         error: error instanceof Error ? error.message : String(error),
       });
-      const current = await prisma.presentation.findUnique({
-        where: { id: presentationId },
-        select: { status: true },
+      await finalizeFailedRenderJob({
+        presentationId,
+        expected: persistResult.expectedCount,
+        error,
       });
-      if (current?.status === 'rendering') {
-        await prisma.presentation.update({
-          where: { id: presentationId },
-          data: { status: 'render_failed' },
-        }).catch(() => undefined);
-      }
     });
   }
 

@@ -265,6 +265,43 @@ describe('SlideRenderer', () => {
     expect(error.textContent).not.toContain('Presentation asset unavailable');
   });
 
+  it('does not show a false render failure while the slide is still rendering', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
+      ok: false,
+      status: 404,
+      contentType: 'application/json',
+      text: JSON.stringify({ error: { code: 'CLASSROOM_ASSET_NOT_FOUND', message: 'missing' } }),
+    })));
+
+    const content = importedContent({
+      visual: {
+        type: 'image',
+        src: '/uploads/classroom/demo/renders/slide-007.png',
+        renderedImageUrl: '/api/classroom-studio/presentations/demo/assets/renders/slide-007.png',
+        slideIndex: 6,
+        availability: 'missing',
+        renderStatus: 'rendering',
+      },
+    });
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="Slide 7"
+        slideNumber={7}
+        presentationId="demo"
+        pipelineStatus="render_failed"
+        slideCount={14}
+        renderProgressSlide={7}
+      />,
+    );
+
+    const error = await screen.findByTestId('classroom-visual-error');
+    expect(error.textContent).toContain('CLASSROOM_RENDERING');
+    expect(error.textContent).toContain('Rendering slide 7 of 14');
+    expect(error.textContent).not.toContain('Slide visual rendering failed');
+  });
+
   it('does not use extracted equations as the visual when the PNG cannot be loaded', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
       ok: false,

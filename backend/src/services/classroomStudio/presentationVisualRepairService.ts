@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../utils/prisma.js";
@@ -27,10 +27,14 @@ import {
   canonicalSlidePngRelative,
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
+  aggregatePresentationRenderStatus,
+  isStaleSlideRenderWrite,
+  readSlideVisual,
+  slideVisualIsInFlight,
+  slideVisualIsReady,
   type SlideRenderStatus,
 } from "./classroomAssetPath.js";
 import { assertRenderablePng } from "./presentationLibreOfficeRender.js";
-import { CLASSROOM_RENDER_JOB_TIMEOUT_MS } from "./presentationAccess.js";
 import { classroomPptxPipelineLog } from "./classroomPipelineLog.js";
 import {
   CLASSROOM_RENDERER_VERSION,
@@ -72,6 +76,7 @@ function withVisual(
     sourceHash?: string;
     jobId?: string;
     attempt?: number;
+    renderGeneration?: number;
   },
 ): Record<string, unknown> {
   const base =
@@ -95,6 +100,7 @@ export type ClassroomRenderJobRecord = {
   completedAt?: string;
   error?: string;
   attempt: number;
+  generation: number;
 };
 
 const renderJobs = new Map<string, ClassroomRenderJobRecord>();
@@ -115,6 +121,7 @@ function upsertRenderJob(presentationId: string, patch: Partial<ClassroomRenderJ
     completedAt: patch.completedAt ?? existing?.completedAt,
     error: patch.error ?? existing?.error,
     attempt: patch.attempt ?? existing?.attempt ?? 1,
+    generation: patch.generation ?? existing?.generation ?? 0,
   };
   renderJobs.set(presentationId, next);
   console.info("[CLASSROOM_RENDER_JOB]", next);
@@ -122,6 +129,7 @@ function upsertRenderJob(presentationId: string, patch: Partial<ClassroomRenderJ
 }
 
 const inflightVisualRenders = new Map<string, Promise<unknown>>();
+const renderGenerations = new Map<string, number>();
 
 export type ClassroomRenderStage =
   | "PPTX_DOWNLOAD"
@@ -158,22 +166,158 @@ export function isExclusiveVisualRenderRunning(presentationId: string): boolean 
   return inflightVisualRenders.has(presentationId);
 }
 
+export function getRenderGeneration(presentationId: string): number {
+  return renderGenerations.get(presentationId) ?? 0;
+}
+
 export function startExclusiveVisualRender(
   presentationId: string,
   work: () => Promise<unknown>,
-): { started: boolean; job: Promise<unknown> } {
+): { started: boolean; job: Promise<unknown>; generation: number } {
   const existing = inflightVisualRenders.get(presentationId);
-  if (existing) return { started: false, job: existing };
-  const job = withDeadline(
-    work(),
-    CLASSROOM_RENDER_JOB_TIMEOUT_MS,
-    "CLASSROOM_RENDER_TIMEOUT",
-    `CLASSROOM_RENDER_TIMEOUT overall render job presentationId=${presentationId}`,
-  ).finally(() => {
-    inflightVisualRenders.delete(presentationId);
+  if (existing) {
+    return { started: false, job: existing, generation: getRenderGeneration(presentationId) };
+  }
+  const generation = getRenderGeneration(presentationId) + 1;
+  renderGenerations.set(presentationId, generation);
+  const running = Promise.resolve().then(() => work());
+  inflightVisualRenders.set(presentationId, running);
+  running.finally(() => {
+    if (inflightVisualRenders.get(presentationId) === running) {
+      inflightVisualRenders.delete(presentationId);
+    }
   });
-  inflightVisualRenders.set(presentationId, job);
-  return { started: true, job };
+  return { started: true, job: running, generation };
+}
+
+function logRenderState(args: {
+  presentationId: string;
+  slide?: number;
+  from?: string;
+  to: string;
+  reason?: string;
+  imageUrl?: string;
+  jobId?: string;
+}) {
+  console.info("[CLASSROOM_RENDER_STATE]", {
+    presentation: args.presentationId,
+    slide: args.slide ?? null,
+    from: args.from ?? null,
+    to: args.to,
+    reason: args.reason ?? null,
+    imageUrl: args.imageUrl ?? null,
+    jobId: args.jobId ?? null,
+  });
+}
+
+async function writePresentationStatusIfCurrentJob(args: {
+  presentationId: string;
+  jobId?: string;
+  generation?: number;
+  status: string;
+  reason: string;
+}) {
+  const current = getClassroomRenderJob(args.presentationId);
+  if (args.jobId && current?.jobId && current.jobId !== args.jobId) {
+    logRenderState({
+      presentationId: args.presentationId,
+      from: current.status,
+      to: args.status,
+      reason: "stale_job_skipped_presentation_status",
+      jobId: args.jobId,
+    });
+    return;
+  }
+  if (args.generation && current?.generation && current.generation > args.generation) {
+    logRenderState({
+      presentationId: args.presentationId,
+      from: current.status,
+      to: args.status,
+      reason: "stale_generation_skipped_presentation_status",
+      jobId: args.jobId,
+    });
+    return;
+  }
+  logRenderState({
+    presentationId: args.presentationId,
+    from: current?.status,
+    to: args.status,
+    reason: args.reason,
+    jobId: args.jobId ?? current?.jobId,
+  });
+  await prisma.presentation.update({
+    where: { id: args.presentationId },
+    data: { status: args.status },
+  }).catch(() => undefined);
+}
+
+export async function finalizeFailedRenderJob(args: {
+  presentationId: string;
+  jobId?: string;
+  generation?: number;
+  expected: number;
+  error: unknown;
+}) {
+  const current = getClassroomRenderJob(args.presentationId);
+  if (args.jobId && current?.jobId && current.jobId !== args.jobId) return;
+  const slides = await prisma.slide.findMany({
+    where: { presentationId: args.presentationId },
+    orderBy: { order: "asc" },
+  });
+  const failure = {
+    code: classifyClassroomRenderError(args.error),
+    message: args.error instanceof Error ? args.error.message.slice(0, 400) : String(args.error),
+  };
+  for (const slide of slides) {
+    if (!slideVisualIsInFlight(slide.content)) continue;
+    const existing = readSlideVisual(slide.content);
+    if (isStaleSlideRenderWrite(existing, {
+      jobId: args.jobId || current?.jobId,
+      attempt: current?.attempt,
+      renderGeneration: args.generation ?? current?.generation,
+      renderStatus: "failed",
+    })) continue;
+    logRenderState({
+      presentationId: args.presentationId,
+      slide: slide.order,
+      from: existing?.renderStatus || "RENDERING",
+      to: "FAILED",
+      reason: failure.code,
+      jobId: args.jobId || current?.jobId,
+    });
+    await prisma.slide.update({
+      where: { id: slide.id },
+      data: {
+        content: withVisual(slide.content, args.presentationId, slide.order - 1, false, failure, {
+          renderStatus: "failed",
+          jobId: args.jobId || current?.jobId,
+          attempt: current?.attempt,
+          renderGeneration: args.generation ?? current?.generation,
+        }) as object,
+      },
+    });
+  }
+  const refreshed = await prisma.slide.findMany({
+    where: { presentationId: args.presentationId },
+    orderBy: { order: "asc" },
+  });
+  const status = aggregatePresentationRenderStatus({
+    slides: refreshed,
+    exclusiveRunning: false,
+    jobStatus: "FAILED",
+  });
+  setVisualRenderProgress(args.presentationId, {
+    stage: status === "render_failed" ? "FAILED" : "COMPLETE",
+    currentSlide: refreshed.filter((slide) => slideVisualIsReady(slide.content)).length,
+    totalSlides: args.expected,
+  });
+  await writePresentationStatusIfCurrentJob({
+    presentationId: args.presentationId,
+    jobId: args.jobId,
+    generation: args.generation,
+    status,
+    reason: args.error instanceof Error ? args.error.message.slice(0, 240) : String(args.error),
+  });
 }
 
 async function headFirst(relative: string) {
@@ -295,7 +439,7 @@ export async function regeneratePresentationVisuals(
     data: { status: "rendering" },
   });
 
-  const { started, job } = startExclusiveVisualRender(presentationId, async () => {
+  const { started, job, generation } = startExclusiveVisualRender(presentationId, async () => {
     setVisualRenderProgress(presentationId, {
       stage: "PPTX_DOWNLOAD",
       currentSlide: 0,
@@ -333,6 +477,7 @@ export async function regeneratePresentationVisuals(
       sourceBytes: persistedSource.bytes,
       sourceSha256: persistedSource.sha256 ?? downloadedSha,
       pdfBuffer: storedPdf ?? undefined,
+      renderGeneration: getRenderGeneration(presentationId),
     });
   });
 
@@ -345,21 +490,12 @@ export async function regeneratePresentationVisuals(
         error: error instanceof Error ? error.message : String(error),
         details: error instanceof AppError ? error.details : undefined,
       });
-      const current = await prisma.presentation.findUnique({
-        where: { id: presentationId },
-        select: { status: true },
+      await finalizeFailedRenderJob({
+        presentationId,
+        expected,
+        error,
+        generation,
       });
-      setVisualRenderProgress(presentationId, {
-        stage: "FAILED",
-        currentSlide: 0,
-        totalSlides: expected,
-      });
-      if (current?.status === "rendering") {
-        await prisma.presentation.update({
-          where: { id: presentationId },
-          data: { status: "render_failed" },
-        }).catch(() => undefined);
-      }
     });
   }
 
@@ -380,6 +516,7 @@ async function persistRenderedPng(args: {
   sourceHash: string;
   jobId: string;
   attempt?: number;
+  renderGeneration?: number;
 }): Promise<void> {
   const dims = assertRenderablePng(args.png);
   const relative = canonicalSlidePngRelative(args.presentationId, args.slideOrder);
@@ -404,6 +541,9 @@ async function persistRenderedPng(args: {
     (wrapped as Error & { code?: string }).code = "IMAGE_STORAGE_FAILED";
     throw wrapped;
   }
+  const local = await stat(dest).catch(() => null);
+  const imageUrl = canonicalSlidePngApi(args.presentationId, args.slideOrder);
+  let storedBytes = local?.size ?? args.png.length;
   if (isB2Configured()) {
     const stored = await headObject(`uploads/${relative}`);
     if (!stored || !(stored.contentLength && stored.contentLength > 8_000)) {
@@ -411,23 +551,66 @@ async function persistRenderedPng(args: {
       (error as Error & { code?: string }).code = "IMAGE_STORAGE_FAILED";
       throw error;
     }
+    storedBytes = stored.contentLength;
     classroomRenderPersistLog(args.presentationId, args.slideOrder, relative, stored.contentLength);
   } else {
     classroomRenderPersistLog(args.presentationId, args.slideOrder, relative, args.png.length);
+  }
+  const verified = Boolean(local && local.size > 0 && args.png.length > 0);
+  console.info("[CLASSROOM_RENDER_VERIFY]", {
+    slide: args.slideOrder,
+    imageExists: Boolean(local),
+    imageSize: storedBytes,
+    imageUrl,
+    verified,
+    presentationId: args.presentationId,
+  });
+  if (!verified) {
+    const error = new Error(`IMAGE_STORAGE_FAILED slide=${args.slideOrder} local image missing after persist`);
+    (error as Error & { code?: string }).code = "IMAGE_STORAGE_FAILED";
+    throw error;
   }
   const slide = await prisma.slide.findFirst({
     where: { presentationId: args.presentationId, order: args.slideOrder },
   });
   if (slide) {
+    const existing = readSlideVisual(slide.content);
+    if (isStaleSlideRenderWrite(existing, {
+      jobId: args.jobId,
+      attempt: args.attempt,
+      renderGeneration: args.renderGeneration,
+      renderStatus: "ready",
+    })) {
+      logRenderState({
+        presentationId: args.presentationId,
+        slide: args.slideOrder,
+        from: existing?.renderStatus,
+        to: "READY",
+        reason: "stale_job_skipped_ready",
+        imageUrl,
+        jobId: args.jobId,
+      });
+      return;
+    }
+    logRenderState({
+      presentationId: args.presentationId,
+      slide: args.slideOrder,
+      from: existing?.renderStatus || "RENDERING",
+      to: "READY",
+      reason: "image_stored_verified",
+      imageUrl,
+      jobId: args.jobId,
+    });
     await prisma.slide.update({
       where: { id: slide.id },
       data: {
-        thumbnail: canonicalSlidePngApi(args.presentationId, args.slideOrder),
+        thumbnail: imageUrl,
         content: withVisual(slide.content, args.presentationId, args.slideOrder - 1, true, undefined, {
           renderStatus: "ready",
           sourceHash: args.sourceHash,
           jobId: args.jobId,
           attempt: args.attempt,
+          renderGeneration: args.renderGeneration,
         }) as object,
       },
     });
@@ -455,6 +638,7 @@ export async function renderAndPersistPresentationVisuals(
     pages?: number[];
     jobId?: string;
     attempt?: number;
+    renderGeneration?: number;
   },
 ) {
   const presentation = await prisma.presentation.findUnique({
@@ -474,6 +658,7 @@ export async function renderAndPersistPresentationVisuals(
     status: "RENDERING",
     slideIndex: options?.pages?.[0] ?? null,
     attempt: options?.attempt,
+    generation: options?.renderGeneration ?? getRenderGeneration(presentationId),
     startedAt: new Date().toISOString(),
   });
   console.info("[CLASSROOM_SOURCE]", {
@@ -517,6 +702,21 @@ export async function renderAndPersistPresentationVisuals(
 
   for (const slide of presentation.slides) {
     if (alreadyRendered.has(slide.order - 1) || (options?.pages && !options.pages.includes(slide.order))) continue;
+    const existing = readSlideVisual(slide.content);
+    if (isStaleSlideRenderWrite(existing, {
+      jobId: job.jobId,
+      attempt: job.attempt,
+      renderGeneration: job.generation,
+      renderStatus: "rendering",
+    })) continue;
+    logRenderState({
+      presentationId,
+      slide: slide.order,
+      from: existing?.renderStatus || "PENDING",
+      to: "RENDERING",
+      reason: "job_started",
+      jobId: job.jobId,
+    });
     await prisma.slide.update({
       where: { id: slide.id },
       data: {
@@ -525,6 +725,7 @@ export async function renderAndPersistPresentationVisuals(
           sourceHash: inputSha256,
           jobId: job.jobId,
           attempt: job.attempt,
+          renderGeneration: job.generation,
         }) as object,
       },
     });
@@ -555,6 +756,7 @@ export async function renderAndPersistPresentationVisuals(
           sourceHash: inputSha256,
           jobId: job.jobId,
           attempt: job.attempt,
+          renderGeneration: job.generation,
         });
         alreadyRendered.add(image.page - 1);
       } catch (error) {
@@ -567,6 +769,24 @@ export async function renderAndPersistPresentationVisuals(
         });
         const slide = presentation.slides.find((item) => item.order === image.page);
         if (slide) {
+          const latest = await prisma.slide.findUnique({ where: { id: slide.id } });
+          const existing = readSlideVisual(latest?.content);
+          if (isStaleSlideRenderWrite(existing, {
+            jobId: job.jobId,
+            attempt: job.attempt,
+            renderGeneration: job.generation,
+            renderStatus: "failed",
+          })) {
+            continue;
+          }
+          logRenderState({
+            presentationId,
+            slide: image.page,
+            from: existing?.renderStatus || "RENDERING",
+            to: "FAILED",
+            reason: classifyClassroomRenderError(error),
+            jobId: job.jobId,
+          });
           await prisma.slide.update({
             where: { id: slide.id },
             data: {
@@ -578,6 +798,7 @@ export async function renderAndPersistPresentationVisuals(
                 sourceHash: inputSha256,
                 jobId: job.jobId,
                 attempt: job.attempt,
+                renderGeneration: job.generation,
               }) as object,
             },
           });
@@ -641,18 +862,34 @@ export async function renderAndPersistPresentationVisuals(
   const targetedOrders = new Set(options?.pages?.length ? options.pages : refreshed.map((slide) => slide.order));
   const readyIndexes = new Set<number>();
   for (const slide of refreshed) {
-    const visual = (slide.content as { visual?: { renderStatus?: string; availability?: string } } | null)?.visual;
-    if (visual?.renderStatus === "ready" || visual?.availability === "available" || alreadyRendered.has(slide.order - 1)) {
+    const existing = readSlideVisual(slide.content);
+    if (existing?.renderStatus === "ready" || existing?.availability === "available" || alreadyRendered.has(slide.order - 1)) {
       readyIndexes.add(slide.order - 1);
       continue;
     }
     if (!targetedOrders.has(slide.order)) continue;
+    if (isStaleSlideRenderWrite(existing, {
+      jobId: job.jobId,
+      attempt: job.attempt,
+      renderGeneration: job.generation,
+      renderStatus: "failed",
+    })) {
+      continue;
+    }
     const failure = {
       code: errors.some((item) => /PAGE_COUNT_MISMATCH/.test(item))
         ? "PDF_PAGE_COUNT_MISMATCH"
         : (readyIndexes.size === 0 ? "CLASSROOM_RENDER_FAILED" : "CLASSROOM_RENDER_SLIDE_FAILED"),
       message: errors[0] || "Slide visual could not be rendered from the original presentation",
     };
+    logRenderState({
+      presentationId,
+      slide: slide.order,
+      from: existing?.renderStatus || "RENDERING",
+      to: "FAILED",
+      reason: failure.code,
+      jobId: job.jobId,
+    });
     await prisma.slide.update({
       where: { id: slide.id },
       data: {
@@ -661,32 +898,48 @@ export async function renderAndPersistPresentationVisuals(
           sourceHash: inputSha256,
           jobId: job.jobId,
           attempt: job.attempt,
+          renderGeneration: job.generation,
         }) as object,
       },
     });
   }
 
-  const failedSlideNumbers = refreshed
-    .filter((slide) => targetedOrders.has(slide.order) && !readyIndexes.has(slide.order - 1))
+  const afterWrites = await prisma.slide.findMany({
+    where: { presentationId },
+    orderBy: { order: "asc" },
+  });
+  for (const slide of afterWrites) {
+    if (slideVisualIsReady(slide.content) || alreadyRendered.has(slide.order - 1)) {
+      readyIndexes.add(slide.order - 1);
+    }
+  }
+  const failedSlideNumbers = afterWrites
+    .filter((slide) => targetedOrders.has(slide.order) && !readyIndexes.has(slide.order - 1) && !slideVisualIsInFlight(slide.content))
     .map((slide) => slide.order);
-  const allReady = refreshed.every((slide) => readyIndexes.has(slide.order - 1));
-  const pageMismatch = errors.some((item) => /PAGE_COUNT_MISMATCH/.test(item));
-  const status = pageMismatch
-    ? "render_failed"
-    : allReady && refreshed.length > 0
-      ? "ready"
-      : readyIndexes.size > 0
-        ? "rendering_partial"
-        : "render_failed";
+  const status = aggregatePresentationRenderStatus({
+    slides: afterWrites.map((slide) => ({
+      content: readyIndexes.has(slide.order - 1)
+        ? { visual: { renderStatus: "ready", availability: "available" } }
+        : slide.content,
+    })),
+    exclusiveRunning: false,
+    jobStatus: "READY",
+  });
 
+  await writePresentationStatusIfCurrentJob({
+    presentationId,
+    jobId: job.jobId,
+    generation: job.generation,
+    status,
+    reason: "job_complete",
+  });
   await prisma.presentation.update({
     where: { id: presentationId },
     data: {
       sourceUrl: canonicalPublicPath(sourceRelative),
       thumbnail: readyIndexes.has(0) ? canonicalSlidePngApi(presentationId, 1) : undefined,
-      status,
     },
-  });
+  }).catch(() => undefined);
   upsertRenderJob(presentationId, {
     status: status === "ready" ? "READY" : status === "render_failed" ? "FAILED" : "RENDERING",
     completedAt: status === "rendering_partial" ? undefined : new Date().toISOString(),
@@ -748,6 +1001,33 @@ export async function retrySlideVisual(
   const slide = presentation.slides.find((item) => item.id === slideId);
   if (!slide) throw new AppError(404, "Slide not found");
 
+  if (slideVisualIsReady(slide.content)) {
+    return {
+      presentationId,
+      rendered: 1,
+      skipped: 1,
+      slideCount: presentation.slides.length,
+      code: "CLASSROOM_REGENERATE_OK",
+      slidesSucceeded: 1,
+      slidesFailed: 0,
+      failedSlideNumbers: [],
+      alreadyReady: true,
+    };
+  }
+  if (slideVisualIsInFlight(slide.content) && isExclusiveVisualRenderRunning(presentationId)) {
+    return {
+      presentationId,
+      rendered: 0,
+      skipped: 0,
+      slideCount: presentation.slides.length,
+      code: "CLASSROOM_RENDERING",
+      alreadyRunning: true,
+      slidesSucceeded: 0,
+      slidesFailed: 0,
+      failedSlideNumbers: [],
+    };
+  }
+
   const resolved = await resolvePresentationSource(presentationId);
   if (!resolved.ok) {
     throw new AppError(404, "The original PowerPoint file was not found in storage", true, {
@@ -757,7 +1037,7 @@ export async function retrySlideVisual(
   }
   const pptxBuffer = await downloadPresentationPptx(resolved);
   const pdfBuffer = await downloadPresentationExportPdf(presentationId);
-  const visual = (slide.content as { visual?: { attempt?: number } } | null)?.visual;
+  const visual = readSlideVisual(slide.content);
   const attempt = (visual?.attempt || 0) + 1;
   await prisma.slide.update({
     where: { id: slide.id },
@@ -765,14 +1045,32 @@ export async function retrySlideVisual(
       content: withVisual(slide.content, presentationId, slide.order - 1, false, undefined, {
         renderStatus: "rendering",
         attempt,
+        renderGeneration: getRenderGeneration(presentationId) + 1,
       }) as object,
     },
   });
-  return renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
-    skipExisting: false,
-    pages: [slide.order],
-    pdfBuffer: pdfBuffer ?? undefined,
-    sourceSha256: sha256OfBuffer(pptxBuffer),
-    attempt,
-  });
+  const { started, job } = startExclusiveVisualRender(presentationId, () =>
+    renderAndPersistPresentationVisuals(presentationId, pptxBuffer, {
+      skipExisting: false,
+      pages: [slide.order],
+      pdfBuffer: pdfBuffer ?? undefined,
+      sourceSha256: sha256OfBuffer(pptxBuffer),
+      attempt,
+      renderGeneration: getRenderGeneration(presentationId),
+    }),
+  );
+  if (!started) {
+    return {
+      presentationId,
+      rendered: 0,
+      skipped: 0,
+      slideCount: presentation.slides.length,
+      code: "CLASSROOM_RENDERING",
+      alreadyRunning: true,
+      slidesSucceeded: 0,
+      slidesFailed: 0,
+      failedSlideNumbers: [],
+    };
+  }
+  return await job as Awaited<ReturnType<typeof renderAndPersistPresentationVisuals>>;
 }

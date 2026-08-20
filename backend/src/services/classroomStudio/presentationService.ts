@@ -6,8 +6,13 @@
 import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
-import { computeClassroomRenderProgress } from './classroomAssetPath.js';
-import { presentationOwnershipAllowed, reconcileInFlightRender } from './presentationAccess.js';
+import {
+  aggregatePresentationRenderStatus,
+  computeClassroomRenderProgress,
+  readSlideVisual,
+  slideVisualIsFailed,
+} from './classroomAssetPath.js';
+import { presentationOwnershipAllowed } from './presentationAccess.js';
 import type {
   Presentation,
   CreatePresentationInput,
@@ -126,62 +131,42 @@ export async function getPresentationById(
     content: rewriteClassroomAssetTree(slide.content, presentation.id),
   }));
   const renderProgress = computeClassroomRenderProgress(slides);
-  const jobProgress = (await import('./presentationVisualRepairService.js')).getVisualRenderProgress(presentation.id);
-  const renderJob = (await import('./presentationVisualRepairService.js')).getClassroomRenderJob(presentation.id);
+  const visualRepair = await import('./presentationVisualRepairService.js');
+  const jobProgress = visualRepair.getVisualRenderProgress(presentation.id);
+  const renderJob = visualRepair.getClassroomRenderJob(presentation.id);
+  const exclusiveRunning = visualRepair.isExclusiveVisualRenderRunning(presentation.id);
   if (jobProgress) {
     renderProgress.stage = jobProgress.stage;
     if (jobProgress.currentSlide > 0) renderProgress.currentSlide = jobProgress.currentSlide;
     if (jobProgress.totalSlides > 0) renderProgress.total = jobProgress.totalSlides;
   }
-  const failedSlide = slides.find((slide) => {
-    const visual = (slide.content as { visual?: { availability?: string; errorCode?: string; errorMessage?: string } } | null)?.visual;
-    return visual?.availability === 'failed' || visual?.errorCode;
-  });
+  const failedSlide = slides.find((slide) => slideVisualIsFailed(slide.content));
   const failedVisual = (failedSlide?.content as { visual?: { errorCode?: string; errorMessage?: string } } | null)?.visual;
 
+  const importLocked = ['import_failed', 'extraction_failed', 'uploading', 'extracting'].includes(presentation.status);
+  const hasVisualPipeline = slides.some((slide) => readSlideVisual(slide.content));
   let status = presentation.status;
-  const { isExclusiveVisualRenderRunning } = await import('./presentationVisualRepairService.js');
-  if (status === 'rendering') {
-    const action = reconcileInFlightRender({
-      status,
-      rendered: renderProgress.rendered,
-      total: slides.length,
-      exclusiveRunning: isExclusiveVisualRenderRunning(presentation.id),
-      updatedAtMs: presentation.updatedAt.getTime(),
+  if (!importLocked && hasVisualPipeline) {
+    const aggregated = aggregatePresentationRenderStatus({
+      slides,
+      exclusiveRunning,
+      jobStatus: renderJob?.status,
     });
-    if (action === 'ready') {
-      status = 'ready';
-      await prisma.presentation.update({
-        where: { id: presentation.id },
-        data: { status: 'ready' },
-      }).catch(() => undefined);
-    } else if (action === 'mark_failed') {
-      console.warn('[CLASSROOM_RENDER] stale_render_marked_failed', {
-        presentationId: presentation.id,
+    if (aggregated !== status) {
+      console.info('[CLASSROOM_RENDER_STATE]', {
+        presentation: presentation.id,
+        from: status,
+        to: aggregated,
+        reason: 'get_presentation_authoritative_aggregate',
         rendered: renderProgress.rendered,
         total: slides.length,
-        updatedAt: presentation.updatedAt.toISOString(),
+        exclusiveRunning,
+        jobStatus: renderJob?.status ?? null,
       });
-      status = 'render_failed';
+      status = aggregated;
       await prisma.presentation.update({
         where: { id: presentation.id },
-        data: { status: 'render_failed' },
-      }).catch(() => undefined);
-    }
-  } else if (status === 'ready' && slides.length > 0 && renderProgress.rendered < slides.length) {
-    status = renderProgress.rendered > 0 ? 'rendering_partial' : (
-      isExclusiveVisualRenderRunning(presentation.id) ? 'rendering' : 'render_failed'
-    );
-    console.warn('[CLASSROOM_RENDER] ready_without_visuals', {
-      presentationId: presentation.id,
-      rendered: renderProgress.rendered,
-      total: slides.length,
-      status,
-    });
-    if (status !== 'rendering') {
-      await prisma.presentation.update({
-        where: { id: presentation.id },
-        data: { status },
+        data: { status: aggregated },
       }).catch(() => undefined);
     }
   }

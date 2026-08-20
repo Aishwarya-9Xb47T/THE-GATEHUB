@@ -31,6 +31,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToastStore } from "@/store/toastStore";
 import { classroomAssetErrorFromBody, classroomRenderedImageUrl } from "@/lib/classroom/classroomAssetUrls";
+import { shouldPollClassroomRender } from "@/lib/classroom/classroomRenderState";
 import { apiUrl, getToken } from "@/lib/api";
 import { unwrapClassroomPresentation } from "@/lib/classroom/parseClassroomImportResponse";
 import { withUploadAuth } from "@/lib/courseMediaUrls";
@@ -81,6 +82,7 @@ interface Presentation {
   slides: Slide[];
   renderProgress?: { rendered: number; total: number; currentSlide: number; stage?: string };
   renderedVisuals?: number;
+  renderJob?: { status?: string; jobId?: string } | null;
 }
 
 type SaveState = "saved" | "saving" | "unsaved" | "error";
@@ -155,6 +157,7 @@ export function InteractiveClassroomEditor() {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const lastSavedSnapshot = useRef<string>("");
   const autoRepairAttempted = useRef(false);
+  const fetchSeqRef = useRef(0);
 
   const slides = presentation?.slides ?? [];
   const selectedSlide = useMemo(
@@ -171,6 +174,7 @@ export function InteractiveClassroomEditor() {
       if (!options?.silent) setLoading(false);
       return;
     }
+    const seq = ++fetchSeqRef.current;
     const url = apiUrl(`/api/classroom-studio/presentations/${presentationId}`);
     console.info("[CLASSROOM_FRONTEND] presentation-fetch", { url, presentationId });
     const delays = [0, 500, 1000];
@@ -228,6 +232,7 @@ export function InteractiveClassroomEditor() {
           found: true,
           slideCount: Array.isArray(data.slides) ? data.slides.length : 0,
         });
+        if (seq !== fetchSeqRef.current) return;
         setPresentation(data as unknown as Presentation);
         setSelectedSlideId((prev) => {
           const slides = data.slides as Slide[];
@@ -261,6 +266,8 @@ export function InteractiveClassroomEditor() {
     if (!options?.silent) setLoading(false);
   }, [presentationId, toast]);
 
+  const pollRender = shouldPollClassroomRender(presentation ?? {});
+
   useEffect(() => {
     void fetchPresentation();
   }, [fetchPresentation]);
@@ -270,8 +277,7 @@ export function InteractiveClassroomEditor() {
   }, [presentationId]);
 
   useEffect(() => {
-    const status = presentation?.status;
-    if (!status || !["rendering", "uploading", "extracting", "source_stored", "rendering_partial"].includes(status)) return;
+    if (!pollRender) return;
     const timer = window.setInterval(() => {
       void fetchPresentation({ silent: true });
     }, 3000);
@@ -282,7 +288,7 @@ export function InteractiveClassroomEditor() {
       window.clearInterval(timer);
       window.clearTimeout(timeout);
     };
-  }, [presentation?.status, fetchPresentation]);
+  }, [pollRender, fetchPresentation]);
 
   const markUnsaved = useCallback(() => {
     setSaveState((current) => (current === "saving" ? current : "unsaved"));
@@ -401,10 +407,14 @@ export function InteractiveClassroomEditor() {
     const total = slides.length;
     const status = presentation.status;
     const missingVisuals = total > 0 && rendered < total;
+    const polling = shouldPollClassroomRender(presentation);
     const shouldRepair =
-      status === "render_failed"
-      || (status === "ready" && missingVisuals)
-      || (status === "rendering_partial" && missingVisuals);
+      !polling
+      && (
+        status === "render_failed"
+        || (status === "ready" && missingVisuals)
+        || (status === "rendering_partial" && missingVisuals)
+      );
     if (!shouldRepair) return;
     autoRepairAttempted.current = true;
     toast({

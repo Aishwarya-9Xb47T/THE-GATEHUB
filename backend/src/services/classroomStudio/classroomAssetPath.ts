@@ -64,6 +64,26 @@ export function canonicalPublicPath(relative: string): string {
 }
 
 export type SlideRenderStatus = "pending" | "rendering" | "ready" | "failed";
+export type PresentationRenderStatus = "rendering" | "rendering_partial" | "ready" | "render_failed";
+
+export type SlideVisualRecord = {
+  availability?: string;
+  renderStatus?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  jobId?: string;
+  attempt?: number;
+  renderGeneration?: number;
+  sourceHash?: string;
+  renderedImageUrl?: string;
+};
+
+export function readSlideVisual(content: unknown): SlideVisualRecord | null {
+  if (!content || typeof content !== "object" || Array.isArray(content)) return null;
+  const visual = (content as { visual?: SlideVisualRecord | null }).visual;
+  if (!visual || typeof visual !== "object") return null;
+  return visual;
+}
 
 export function buildSlideVisual(
   presentationId: string,
@@ -75,6 +95,7 @@ export function buildSlideVisual(
     sourceHash?: string;
     jobId?: string;
     attempt?: number;
+    renderGeneration?: number;
     rendererVersion?: string;
   },
 ): Record<string, unknown> {
@@ -102,16 +123,77 @@ export function buildSlideVisual(
     sourceHash: extra?.sourceHash,
     jobId: extra?.jobId,
     attempt: extra?.attempt,
+    renderGeneration: extra?.renderGeneration,
     rendererVersion: extra?.rendererVersion,
     source,
   };
 }
 
 export function slideVisualIsReady(content: unknown): boolean {
-  if (!content || typeof content !== "object" || Array.isArray(content)) return false;
-  const visual = (content as { visual?: { availability?: string; renderStatus?: string } }).visual;
-  if (!visual || typeof visual !== "object") return false;
+  const visual = readSlideVisual(content);
+  if (!visual) return false;
   return visual.availability === "available" || visual.renderStatus === "ready";
+}
+
+export function slideVisualIsInFlight(content: unknown): boolean {
+  if (slideVisualIsReady(content)) return false;
+  const visual = readSlideVisual(content);
+  if (!visual) return false;
+  if (visual.renderStatus === "failed" || visual.availability === "failed") return false;
+  return visual.renderStatus === "pending"
+    || visual.renderStatus === "rendering"
+    || visual.availability === "missing"
+    || !visual.renderStatus;
+}
+
+export function slideVisualIsFailed(content: unknown): boolean {
+  if (slideVisualIsReady(content) || slideVisualIsInFlight(content)) return false;
+  const visual = readSlideVisual(content);
+  return visual?.renderStatus === "failed" || visual?.availability === "failed" || Boolean(visual?.errorCode);
+}
+
+export function isStaleSlideRenderWrite(
+  existing: SlideVisualRecord | null | undefined,
+  incoming: { jobId?: string; attempt?: number; renderGeneration?: number; renderStatus?: string },
+): boolean {
+  if (!existing) return false;
+  const existingGeneration = existing.renderGeneration ?? 0;
+  const incomingGeneration = incoming.renderGeneration ?? 0;
+  if (incomingGeneration > 0 && existingGeneration > incomingGeneration) return true;
+  if (existing.jobId && incoming.jobId && existing.jobId !== incoming.jobId) {
+    if (existing.renderStatus === "ready" && incoming.renderStatus !== "ready") return true;
+    if ((existing.attempt || 0) > (incoming.attempt || 0)) return true;
+    if (existingGeneration > incomingGeneration) return true;
+  }
+  return false;
+}
+
+export function aggregatePresentationRenderStatus(args: {
+  slides: Array<{ content?: unknown }>;
+  exclusiveRunning?: boolean;
+  jobStatus?: string | null;
+}): PresentationRenderStatus {
+  const total = args.slides.length;
+  if (total === 0) return "ready";
+  let ready = 0;
+  let inflight = 0;
+  let failed = 0;
+  let visualSlides = 0;
+  for (const slide of args.slides) {
+    if (!readSlideVisual(slide.content)) continue;
+    visualSlides += 1;
+    if (slideVisualIsReady(slide.content)) ready += 1;
+    else if (slideVisualIsInFlight(slide.content)) inflight += 1;
+    else failed += 1;
+  }
+  if (visualSlides === 0) return "ready";
+  const jobActive = Boolean(args.exclusiveRunning)
+    || args.jobStatus === "PENDING"
+    || args.jobStatus === "RENDERING";
+  if (ready === visualSlides) return "ready";
+  if (jobActive || inflight > 0) return ready > 0 ? "rendering_partial" : "rendering";
+  if (failed > 0 || ready < visualSlides) return "render_failed";
+  return "ready";
 }
 
 export function computeClassroomRenderProgress(

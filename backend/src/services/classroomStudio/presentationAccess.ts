@@ -26,10 +26,12 @@ export function reconcileInFlightRender(args: {
   updatedAtMs: number;
   nowMs?: number;
   staleMs?: number;
+  inflight?: number;
 }): "ready" | "keep_rendering" | "mark_failed" {
-  if (args.status !== "rendering") return "keep_rendering";
   if (args.rendered === args.total && args.total > 0) return "ready";
   if (args.exclusiveRunning) return "keep_rendering";
+  if ((args.inflight ?? 0) > 0) return "keep_rendering";
+  if (args.status !== "rendering" && args.status !== "rendering_partial") return "keep_rendering";
   const now = args.nowMs ?? Date.now();
   const staleMs = args.staleMs ?? CLASSROOM_RENDER_STALE_MS;
   if (now - args.updatedAtMs < staleMs) return "keep_rendering";

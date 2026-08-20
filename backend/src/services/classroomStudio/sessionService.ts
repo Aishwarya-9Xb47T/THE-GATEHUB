@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
+import { aggregatePresentationRenderStatus, readSlideVisual } from './classroomAssetPath.js';
+import { getClassroomRenderJob, isExclusiveVisualRenderRunning } from './presentationVisualRepairService.js';
 import type {
   ClassroomSession,
   CreateSessionInput,
@@ -27,19 +29,29 @@ function generateRoomCode(): string {
 }
 
 function withRewrittenSlideAssets<T extends {
-  presentation?: { id: string; slides?: Array<{ content?: unknown }> };
+  presentation?: { id: string; status?: string; slides?: Array<{ content?: unknown }> };
 }>(session: T): T {
   const presentationId = session.presentation?.id;
   const slides = session.presentation?.slides;
   if (!presentationId || !slides) return session;
+  const rewrittenSlides = slides.map((slide) => ({
+    ...slide,
+    content: rewriteClassroomAssetTree(slide.content, presentationId),
+  }));
+  const hasVisualPipeline = rewrittenSlides.some((slide) => readSlideVisual(slide.content));
+  const status = hasVisualPipeline
+    ? aggregatePresentationRenderStatus({
+      slides: rewrittenSlides,
+      exclusiveRunning: isExclusiveVisualRenderRunning(presentationId),
+      jobStatus: getClassroomRenderJob(presentationId)?.status ?? null,
+    })
+    : session.presentation?.status;
   return {
     ...session,
     presentation: {
       ...session.presentation,
-      slides: slides.map((slide) => ({
-        ...slide,
-        content: rewriteClassroomAssetTree(slide.content, presentationId),
-      })),
+      status,
+      slides: rewrittenSlides,
     },
   };
 }

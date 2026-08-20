@@ -4,7 +4,9 @@ import {
   PNG_MIME,
   PPTX_MIME,
   SVG_MIME,
+  aggregatePresentationRenderStatus,
   computeClassroomRenderProgress,
+  isStaleSlideRenderWrite,
   slideVisualIsReady,
   canonicalSlidePngRelative,
   canonicalSlideSvgRelative,
@@ -62,5 +64,30 @@ describe("classroomAssetPath", () => {
     expect(slideVisualIsReady({ visual: { type: "svg" } })).toBe(false);
     expect(slideVisualIsReady({ visual: { type: "pptx", availability: "missing" } })).toBe(false);
     expect(progress).toEqual({ rendered: 1, total: 3, currentSlide: 2 });
+  });
+
+  it("aggregates presentation status from slide + job state instead of a stale render_failed flag", () => {
+    const slides = [
+      { content: { visual: { renderStatus: "ready", availability: "available" } } },
+      { content: { visual: { renderStatus: "rendering", availability: "missing" } } },
+    ];
+    expect(aggregatePresentationRenderStatus({ slides, exclusiveRunning: true, jobStatus: "RENDERING" })).toBe("rendering_partial");
+    expect(aggregatePresentationRenderStatus({
+      slides: [
+        { content: { visual: { renderStatus: "ready", availability: "available" } } },
+        { content: { visual: { renderStatus: "failed", availability: "failed" } } },
+      ],
+      exclusiveRunning: false,
+      jobStatus: "FAILED",
+    })).toBe("render_failed");
+    expect(aggregatePresentationRenderStatus({
+      slides: Array.from({ length: 14 }, () => ({ content: { visual: { renderStatus: "ready", availability: "available" } } })),
+      exclusiveRunning: false,
+      jobStatus: "FAILED",
+    })).toBe("ready");
+    expect(isStaleSlideRenderWrite(
+      { jobId: "job-b", attempt: 2, renderGeneration: 2, renderStatus: "ready" },
+      { jobId: "job-a", attempt: 1, renderGeneration: 1, renderStatus: "failed" },
+    )).toBe(true);
   });
 });

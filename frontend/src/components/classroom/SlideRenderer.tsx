@@ -23,6 +23,7 @@ import {
   isOfficeGeneratedAlt,
   rewriteClassroomAssetRef,
 } from '@/lib/classroom/classroomAssetUrls';
+import { classroomImageCacheKey, classroomSlideUiState } from '@/lib/classroom/classroomRenderState';
 import { resolveColor, buildGradient } from './engine/colorResolver';
 import {
   halfPointToPx, hundredthPtToPx,
@@ -1492,7 +1493,8 @@ export function SlideRenderer({
   const [nativeVisualError, setNativeVisualError] = useState<{ code: string; message: string } | null>(null);
   const [renderWaitTimedOut, setRenderWaitTimedOut] = useState(false);
   const [imageReady, setImageReady] = useState(false);
-  const [imageNonce, setImageNonce] = useState(0);
+  const [imageRetry, setImageRetry] = useState(0);
+  const imageRetryTimer = useRef<number | null>(null);
 
   const visual = useMemo(() => {
     const raw = (content as any)?.visual;
@@ -1511,11 +1513,17 @@ export function SlideRenderer({
   const authorizedImageSrc = renderedImageUrl
     ? withUploadAuth(renderedImageUrl)
     : null;
+  const cacheKey = classroomImageCacheKey(visual);
   const displayImageSrc = authorizedImageSrc
-    ? `${authorizedImageSrc}${authorizedImageSrc.includes('?') ? '&' : '?'}r=${imageNonce}`
+    ? `${authorizedImageSrc}${authorizedImageSrc.includes('?') ? '&' : '?'}v=${encodeURIComponent(cacheKey)}${imageRetry > 0 ? `&retry=${imageRetry}` : ''}`
     : null;
-  const pipelineRendering = ['rendering', 'uploading', 'extracting', 'source_stored', 'rendering_partial'].includes(pipelineStatus || '');
-  const visualFailed = visual?.availability === 'failed' || visual?.renderStatus === 'failed' || visual?.errorCode === 'CLASSROOM_RENDER_SLIDE_FAILED';
+  const uiState = classroomSlideUiState({
+    visual,
+    pipelineStatus,
+    imageReady,
+  });
+  const pipelineRendering = uiState === 'rendering';
+  const visualFailed = uiState === 'failed';
 
   const logRenderDiagnostic = useCallback((diag: RenderDiagnostic) => {
     if (import.meta.env.DEV) {
@@ -1543,51 +1551,60 @@ export function SlideRenderer({
   }, []);
 
   useEffect(() => {
-    const rendering = ['rendering', 'uploading', 'extracting', 'source_stored', 'rendering_partial'].includes(pipelineStatus || '');
+    const rendering = uiState === 'rendering' || uiState === 'image_loading';
     if (!rendering) {
       setRenderWaitTimedOut(false);
       return;
     }
     const timer = window.setTimeout(() => setRenderWaitTimedOut(true), 3 * 60 * 1000);
     return () => window.clearTimeout(timer);
-  }, [pipelineStatus, presentationId]);
+  }, [uiState, presentationId]);
 
   useEffect(() => {
     const loadNativeVisual = async () => {
-      setImageReady(false);
       if (!visual && !presentationId) {
         setNativeVisualError(null);
         setNativeImageUrl(null);
         return;
       }
-      if (visualFailed) {
-        setNativeVisualError({
-          code: String(visual?.errorCode || 'CLASSROOM_RENDER_SLIDE_FAILED'),
-          message: String(visual?.errorMessage || 'Slide visual unavailable'),
-        });
-        return;
-      }
       setNativeImageUrl(displayImageSrc);
-      if (pipelineRendering && !renderWaitTimedOut) {
-        const total = slideCount || resolvedSlideNumber;
-        const progress = renderProgressSlide || resolvedSlideNumber;
-        const stageLabel =
-          renderStage === 'PPTX_TO_PDF'
-            ? 'Converting PowerPoint to PDF…'
-            : renderStage === 'PPTX_DOWNLOAD' || renderStage === 'PPTX_VALIDATION'
-              ? 'Preparing the original PowerPoint…'
-              : renderStage === 'VISUAL_UPLOAD'
-                ? `Saving slide ${progress} of ${total}…`
-                : total
-                  ? `Rendering slide ${progress} of ${total}…`
-                  : `Rendering slide ${progress}…`;
-        setNativeVisualError({ code: 'CLASSROOM_RENDERING', message: stageLabel });
+      if (uiState === 'ready') {
+        setNativeVisualError(null);
         return;
       }
-      if (renderWaitTimedOut || pipelineStatus === 'render_failed') {
+      if (uiState === 'image_loading' || (displayImageSrc && uiState !== 'failed')) {
+        if (uiState === 'rendering' && !renderWaitTimedOut) {
+          const total = slideCount || resolvedSlideNumber;
+          const progress = renderProgressSlide || resolvedSlideNumber;
+          const stageLabel =
+            renderStage === 'PPTX_TO_PDF'
+              ? 'Converting PowerPoint to PDF…'
+              : renderStage === 'PPTX_DOWNLOAD' || renderStage === 'PPTX_VALIDATION'
+                ? 'Preparing the original PowerPoint…'
+                : renderStage === 'VISUAL_UPLOAD'
+                  ? `Saving slide ${progress} of ${total}…`
+                  : total
+                    ? `Rendering slide ${progress} of ${total}…`
+                    : `Rendering slide ${progress}…`;
+          setNativeVisualError({ code: 'CLASSROOM_RENDERING', message: stageLabel });
+          return;
+        }
+        setNativeVisualError(null);
+        return;
+      }
+      if (visualFailed && (renderWaitTimedOut || uiState === 'failed')) {
         setNativeVisualError({
           code: String(visual?.errorCode || 'CLASSROOM_RENDER_FAILED'),
           message: String(visual?.errorMessage || 'Slide visual rendering failed. Retry rendering.'),
+        });
+        return;
+      }
+      if (uiState === 'rendering' && !renderWaitTimedOut) {
+        const total = slideCount || resolvedSlideNumber;
+        const progress = renderProgressSlide || resolvedSlideNumber;
+        setNativeVisualError({
+          code: 'CLASSROOM_RENDERING',
+          message: total ? `Rendering slide ${progress} of ${total}…` : `Rendering slide ${progress}…`,
         });
         return;
       }
@@ -1595,15 +1612,20 @@ export function SlideRenderer({
     };
 
     void loadNativeVisual();
-  }, [visual?.type, visual?.src, visual?.renderedImageUrl, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, visualFailed, displayImageSrc, pipelineRendering, pipelineStatus, renderWaitTimedOut, slideNumber, presentationId, slideId, resolvedSlideNumber, slideCount, renderProgressSlide, renderStage]);
+  }, [visual?.type, visual?.src, visual?.renderedImageUrl, visual?.slideIndex, visual?.availability, visual?.errorCode, visual?.errorMessage, visualFailed, displayImageSrc, pipelineRendering, pipelineStatus, renderWaitTimedOut, slideNumber, presentationId, slideId, resolvedSlideNumber, slideCount, renderProgressSlide, renderStage, uiState]);
 
   useEffect(() => {
-    if (!pipelineRendering || imageReady || visualFailed || renderWaitTimedOut) return;
-    const timer = window.setInterval(() => {
-      setImageNonce((value) => value + 1);
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [pipelineRendering, imageReady, visualFailed, renderWaitTimedOut, presentationId, slideId]);
+    if (imageRetryTimer.current != null) {
+      window.clearTimeout(imageRetryTimer.current);
+      imageRetryTimer.current = null;
+    }
+    setImageRetry(0);
+    setImageReady(false);
+  }, [cacheKey, presentationId, slideId]);
+
+  useEffect(() => () => {
+    if (imageRetryTimer.current != null) window.clearTimeout(imageRetryTimer.current);
+  }, []);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {
@@ -1696,6 +1718,8 @@ export function SlideRenderer({
         <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>
           {nativeVisualError.code === 'CLASSROOM_RENDERING'
             ? 'Slide visual is still rendering'
+            : nativeVisualError.code === 'IMAGE_LOAD_FAILED'
+              ? 'Unable to load rendered slide image.'
             : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
               ? 'Slide visual rendering failed. Retry.'
               : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED'
@@ -1705,6 +1729,8 @@ export function SlideRenderer({
         <p style={{ fontSize: 14, margin: '0 0 12px', color: '#94a3b8', maxWidth: 420 }}>
           {nativeVisualError.code === 'CLASSROOM_RENDERING'
             ? nativeVisualError.message
+            : nativeVisualError.code === 'IMAGE_LOAD_FAILED'
+              ? 'The rendered image is stored, but the browser could not load it yet. This is not a PowerPoint conversion failure.'
             : 'The original slide image could not be loaded. Structured extraction is kept for search and interactions, but it is not shown as the classroom visual.'}
         </p>
         <p style={{ fontSize: 12, margin: 0, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>
@@ -1712,7 +1738,7 @@ export function SlideRenderer({
           {slideNumber != null ? ` · Slide: ${slideNumber}` : ''}
           {presentationId ? ` · Presentation: ${presentationId}` : ''}
         </p>
-        {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
+        {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && nativeVisualError.code !== 'IMAGE_LOAD_FAILED' && (
           <button
             type="button"
             onClick={onRepair}
@@ -1804,23 +1830,36 @@ export function SlideRenderer({
                 }}
                 onError={() => {
                   setImageReady(false);
-                  if (visualFailed) {
-                    setNativeVisualError({
-                      code: String(visual?.errorCode || 'CLASSROOM_RENDER_SLIDE_FAILED'),
-                      message: String(visual?.errorMessage || 'Slide visual unavailable'),
-                    });
-                    return;
-                  }
-                  if (pipelineRendering && !renderWaitTimedOut) {
+                  const maxRetries = 5;
+                  if (imageRetry < maxRetries) {
+                    const delay = Math.min(8000, 400 * (2 ** imageRetry));
+                    if (imageRetryTimer.current != null) window.clearTimeout(imageRetryTimer.current);
+                    imageRetryTimer.current = window.setTimeout(() => {
+                      setImageRetry((value) => value + 1);
+                    }, delay);
+                    if (uiState === 'failed') {
+                      setNativeVisualError({
+                        code: String(visual?.errorCode || 'CLASSROOM_RENDER_SLIDE_FAILED'),
+                        message: String(visual?.errorMessage || 'Slide visual unavailable'),
+                      });
+                      return;
+                    }
                     setNativeVisualError({
                       code: 'CLASSROOM_RENDERING',
                       message: `Rendering slide ${resolvedSlideNumber} of ${slideCount || resolvedSlideNumber}…`,
                     });
                     return;
                   }
+                  if (uiState === 'failed') {
+                    setNativeVisualError({
+                      code: String(visual?.errorCode || 'CLASSROOM_RENDER_SLIDE_FAILED'),
+                      message: String(visual?.errorMessage || 'Slide visual unavailable'),
+                    });
+                    return;
+                  }
                   setNativeVisualError({
                     code: 'IMAGE_LOAD_FAILED',
-                    message: 'The original slide image could not be loaded.',
+                    message: 'Unable to load rendered slide image.',
                   });
                 }}
                 style={{
