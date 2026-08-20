@@ -224,7 +224,7 @@ export function InteractiveClassroomCreate() {
           };
           request.timeout = 600_000;
           request.onerror = () => reject(new Error("Upload failed. Check your network connection and try again."));
-          request.ontimeout = () => reject(new Error("Import timed out. Slide rendering took longer than 10 minutes."));
+          request.ontimeout = () => reject(new Error("Import timed out while extracting slides. Please retry; the presentation is created only after slide content is saved."));
           const applyProgressFromBody = () => {
             const text = request.responseText || "";
             const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);

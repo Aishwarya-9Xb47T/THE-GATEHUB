@@ -584,27 +584,25 @@ export async function renderAndPersistPresentationVisuals(
     });
 
     if (persistedIndexes.size === 0) {
-      throw new AppError(500, "Slide visuals could not be generated from the PowerPoint source", true, {
-        code: "CLASSROOM_RENDER_FAILED",
-        stage: "render",
-        retryable: true,
+      console.error("[CLASSROOM_RENDER] visuals_failed_presentation_kept", {
         presentationId,
-        slidesSucceeded: 0,
-        slidesFailed: failedSlideNumbers.length,
-        failedSlideNumbers,
-        sourceKey: `uploads/${sourceRelative}`,
-        method: renderResult.method,
-        reason: firstError?.includes("LIBREOFFICE_UNAVAILABLE")
-          ? "LIBREOFFICE_UNAVAILABLE"
-          : firstError?.includes("LIBREOFFICE_CONVERSION_FAILED")
-            ? "LIBREOFFICE_CONVERSION_FAILED"
-            : firstError?.includes("PDF_RENDER_FAILED")
-              ? "PDF_RENDER_FAILED"
-              : firstError?.includes("B2_UPLOAD_FAILED")
-                ? "B2_UPLOAD_FAILED"
-                : "CLASSROOM_RENDER_FAILED",
-        rendererErrors: renderResult.errors.slice(0, 12),
+        slideCount: expected,
+        errors: renderResult.errors.slice(0, 12),
       });
+      return {
+        presentationId,
+        rendered: 0,
+        skipped: alreadyRendered.size,
+        slideCount: expected,
+        sourceRelative,
+        sourceKey: `uploads/${sourceRelative}`,
+        sourceBytes: options?.sourceBytes,
+        method: renderResult.method,
+        code: "CLASSROOM_RENDER_FAILED",
+        failedSlideNumbers,
+        warnings: renderResult.warnings,
+        errors: renderResult.errors,
+      };
     }
 
     return {

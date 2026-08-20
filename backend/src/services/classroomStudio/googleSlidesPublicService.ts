@@ -84,7 +84,7 @@ export async function downloadPublicGoogleSlidesPptx(
 
   if (!response.ok) {
     return {
-      error: `Could not retrieve Google presentation (HTTP ${response.status}). Verify the URL and sharing settings.`,
+      error: `GOOGLE_SLIDES_FETCH_FAILED: Could not retrieve Google presentation (HTTP ${response.status}). Verify the URL and sharing settings.`,
     };
   }
 
@@ -132,7 +132,7 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
   if (!validation.valid || !validation.presentationId) {
     return {
       success: false,
-      error: validation.error || 'Invalid Google Slides URL',
+      error: `GOOGLE_SLIDES_ACCESS_FAILED: ${validation.error || 'Invalid Google Slides URL'}`,
     };
   }
 
@@ -181,7 +181,9 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
     console.error('[Public Google Slides Import] Exception during import:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to import public Google Slides presentation',
+      error: error instanceof Error
+        ? (/GOOGLE_SLIDES_|CLASSROOM_/.test(error.message) ? error.message : `GOOGLE_SLIDES_FETCH_FAILED: ${error.message}`)
+        : 'GOOGLE_SLIDES_FETCH_FAILED: Failed to import public Google Slides presentation',
     };
   }
 }

@@ -251,7 +251,59 @@ describe('SlideRenderer', () => {
     expect(await screen.findByTestId('native-slide-svg')).toBeTruthy();
   });
 
-  it('shows a diagnostic error instead of fake HTML when the PPTX cannot be loaded', async () => {
+  it('shows extracted slide content while the visual is still rendering', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
+      ok: false,
+      status: 404,
+      contentType: 'application/json',
+      text: JSON.stringify({ error: { code: 'CLASSROOM_ASSET_NOT_FOUND', message: 'missing' } }),
+    })));
+
+    const content = {
+      version: 2,
+      size: { width: 12_192_000, height: 6_858_000 },
+      background: { type: 'solid', color: '#ffffff' },
+      visual: {
+        type: 'svg',
+        src: '/uploads/classroom/demo/renders/slide-002.svg',
+        slideIndex: 1,
+      },
+      elements: [
+        {
+          id: 'channel-1',
+          type: 'text',
+          transform: { x: 0, y: 0, width: 6_000_000, height: 1_500_000, rotation: 0, flipH: false, flipV: false },
+          zIndex: 1,
+          paragraphs: [
+            {
+              text: 'Channel 1',
+              level: 0,
+              runs: [{ text: 'Channel 1', style: { sz: 1800 } }],
+              style: {},
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <SlideRenderer
+        content={content as any}
+        title="Rendering slide"
+        slideNumber={2}
+        presentationId="demo"
+        pipelineStatus="rendering"
+        slideCount={20}
+        renderProgressSlide={2}
+      />,
+    );
+
+    expect(await screen.findByTestId('classroom-visual-status')).toBeTruthy();
+    expect(screen.queryByTestId('classroom-visual-error')).toBeNull();
+    expect(document.getElementById('channel-1')?.textContent).toContain('Channel 1');
+  });
+
+  it('keeps extracted content visible when the PPTX visual cannot be loaded', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse({
       ok: false,
       status: 404,
@@ -264,15 +316,29 @@ describe('SlideRenderer', () => {
       size: { width: 12_192_000, height: 6_858_000 },
       background: { type: 'solid', color: '#ffffff' },
       visual: { type: 'pptx', src: '/uploads/classroom/demo/source/original.pptx' },
-      elements: [{ id: 'fake-html', type: 'text', transform: { x: 0, y: 0, width: 1, height: 1, rotation: 0 } }],
+      elements: [
+        {
+          id: 'equation-1',
+          type: 'equation',
+          transform: { x: 0, y: 0, width: 6_000_000, height: 1_500_000, rotation: 0, flipH: false, flipV: false },
+          zIndex: 1,
+          paragraphs: [
+            {
+              text: 'Output(1,1) = 2',
+              level: 0,
+              runs: [{ text: 'Output(1,1) = 2', style: { latin: 'Cambria Math' } }],
+              style: {},
+            },
+          ],
+        },
+      ],
     };
 
     render(<SlideRenderer content={content as any} title="Broken slide" slideNumber={2} presentationId="demo" />);
 
-    const error = await screen.findByTestId('classroom-visual-error');
-    expect(error.textContent).toContain('CLASSROOM_ASSET_NOT_FOUND');
-    expect(error.textContent).toContain('Slide: 2');
-    expect(error.textContent).toContain('demo');
-    expect(document.getElementById('fake-html')).toBeNull();
+    const status = await screen.findByTestId('classroom-visual-status');
+    expect(status.textContent).toContain('Extracted content is shown');
+    expect(screen.queryByTestId('classroom-visual-error')).toBeNull();
+    expect(document.getElementById('equation-1')?.textContent).toContain('Output(1,1) = 2');
   });
 });

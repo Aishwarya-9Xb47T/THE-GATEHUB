@@ -188,9 +188,20 @@ export function InteractiveClassroomEditor() {
         const data = unwrapClassroomPresentation(raw);
         if (!data) {
           lastError = new Error("Presentation payload was missing slides");
+          console.warn("[CLASSROOM_EDITOR_FETCH]", {
+            presentationId,
+            found: false,
+            slideCount: 0,
+            reason: "missing-slides-payload",
+          });
           if (attempt === delays.length - 1) throw lastError;
           continue;
         }
+        console.info("[CLASSROOM_EDITOR_FETCH]", {
+          presentationId,
+          found: true,
+          slideCount: Array.isArray(data.slides) ? data.slides.length : 0,
+        });
         setPresentation(data as unknown as Presentation);
         setSelectedSlideId((prev) => {
           const slides = data.slides as Slide[];

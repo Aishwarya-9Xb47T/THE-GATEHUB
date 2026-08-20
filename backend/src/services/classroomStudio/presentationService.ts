@@ -75,6 +75,7 @@ export async function getPresentationById(
   });
 
   if (!presentation) {
+    console.warn('[CLASSROOM_EDITOR_FETCH]', { presentationId: id, found: false, slideCount: 0 });
     console.warn('[CLASSROOM_PRESENTATION_GET] stage=db-result requestedId=' + id + ' found=false authenticatedUserId=' + (instructorId || 'none'));
     throw new AppError(404, 'Presentation not found', true, {
       code: 'CLASSROOM_PRESENTATION_NOT_FOUND',
@@ -83,6 +84,13 @@ export async function getPresentationById(
     });
   }
 
+  console.info('[CLASSROOM_EDITOR_FETCH]', {
+    presentationId: presentation.id,
+    found: true,
+    slideCount: presentation.slides.length,
+    status: presentation.status,
+    sourceType: presentation.sourceType,
+  });
   console.info('[CLASSROOM_PRESENTATION_GET] stage=db-result', {
     requestedId: id,
     found: true,

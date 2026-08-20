@@ -202,7 +202,10 @@ async function resolveImportFromInput(
           input.instructorId,
         );
         if ('error' in exportResult) {
-          throw new AppError(400, exportResult.error);
+          throw new AppError(400, exportResult.error, true, {
+            code: 'GOOGLE_SLIDES_FETCH_FAILED',
+            stage: 'google-export',
+          });
         }
         sourceFileBuffer = exportResult.fileBuffer;
         pdfFileBuffer = exportResult.pdfBuffer;
@@ -216,7 +219,10 @@ async function resolveImportFromInput(
           hasDirectPdf: Boolean(pdfFileBuffer),
         });
       } else {
-        throw new AppError(400, 'Source URL or exported file is required for Google Slides import');
+        throw new AppError(400, 'Source URL or exported file is required for Google Slides import', true, {
+          code: 'GOOGLE_SLIDES_ACCESS_FAILED',
+          stage: 'google-url',
+        });
       }
       break;
 
@@ -269,6 +275,7 @@ async function persistImportedContent(
     sourceAlreadyStored?: boolean;
     deferRender?: boolean;
     pdfFileBuffer?: Buffer;
+    sourceType?: string;
     onProgress?: (event: ImportProgressEvent) => void | Promise<void>;
   },
 ): Promise<PersistOutcome> {
@@ -284,21 +291,21 @@ async function persistImportedContent(
   const expectedCount = importResult.slides!.length;
 
   for (const asset of importResult.assets ?? []) {
-    if (options.isPptxPipeline) continue;
     if (asset.path === 'source/original.pptx') continue;
-    const diskPath = path.resolve(assetRoot, asset.path);
-    if (!diskPath.startsWith(`${assetRoot}${path.sep}`)) {
-      throw new AppError(400, 'Invalid media path in PowerPoint package');
+    try {
+      const diskPath = path.resolve(assetRoot, asset.path);
+      if (!diskPath.startsWith(`${assetRoot}${path.sep}`)) {
+        renderWarnings.push(`Invalid media path skipped: ${asset.path}`);
+        continue;
+      }
+      await mkdir(path.dirname(diskPath), { recursive: true });
+      await writeFile(diskPath, asset.data);
+      assetUrls.set(`asset://${asset.path}`, `/uploads/classroom/${presentationId}/${asset.path}`);
+    } catch (error) {
+      renderWarnings.push(
+        `Media extract failed (${asset.path}): ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
-    await mkdir(path.dirname(diskPath), { recursive: true });
-    await writeFile(diskPath, asset.data);
-    assetUrls.set(`asset://${asset.path}`, `/uploads/classroom/${presentationId}/${asset.path}`);
-  }
-  if (options.isPptxPipeline) {
-    console.info('[Classroom import] Skipping extracted PPTX media persist; document renderer owns visuals', {
-      presentationId,
-      skipped: importResult.assets?.length ?? 0,
-    });
   }
   console.info('[Classroom import] Media extracted', { presentationId, count: assetUrls.size });
 
@@ -342,6 +349,32 @@ async function persistImportedContent(
       notes: slideData.notes,
     })),
   });
+
+  if (options.isPptxPipeline) {
+    for (const [index, slideData] of (importResult.slides ?? []).entries()) {
+      const stats = powerPointParser.summarizeSlideElements(slideData.content?.elements);
+      console.info('[CLASSROOM_IMPORT_VALIDATION]', {
+        presentationId,
+        sourceType: options.sourceType || 'powerpoint',
+        slideCount: expectedCount,
+        slideIndex: index + 1,
+        title: slideData.title,
+        textElements: stats.textElementCount,
+        textCharacters: stats.totalTextCharacters,
+        images: stats.imageCount,
+        shapes: stats.shapeCount,
+        tables: stats.tableCount,
+        equations: stats.equationCount,
+      });
+      if (stats.totalTextCharacters === 0) {
+        console.warn('[CLASSROOM_IMPORT_VALIDATION] empty-text-slide', {
+          presentationId,
+          slideIndex: index + 1,
+          title: slideData.title,
+        });
+      }
+    }
+  }
 
   const renderedByIndex = new Set<number>();
   let method: string | undefined;
@@ -498,9 +531,14 @@ async function persistImportedContent(
       renderWarnings.push(`Asset missing before storage: ${relative}`);
       continue;
     }
-    if (options.deferRender) continue;
     const mime = relative.endsWith('.pptx') ? PPTX_MIME : relative.endsWith('.svg') ? SVG_MIME : undefined;
-    await persistAtPublicRelative(diskPath, relative, mime, { keepLocal: true });
+    try {
+      await persistAtPublicRelative(diskPath, relative, mime, { keepLocal: true });
+    } catch (error) {
+      renderWarnings.push(
+        `Asset persist failed (${relative}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   const failedSlideNumbers = importResult.slides!
@@ -680,13 +718,6 @@ export async function importPresentation(
       });
     }
 
-    if (isPptxPipeline) {
-      await prisma.presentation.update({
-        where: { id: presentation.id },
-        data: { status: 'rendering' },
-      });
-    }
-
     const persistResult = await persistImportedContent(
       presentation.id,
       importResult,
@@ -696,6 +727,7 @@ export async function importPresentation(
         sourceAlreadyStored: sourceStored,
         deferRender: isPptxPipeline,
         pdfFileBuffer: resolved.pdfFileBuffer,
+        sourceType: input.sourceType,
         onProgress,
       },
     );
@@ -928,7 +960,7 @@ export async function updatePresentationFromSource(
     presentationId,
     importResult,
     exportResult.fileBuffer,
-    { isPptxPipeline: true, sourceAlreadyStored: true, deferRender: true },
+    { isPptxPipeline: true, sourceAlreadyStored: true, deferRender: true, sourceType: 'google_slides' },
   );
   warnings.push(...persistResult.renderWarnings, ...persistResult.renderErrors);
   const overallStatus = overallStatusFromPipeline({

@@ -1308,17 +1308,15 @@ function GroupElement({ element, theme, ctx }: { element: NormalizedElement; the
 // ─── Element Dispatcher ───────────────────────────────────────────────────────
 
 function isElementVisible(el: NormalizedElement): boolean {
+  const hasText = Boolean(el.paragraphs?.some(p => p.runs?.some((r: any) => r.text) || p.text));
+  const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded', 'group', 'equation'].includes(el.type);
+  if (el.type === 'equation' && hasText) return true;
   // Skip zero-size elements (both dims must be zero — a zero-width line still exists)
   if (el.transform.width === 0 && el.transform.height === 0) return false;
   // Images with no src get a placeholder, so we still render them
-  // (removed the early return for missing src — ImageElement handles placeholders)
   // Skip empty shapes with no fill, no line, no text, no content
-  // hasText: true only if at least one paragraph has a non-empty run or non-empty text.
-  // We can't just check .length because we now keep blank paragraphs for blank-line preservation.
-  const hasText = Boolean(el.paragraphs?.some(p => p.runs?.some((r: any) => r.text) || p.text));
   const hasFill = el.fill && el.fill.type !== 'none';
   const hasLine = el.line !== null && el.line !== undefined;
-  const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded', 'group'].includes(el.type);
   if ((el.type === 'shape' || el.type === 'connector') && !hasText && !hasFill && !hasLine && !isContent) return false;
   return true;
 }
@@ -1443,7 +1441,7 @@ function ElementRenderer({
   };
 
   // Text element (text + optional shape background)
-  if (type === 'text') {
+  if (type === 'text' || type === 'equation') {
     const hasShapeBackground = fill && fill.type !== 'none';
     const borderLine = line != null ? borderLineCSS(line, theme) : undefined;
     return wrap(
@@ -1825,10 +1823,10 @@ export function SlideRenderer({
             visualSrc: visual.src,
             nativeRendererAttempted: true,
             nativeRendererSucceeded: false,
-            structuredRendererUsed: false,
+            structuredRendererUsed: structuredElementCount > 0,
             structuredElementCount,
             nativeSvgLength: 0,
-            activeRenderer: 'none',
+            activeRenderer: structuredElementCount > 0 ? 'structured-fallback' : 'none',
             fallbackReason: message,
           });
         }
@@ -1968,84 +1966,134 @@ export function SlideRenderer({
               }}
               className="[&_svg]:block [&_svg]:h-full [&_svg]:w-full [&_svg]:max-w-none"
             />
-          ) : nativeVisualError ? (
-            <div
-              data-testid="classroom-visual-error"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'grid',
-                placeItems: 'center',
-                padding: 40,
-                textAlign: 'center',
-                background: '#f8fafc',
-                color: '#334155',
-              }}
-            >
-              <div>
-                <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>
-                  {nativeVisualError.code === 'CLASSROOM_RENDERING'
-                    ? 'Rendering slide visuals'
-                    : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
-                      ? 'Rendering failed'
-                      : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED'
-                        ? 'Slide visual unavailable'
-                        : 'Presentation asset unavailable'}
-                </p>
-                <p style={{ fontSize: 14, margin: '0 0 12px', color: '#64748b', maxWidth: 420 }}>
-                  {nativeVisualError.message}
-                </p>
-                <p style={{ fontSize: 12, margin: 0, color: '#94a3b8', fontFamily: 'ui-monospace, monospace' }}>
-                  Code: {nativeVisualError.code}
-                  {slideNumber != null ? ` · Slide: ${slideNumber}` : ''}
-                  {presentationId ? ` · Presentation: ${presentationId}` : ''}
-                </p>
-                {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
-                  <button
-                    type="button"
-                    onClick={onRepair}
-                    disabled={repairing}
-                    style={{
-                      marginTop: 16,
-                      padding: '8px 14px',
-                      borderRadius: 8,
-                      border: 0,
-                      background: '#6d28d9',
-                      color: 'white',
-                      fontWeight: 600,
-                      cursor: repairing ? 'wait' : 'pointer',
-                    }}
-                  >
-                    {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED' ? 'Retry this slide' : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED' ? 'Retry rendering' : 'Regenerate slide visuals'}
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : visual?.src ? (
-            <div
-              data-testid="classroom-visual-loading"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'grid',
-                placeItems: 'center',
-                color: '#64748b',
-                fontSize: 14,
-                background: '#f8fafc',
-              }}
-            >
-              Loading slide…
-            </div>
           ) : (
-            slide.elements.map((el, idx) => (
-              <ElementRenderer
-                key={`${el.id || "el"}-${idx}`}
-                element={el}
-                theme={slide.theme}
-                ctx={ctx}
-                debugGeometry={debugGeometry}
-              />
-            ))
+            <>
+              {slide.elements.map((el, idx) => (
+                <ElementRenderer
+                  key={`${el.id || "el"}-${idx}`}
+                  element={el}
+                  theme={slide.theme}
+                  ctx={ctx}
+                  debugGeometry={debugGeometry}
+                />
+              ))}
+              {nativeVisualError && !slide.elements.length ? (
+                <div
+                  data-testid="classroom-visual-error"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'grid',
+                    placeItems: 'center',
+                    padding: 40,
+                    textAlign: 'center',
+                    background: '#f8fafc',
+                    color: '#334155',
+                  }}
+                >
+                  <div>
+                    <p style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px' }}>
+                      {nativeVisualError.code === 'CLASSROOM_RENDERING'
+                        ? 'Rendering slide visuals'
+                        : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED'
+                          ? 'Rendering failed'
+                          : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED'
+                            ? 'Slide visual unavailable'
+                            : 'Presentation asset unavailable'}
+                    </p>
+                    <p style={{ fontSize: 14, margin: '0 0 12px', color: '#64748b', maxWidth: 420 }}>
+                      {nativeVisualError.message}
+                    </p>
+                    <p style={{ fontSize: 12, margin: 0, color: '#94a3b8', fontFamily: 'ui-monospace, monospace' }}>
+                      Code: {nativeVisualError.code}
+                      {slideNumber != null ? ` · Slide: ${slideNumber}` : ''}
+                      {presentationId ? ` · Presentation: ${presentationId}` : ''}
+                    </p>
+                    {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
+                      <button
+                        type="button"
+                        onClick={onRepair}
+                        disabled={repairing}
+                        style={{
+                          marginTop: 16,
+                          padding: '8px 14px',
+                          borderRadius: 8,
+                          border: 0,
+                          background: '#6d28d9',
+                          color: 'white',
+                          fontWeight: 600,
+                          cursor: repairing ? 'wait' : 'pointer',
+                        }}
+                      >
+                        {repairing ? 'Regenerating…' : nativeVisualError.code === 'CLASSROOM_RENDER_SLIDE_FAILED' ? 'Retry this slide' : nativeVisualError.code === 'CLASSROOM_RENDER_FAILED' ? 'Retry rendering' : 'Regenerate slide visuals'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : nativeVisualError ? (
+                <div
+                  data-testid="classroom-visual-status"
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    left: 8,
+                    right: 8,
+                    zIndex: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: nativeVisualError.code === 'CLASSROOM_RENDERING' ? 'rgba(15,23,42,0.82)' : 'rgba(127,29,29,0.9)',
+                    color: '#fff',
+                    fontSize: 12,
+                    pointerEvents: 'auto',
+                  }}
+                >
+                  <span>
+                    {nativeVisualError.code === 'CLASSROOM_RENDERING'
+                      ? nativeVisualError.message || 'Generating slide visual…'
+                      : 'Slide visual unavailable. Extracted content is shown.'}
+                  </span>
+                  {canRepair && onRepair && nativeVisualError.code !== 'CLASSROOM_RENDERING' && (
+                    <button
+                      type="button"
+                      onClick={onRepair}
+                      disabled={repairing}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        border: 0,
+                        background: '#fff',
+                        color: '#111827',
+                        fontWeight: 600,
+                        cursor: repairing ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {repairing ? 'Retrying…' : 'Retry visual'}
+                    </button>
+                  )}
+                </div>
+              ) : visual?.src ? (
+                <div
+                  data-testid="classroom-visual-loading"
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    zIndex: 20,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    background: 'rgba(15,23,42,0.7)',
+                    color: '#fff',
+                    fontSize: 12,
+                  }}
+                >
+                  Loading slide visual…
+                </div>
+              ) : null}
+            </>
           )}
 
           {/* Laser pointer */}
@@ -2082,7 +2130,7 @@ export function SlideRenderer({
           )}
 
           {/* Empty slide fallback — shown inside the canvas */}
-          {!nativeSvg && !slide.elements.length && (
+          {!nativeSvg && !slide.elements.length && !nativeVisualError && (
             <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', padding: 40, textAlign: 'center', color: '#64748b' }}>
               <div>
                 <p style={{ fontSize: 24, fontWeight: 600, color: '#334155', margin: '0 0 8px' }}>{title ?? 'Untitled slide'}</p>

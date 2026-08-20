@@ -21,6 +21,7 @@
 import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
 import type { ImportResult, PowerPointImportOptions } from './types.js';
+import { ommlToPlain } from './pptxOfficeMathFlatten.js';
 
 // ─── XML Parser ───────────────────────────────────────────────────────────────
 
@@ -45,6 +46,205 @@ const text = (value: unknown): string =>
     : value && typeof value === 'object'
       ? String((value as any)['#text'] ?? '')
       : '';
+
+const MATH_XML_RE = /<(a14:m|m:oMathPara|m:oMath)\b[\s\S]*?<\/\1>/gi;
+const MAX_PPTX_SLIDES = 2000;
+const MAX_PPTX_ASSET_BYTES = 80 * 1024 * 1024;
+
+export function extractMathFromXml(slideXml: string): Array<{ plain: string; xml: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ plain: string; xml: string }> = [];
+  for (const chunk of slideXml.match(MATH_XML_RE) ?? []) {
+    const plain = ommlToPlain(chunk);
+    if (!plain || seen.has(plain)) continue;
+    seen.add(plain);
+    out.push({ plain, xml: chunk });
+  }
+  return out;
+}
+
+export function extractMathPlainFromXml(slideXml: string): string[] {
+  return extractMathFromXml(slideXml).map((item) => item.plain);
+}
+
+function mathTextFromNode(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return value.map(mathTextFromNode).filter(Boolean).join(' ');
+  if (typeof value !== 'object') return '';
+  const rec = value as Record<string, unknown>;
+  if ('m:t' in rec) return mathTextFromNode(rec['m:t']);
+  if ('#text' in rec && Object.keys(rec).every((key) => key === '#text' || key.startsWith('@_'))) {
+    return String(rec['#text'] ?? '').trim();
+  }
+  if ('m:mr' in rec) {
+    const rows = A(rec['m:mr']).map((row: any) =>
+      A(row?.['m:e']).map((cell: any) => mathTextFromNode(cell)).filter(Boolean).join(' '),
+    );
+    return `[${rows.join('; ')}]`;
+  }
+  if ('m:m' in rec) return mathTextFromNode(rec['m:m']);
+  return Object.entries(rec)
+    .filter(([key]) => !key.startsWith('@_'))
+    .map(([, child]) => mathTextFromNode(child))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const OOXML_KIND_TAG: Record<string, string> = {
+  text: 'sp',
+  shape: 'sp',
+  image: 'pic',
+  table: 'graphicFrame',
+  chart: 'graphicFrame',
+  smartArt: 'graphicFrame',
+  embedded: 'graphicFrame',
+  equation: 'graphicFrame',
+  group: 'grpSp',
+  connector: 'cxnSp',
+};
+
+/** Top-level spTree children in document order. Nested group descendants are ignored. */
+export function scanTopLevelSlideShapes(slideXml: string): Array<{ tag: string; nth: number }> {
+  const start = slideXml.search(/<p:spTree\b/i);
+  if (start < 0) return [];
+  const openEnd = slideXml.indexOf('>', start);
+  const close = slideXml.search(/<\/p:spTree>/i);
+  if (openEnd < 0 || close < 0 || close <= openEnd) return [];
+  const inner = slideXml.slice(openEnd + 1, close);
+  const out: Array<{ tag: string; nth: number }> = [];
+  const nth: Record<string, number> = {};
+  let i = 0;
+  let depth = 0;
+  while (i < inner.length) {
+    if (inner.startsWith('</p:', i)) {
+      const closeMatch = inner.slice(i).match(/^<\/p:(graphicFrame|grpSp|cxnSp|pic|sp)>/);
+      if (closeMatch) {
+        if (depth > 0) depth -= 1;
+        i += closeMatch[0].length;
+        continue;
+      }
+    }
+    if (inner.startsWith('<p:', i)) {
+      const openMatch = inner.slice(i).match(/^<p:(graphicFrame|grpSp|cxnSp|pic|sp)(?=[\s>/])/);
+      if (openMatch) {
+        const tag = openMatch[1];
+        const gt = inner.indexOf('>', i + openMatch[0].length - 1);
+        const selfClosing = gt > 0 && inner[gt - 1] === '/';
+        if (depth === 0) {
+          const n = nth[tag] ?? 0;
+          out.push({ tag, nth: n });
+          nth[tag] = n + 1;
+        }
+        if (!selfClosing) depth += 1;
+        i = gt >= 0 ? gt + 1 : i + openMatch[0].length;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return out;
+}
+
+function orderTopLevelElements(slideXml: string, elements: any[]): any[] {
+  const order = scanTopLevelSlideShapes(slideXml);
+  const tagged = elements.filter((el) => typeof el?.ooxmlTag === 'string');
+  const untagged = elements.filter((el) => typeof el?.ooxmlTag !== 'string');
+  const buckets: Record<string, any[]> = {};
+  for (const el of tagged) {
+    (buckets[el.ooxmlTag] ??= []).push(el);
+  }
+  const used = new Set<any>();
+  const ordered: any[] = [];
+  for (const item of order) {
+    const el = buckets[item.tag]?.[item.nth];
+    if (!el || used.has(el)) continue;
+    ordered.push(el);
+    used.add(el);
+  }
+  for (const el of tagged) {
+    if (!used.has(el)) ordered.push(el);
+  }
+  ordered.push(...untagged);
+  return ordered.map((el, index) => {
+    const next = { ...el, zIndex: index + 1 };
+    delete next.ooxmlTag;
+    return next;
+  });
+}
+
+function paragraphMathRuns(paragraph: any): Array<{ text: string; style: Record<string, unknown> }> {
+  const nodes = [
+    ...A(paragraph['a14:m']),
+    ...A(paragraph['m:oMath']),
+    ...A(paragraph['m:oMathPara']),
+    ...A(paragraph['mc:AlternateContent']).flatMap((block: any) => {
+      const choice = block?.['mc:Choice'];
+      const fallback = block?.['mc:Fallback'];
+      return [...A(choice), ...A(choice?.['a14:m']), ...A(fallback)];
+    }),
+  ];
+  return nodes
+    .map((node) => mathTextFromNode(node))
+    .filter(Boolean)
+    .map((value) => ({ text: value, style: { latin: 'Cambria Math' } }));
+}
+
+function isMathGraphicData(data: any, uri: string): boolean {
+  if (/math/i.test(uri)) return true;
+  return Boolean(data?.['m:oMath'] || data?.['m:oMathPara'] || data?.['a14:m']);
+}
+
+export function collectElementText(element: any): string {
+  const parts: string[] = [];
+  for (const paragraph of element?.paragraphs ?? []) {
+    if (typeof paragraph?.text === 'string') parts.push(paragraph.text);
+  }
+  if (typeof element?.text === 'string') parts.push(element.text);
+  for (const row of element?.rows ?? []) {
+    for (const cell of row?.cells ?? []) {
+      parts.push(collectElementText(cell));
+    }
+  }
+  for (const child of element?.children ?? []) {
+    parts.push(collectElementText(child));
+  }
+  return parts.filter(Boolean).join(' ');
+}
+
+export function summarizeSlideElements(elements: any[] | undefined): {
+  textElementCount: number;
+  imageCount: number;
+  shapeCount: number;
+  tableCount: number;
+  equationCount: number;
+  totalTextCharacters: number;
+} {
+  const stats = {
+    textElementCount: 0,
+    imageCount: 0,
+    shapeCount: 0,
+    tableCount: 0,
+    equationCount: 0,
+    totalTextCharacters: 0,
+  };
+  const walk = (items: any[] | undefined) => {
+    for (const element of items ?? []) {
+      const textChars = collectElementText(element);
+      stats.totalTextCharacters += textChars.length;
+      if (element?.type === 'equation' || element?.equation) stats.equationCount += 1;
+      else if (element?.type === 'text') stats.textElementCount += 1;
+      else if (element?.type === 'image') stats.imageCount += 1;
+      else if (element?.type === 'table') stats.tableCount += 1;
+      else if (element?.type === 'shape' || element?.type === 'connector') stats.shapeCount += 1;
+      if (Array.isArray(element?.children)) walk(element.children);
+    }
+  };
+  walk(elements);
+  return stats;
+}
 
 /** Extract XML attributes (keys starting with @_) into a plain object */
 const attrs = (value: any) =>
@@ -356,6 +556,7 @@ function paragraphs(txBody: any, rels: Relationships = {}): any[] {
         text: text(fld['a:t']),
         style: {},
       })),
+      ...paragraphMathRuns(p),
     ];
 
     // ── Line spacing ──────────────────────────────────────────────────────────
@@ -691,6 +892,46 @@ async function parseGroupChildren(
     });
   }
 
+  for (const frame of A(group['p:graphicFrame'])) {
+    const data = frame['a:graphic']?.['a:graphicData'];
+    const uri = data?.['@_uri'] ?? '';
+    const cNvPr = frame?.['p:nvGraphicFramePr']?.['p:cNvPr'];
+    if (data?.['a:tbl']) {
+      children.push({
+        id: String(cNvPr?.['@_id'] ?? `grp-tbl-${slideIndex}-${children.length}`),
+        type: 'table',
+        name: cNvPr?.['@_name'],
+        position: transform(frame?.['p:xfrm'] ?? frame),
+        ...table(data['a:tbl'], rels),
+      });
+    } else if (isMathGraphicData(data, uri)) {
+      const mathText = mathTextFromNode(data);
+      children.push({
+        id: String(cNvPr?.['@_id'] ?? `grp-math-${slideIndex}-${children.length}`),
+        type: 'equation',
+        equation: true,
+        name: cNvPr?.['@_name'],
+        position: transform(frame?.['p:xfrm'] ?? frame),
+        paragraphs: [{ text: mathText, runs: [{ text: mathText, style: { latin: 'Cambria Math' } }], style: {} }],
+        metadata: { uri, source: 'omml' },
+      });
+    }
+  }
+
+  for (const connector of A(group['p:cxnSp'])) {
+    const spPr = connector['p:spPr'];
+    const cNvPr = connector?.['p:nvCxnSpPr']?.['p:cNvPr'];
+    children.push({
+      id: String(cNvPr?.['@_id'] ?? `grp-cxn-${slideIndex}-${children.length}`),
+      type: 'connector',
+      name: cNvPr?.['@_name'],
+      position: transform(spPr),
+      fill: extractFill(spPr),
+      line: extractLine(spPr),
+      geometry: spPr?.['a:prstGeom']?.['@_prst'],
+    });
+  }
+
   return children;
 }
 
@@ -808,11 +1049,13 @@ export async function parsePowerPoint(
 
     const zip = await JSZip.loadAsync(fileBuffer, { checkCRC32: false });
     const zipEntry = (relative: string) => {
+      if (!relative || relative.includes('\0') || /(^|[\\/])\.\.([\\/]|$)/.test(relative)) return null;
       const wanted = relative.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
       const exact = zip.file(relative) || zip.file(wanted);
       if (exact && !exact.dir) return exact;
       const hit = Object.keys(zip.files).find((name) => {
         if (zip.files[name]?.dir) return false;
+        if (name.includes('\0') || /(^|[\\/])\.\.([\\/]|$)/.test(name)) return false;
         const normalized = name.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
         return normalized === wanted || normalized.endsWith(`/${wanted}`);
       });
@@ -836,6 +1079,12 @@ export async function parsePowerPoint(
     );
     const slideIds = A(presentation?.['p:sldIdLst']?.['p:sldId']);
     console.info('[Classroom import] Presentation XML parsed', { slideCount: slideIds.length });
+    if (slideIds.length > MAX_PPTX_SLIDES) {
+      return {
+        success: false,
+        error: `This PowerPoint has ${slideIds.length} slides. Import supports at most ${MAX_PPTX_SLIDES} slides.`,
+      };
+    }
 
     // ── Asset URL builder ──────────────────────────────────────────────────
     const assets: ImportedAsset[] = [];
@@ -844,6 +1093,10 @@ export async function parsePowerPoint(
       const file = zipEntry(target) ?? zip.file(target);
       if (!file) return undefined;
       const data = await file.async('nodebuffer');
+      if (data.length > MAX_PPTX_ASSET_BYTES) {
+        console.warn('[Classroom import] Skipping oversized PPTX media', { target, bytes: data.length });
+        return undefined;
+      }
       const name = target.split('/').pop()!;
       const extension = name.split('.').pop()?.toLowerCase() ?? '';
       const path = `media/${name}`;
@@ -900,6 +1153,8 @@ export async function parsePowerPoint(
           ),
           type: kind,
           name: cNvPr?.['@_name'],
+          ooxmlTag: OOXML_KIND_TAG[kind] ?? undefined,
+          zIndex: elements.length,
           position: transform(
             node?.['p:spPr'] ?? node?.['p:pic']?.['p:spPr'] ?? node?.['p:xfrm'],
           ),
@@ -918,7 +1173,7 @@ export async function parsePowerPoint(
         const isHidden = node?.['p:spPr']?.['p:style']?.['@_hidden'] === '1' ||
                          document?.['@_show'] === '0';
         const hasText = value.paragraphs && value.paragraphs.length > 0;
-        const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded'].includes(kind);
+        const isContent = ['image', 'table', 'chart', 'video', 'audio', 'smartArt', 'embedded', 'equation'].includes(kind);
         const hasFill = value.fill && value.fill.type !== 'none';
         const hasLine = value.line !== null && value.line !== undefined;
 
@@ -933,6 +1188,15 @@ export async function parsePowerPoint(
             columns: value.columns,
             rows: value.rows,
           });
+        }
+
+        if (hasText && typeof element.text !== 'string') {
+          element.text = value.paragraphs.map((p: any) => String(p?.text ?? '')).filter(Boolean).join('\n');
+          element.htmlText = element.text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br/>');
         }
 
         elements.push(element);
@@ -1004,6 +1268,13 @@ export async function parsePowerPoint(
             paragraphs: fallback?.paragraphs,
             text: fallback?.rawText,
           });
+        } else if (isMathGraphicData(data, uri)) {
+          const mathText = mathTextFromNode(data);
+          add('equation', frame, {
+            equation: true,
+            paragraphs: [{ text: mathText, runs: [{ text: mathText, style: { latin: 'Cambria Math' } }], style: {} }],
+            metadata: { uri, source: 'omml' },
+          });
         } else {
           add('embedded', frame, { uri });
         }
@@ -1030,6 +1301,10 @@ export async function parsePowerPoint(
           geometry: spPr?.['a:prstGeom']?.['@_prst'],
         });
       }
+
+      const orderedElements = orderTopLevelElements(source, elements);
+      elements.length = 0;
+      elements.push(...orderedElements);
 
       // ── Parse media (video / audio) ──────────────────────────────────────
       for (const [rid, mrel] of Object.entries(rels)) {
@@ -1107,6 +1382,20 @@ export async function parsePowerPoint(
 
       const slideWidth = Number(presentation?.['p:sldSz']?.['@_cx'] ?? 12192000);
       const slideHeight = Number(presentation?.['p:sldSz']?.['@_cy'] ?? 6858000);
+
+      const extractedText = elements.map((element) => collectElementText(element)).join(' ');
+      for (const math of extractMathFromXml(source)) {
+        if (extractedText.includes(math.plain.slice(0, Math.min(24, math.plain.length)))) continue;
+        add('equation', { 'p:spPr': { 'a:xfrm': { 'a:off': { '@_x': '0', '@_y': '0' }, 'a:ext': { '@_cx': String(slideWidth), '@_cy': '914400' } } } }, {
+          equation: true,
+          paragraphs: [{ text: math.plain, runs: [{ text: math.plain, style: { latin: 'Cambria Math' } }], style: {} }],
+          metadata: { source: 'omml', ommlXml: math.xml },
+        });
+      }
+
+      for (const [indexInSlide, element] of elements.entries()) {
+        element.zIndex = indexInSlide + 1;
+      }
 
       // ── Slide master background (inherits through layout → master) ──────────
       // When a slide has no explicit p:bg, the background comes from the master.
