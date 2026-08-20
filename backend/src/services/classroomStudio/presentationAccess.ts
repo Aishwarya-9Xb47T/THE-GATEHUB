@@ -13,3 +13,25 @@ export function failedImportStatus(args: { sourceStored: boolean; code?: string 
   if (args.code === "CLASSROOM_RENDER_FAILED") return "render_failed";
   return "extraction_failed";
 }
+
+/** Cross-instance render lock: do not start a second LibreOffice job while status is fresh. */
+export const CLASSROOM_RENDER_STALE_MS = 8 * 60 * 1000;
+export const CLASSROOM_RENDER_JOB_TIMEOUT_MS = 8 * 60 * 1000;
+
+export function reconcileInFlightRender(args: {
+  status: string;
+  rendered: number;
+  total: number;
+  exclusiveRunning: boolean;
+  updatedAtMs: number;
+  nowMs?: number;
+  staleMs?: number;
+}): "ready" | "keep_rendering" | "mark_failed" {
+  if (args.status !== "rendering") return "keep_rendering";
+  if (args.rendered === args.total && args.total > 0) return "ready";
+  if (args.exclusiveRunning) return "keep_rendering";
+  const now = args.nowMs ?? Date.now();
+  const staleMs = args.staleMs ?? CLASSROOM_RENDER_STALE_MS;
+  if (now - args.updatedAtMs < staleMs) return "keep_rendering";
+  return "mark_failed";
+}

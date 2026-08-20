@@ -39,8 +39,9 @@ import {
   isValidPptxBuffer,
   sha256OfBuffer,
 } from './classroomSourceResolver.js';
-import { formatPptxInspectionLog, inspectPptxArchive } from './pptxArchiveInspect.js';
+import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
 import { renderAndPersistPresentationVisuals, startExclusiveVisualRender } from './presentationVisualRepairService.js';
+import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
 import type {
   ImportResult,
   PowerPointImportOptions,
@@ -577,18 +578,42 @@ export async function importPresentation(
         });
       }
       const sha256 = sha256OfBuffer(sourceFileBuffer);
+      const validation = await validatePptxSource(sourceFileBuffer);
+      classroomPptxPipelineLog('source_received', {
+        presentationId: presentation.id,
+        sourceType: 'powerpoint',
+        originalBytes: sourceFileBuffer.length,
+        pptxValid: validation.valid,
+        slideCount: validation.slideCount,
+      });
+      if (!validation.valid) {
+        throw new AppError(400, `Upload a valid .pptx PowerPoint Open XML file (${validation.reasons.join('; ')})`, true, {
+          code: 'CLASSROOM_PPTX_INVALID',
+          stage: 'validation',
+        });
+      }
       await onProgress({ stage: 'upload', percent: 8, message: 'Saving PowerPoint…' });
       console.info('[CLASSROOM_SOURCE]', {
         sourceType: 'pptx-upload',
         originalBytes: sourceFileBuffer.length,
         originalSha256: sha256,
         presentationId: presentation.id,
-        zipValid: isValidPptxBuffer(sourceFileBuffer),
+        zipValid: validation.zipValid,
+        slideCount: validation.slideCount,
       });
+      console.info(formatPptxInspectionLog('CLASSROOM_SOURCE_A', validation.inspection));
       await onProgress({ stage: 'source', percent: 12, message: 'Saving source…' });
       requireDurableClassroomStorage();
       const stored = await persistPptxBuffer(presentation.id, sourceFileBuffer);
       sourceStored = true;
+      classroomPptxPipelineLog('source_stored', {
+        presentationId: presentation.id,
+        sourceType: 'powerpoint',
+        originalBytes: sourceFileBuffer.length,
+        storedBytes: stored.bytes,
+        sourceKey: `uploads/${stored.relative}`,
+        bytesMatch: stored.bytes === sourceFileBuffer.length,
+      });
       await prisma.presentation.update({
         where: { id: presentation.id },
         data: {
@@ -695,6 +720,13 @@ export async function importPresentation(
           hasDirectPdf: Boolean(pdfBuf),
           pdfSource: pdfBuf ? 'google-native-pdf' : 'libreoffice-pptx',
           slides: persistResult.expectedCount,
+        });
+        classroomPptxPipelineLog('source_resolved', {
+          presentationId,
+          sourceType: input.sourceType,
+          originalBytes: buffer.length,
+          hasDirectPdf: Boolean(pdfBuf),
+          slideCount: persistResult.expectedCount,
         });
         const { job } = startExclusiveVisualRender(presentationId, () =>
           renderAndPersistPresentationVisuals(presentationId, buffer, {

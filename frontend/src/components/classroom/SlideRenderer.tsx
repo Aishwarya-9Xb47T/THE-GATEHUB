@@ -1564,6 +1564,7 @@ export function SlideRenderer({
   const [fitScale, setFitScale] = useState(1);
   const [nativeSvg, setNativeSvg] = useState<string | null>(null);
   const [nativeVisualError, setNativeVisualError] = useState<{ code: string; message: string } | null>(null);
+  const [renderWaitTimedOut, setRenderWaitTimedOut] = useState(false);
 
   const visual = useMemo(() => {
     const raw = (content as any)?.visual;
@@ -1596,6 +1597,16 @@ export function SlideRenderer({
       );
     }
   }, []);
+
+  useEffect(() => {
+    const rendering = ['rendering', 'uploading', 'extracting', 'source_stored'].includes(pipelineStatus || '');
+    if (!rendering) {
+      setRenderWaitTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setRenderWaitTimedOut(true), 10 * 60 * 1000);
+    return () => window.clearTimeout(timer);
+  }, [pipelineStatus, presentationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1674,6 +1685,12 @@ export function SlideRenderer({
               applySvg(svg, 'pre-rendered-svg', found.url);
               return;
             }
+          }
+          if (renderWaitTimedOut) {
+            throw Object.assign(
+              new Error('Slide rendering timed out. Retry rendering.'),
+              { code: 'CLASSROOM_RENDER_FAILED' },
+            );
           }
           const total = slideCount || n;
           const progress = renderProgressSlide || n;
@@ -1814,7 +1831,7 @@ export function SlideRenderer({
     return () => {
       cancelled = true;
     };
-  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount, renderProgressSlide]);
+  }, [visual?.type, visual?.src, visual?.slideIndex, slideNumber, presentationId, slideId, content, slide.elements.length, logRenderDiagnostic, pipelineStatus, slideCount, renderProgressSlide, renderWaitTimedOut]);
 
   // Debug geometry logging (only when slideDebug=1)
   useEffect(() => {

@@ -7,7 +7,7 @@ import { prisma } from '../../utils/prisma.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
 import { computeClassroomRenderProgress } from './classroomAssetPath.js';
-import { presentationOwnershipAllowed } from './presentationAccess.js';
+import { presentationOwnershipAllowed, reconcileInFlightRender } from './presentationAccess.js';
 import type {
   Presentation,
   CreatePresentationInput,
@@ -126,16 +126,32 @@ export async function getPresentationById(
 
   let status = presentation.status;
   if (status === 'rendering') {
-    const { isExclusiveVisualRenderRunning, regeneratePresentationVisuals } = await import('./presentationVisualRepairService.js');
-    if (renderProgress.rendered === slides.length && slides.length > 0) {
+    const { isExclusiveVisualRenderRunning } = await import('./presentationVisualRepairService.js');
+    const action = reconcileInFlightRender({
+      status,
+      rendered: renderProgress.rendered,
+      total: slides.length,
+      exclusiveRunning: isExclusiveVisualRenderRunning(presentation.id),
+      updatedAtMs: presentation.updatedAt.getTime(),
+    });
+    if (action === 'ready') {
       status = 'ready';
       await prisma.presentation.update({
         where: { id: presentation.id },
         data: { status: 'ready' },
       }).catch(() => undefined);
-    } else if (!isExclusiveVisualRenderRunning(presentation.id)) {
-      // Background render is not actively running (e.g. server restarted or previous job died)
-      void regeneratePresentationVisuals(presentation.id, presentation.instructorId, 'INSTRUCTOR').catch(() => undefined);
+    } else if (action === 'mark_failed') {
+      console.warn('[CLASSROOM_RENDER] stale_render_marked_failed', {
+        presentationId: presentation.id,
+        rendered: renderProgress.rendered,
+        total: slides.length,
+        updatedAt: presentation.updatedAt.toISOString(),
+      });
+      status = 'render_failed';
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: 'render_failed' },
+      }).catch(() => undefined);
     }
   }
 

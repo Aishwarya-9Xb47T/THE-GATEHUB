@@ -27,7 +27,20 @@ export type PptxArchiveInspection = {
   layoutCount: number;
   hasTheme: boolean;
   hasContentTypes: boolean;
+  hasPresentationXml: boolean;
   slides: PptxSlideInspection[];
+};
+
+export type PptxSourceValidation = {
+  valid: boolean;
+  zipValid: boolean;
+  hasContentTypes: boolean;
+  hasPresentationXml: boolean;
+  slideCount: number;
+  bytes: number;
+  sha256: string;
+  reasons: string[];
+  inspection: PptxArchiveInspection;
 };
 
 function count(xml: string, pattern: RegExp): number {
@@ -48,7 +61,10 @@ function inspectSlideXml(pathName: string, xml: string): PptxSlideInspection {
   };
 }
 
-export async function inspectPptxArchive(buffer: Buffer): Promise<PptxArchiveInspection> {
+export async function inspectPptxArchive(
+  buffer: Buffer,
+  options?: { maxSlideInspect?: number },
+): Promise<PptxArchiveInspection> {
   const bytes = buffer.length;
   const sha256 = createHash('sha256').update(buffer).digest('hex');
   const zipValid = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b;
@@ -66,6 +82,7 @@ export async function inspectPptxArchive(buffer: Buffer): Promise<PptxArchiveIns
     layoutCount: 0,
     hasTheme: false,
     hasContentTypes: false,
+    hasPresentationXml: false,
     slides: [],
   };
   if (!zipValid) return empty;
@@ -81,8 +98,9 @@ export async function inspectPptxArchive(buffer: Buffer): Promise<PptxArchiveIns
         return na - nb;
       });
 
+    const maxInspect = options?.maxSlideInspect ?? 3;
     const slides: PptxSlideInspection[] = [];
-    for (const name of slideNames.slice(0, 3)) {
+    for (const name of slideNames.slice(0, maxInspect)) {
       const xml = await zip.file(name)?.async('string');
       if (xml) slides.push(inspectSlideXml(name, xml));
     }
@@ -101,11 +119,35 @@ export async function inspectPptxArchive(buffer: Buffer): Promise<PptxArchiveIns
       layoutCount: names.filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/i.test(name)).length,
       hasTheme: names.some((name) => name.startsWith('ppt/theme/')),
       hasContentTypes: names.includes('[Content_Types].xml'),
+      hasPresentationXml: names.includes('ppt/presentation.xml'),
       slides,
     };
   } catch {
     return { ...empty, zipValid: false };
   }
+}
+
+export async function validatePptxSource(
+  buffer: Buffer,
+  options?: { maxSlideInspect?: number },
+): Promise<PptxSourceValidation> {
+  const inspection = await inspectPptxArchive(buffer, options);
+  const reasons: string[] = [];
+  if (!inspection.zipValid) reasons.push('not a ZIP/PPTX (missing PK signature or corrupt archive)');
+  if (!inspection.hasContentTypes) reasons.push('missing [Content_Types].xml');
+  if (!inspection.hasPresentationXml) reasons.push('missing ppt/presentation.xml');
+  if (inspection.slideCount < 1) reasons.push('missing ppt/slides/');
+  return {
+    valid: reasons.length === 0,
+    zipValid: inspection.zipValid,
+    hasContentTypes: inspection.hasContentTypes,
+    hasPresentationXml: inspection.hasPresentationXml,
+    slideCount: inspection.slideCount,
+    bytes: inspection.bytes,
+    sha256: inspection.sha256,
+    reasons,
+    inspection,
+  };
 }
 
 export function formatPptxInspectionLog(label: string, inspection: PptxArchiveInspection): string {

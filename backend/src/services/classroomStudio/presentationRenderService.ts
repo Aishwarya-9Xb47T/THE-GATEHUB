@@ -102,6 +102,7 @@ export interface PresentationRenderResult {
   method: 'puppeteer-pptx-svg' | 'libreoffice-pdf';
   pdfBytes?: number;
   pdfText?: string;
+  pdfBuffer?: Buffer;
 }
 
 type ClassroomPageApi = {

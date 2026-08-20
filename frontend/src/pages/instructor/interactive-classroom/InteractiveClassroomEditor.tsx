@@ -234,7 +234,13 @@ export function InteractiveClassroomEditor() {
     const timer = window.setInterval(() => {
       void fetchPresentation({ silent: true });
     }, 3000);
-    return () => window.clearInterval(timer);
+    const timeout = window.setTimeout(() => {
+      window.clearInterval(timer);
+    }, 10 * 60 * 1000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(timeout);
+    };
   }, [presentation?.status, fetchPresentation]);
 
   const markUnsaved = useCallback(() => {

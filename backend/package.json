@@ -32,6 +32,7 @@
     "verify:compiled-pipeline": "tsx scripts/verify-compiled-pipeline.ts",
     "test:golden-pipeline": "tsx scripts/golden-pipeline-regression.ts",
     "verify:classroom-renderer": "tsx src/cli/classroomRendererHealth.ts",
+    "test:classroom-pptx-render": "tsx scripts/test-classroom-pptx-render.ts",
     "audit:pipeline-fragments": "tsx scripts/audit-pipeline-fragments.ts",
     "audit:compiler-macros": "tsx scripts/audit-compiler-macros.ts",
     "pipeline:guard": "npm run audit:pipeline-fragments && npm run audit:compiler-macros && npm run test:golden-pipeline && npm run verify:compiled-pipeline",

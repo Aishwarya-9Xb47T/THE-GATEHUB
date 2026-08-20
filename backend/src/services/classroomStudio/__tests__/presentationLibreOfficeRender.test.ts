@@ -38,11 +38,11 @@ describe("LibreOffice classroom renderer contract", () => {
     expect(args[0]).toBe(arg);
     expect(args).toContain("--headless");
     expect(args).toContain("--convert-to");
-    expect(args).toContain("pdf");
+    expect(args).toContain("pdf:impress_pdf_Export");
     expect(args.join(" ")).not.toMatch(/(?:^|\s)--env:/);
     const env = libreOfficeJobEnv("/tmp/classroom-lo-job");
     expect(env.SAL_DISABLE_JAVA).toBe("1");
-    expect(env.HOME).toBe(process.env.HOME || require("node:os").tmpdir());
+    expect(env.HOME).toBe(process.env.HOME || os.tmpdir());
     expect(env.SAL_USE_VCLPLUGIN).toBeUndefined();
   });
 
@@ -98,6 +98,21 @@ describe("LibreOffice classroom renderer contract", () => {
     expect(inspection.slides[0].tables).toBeGreaterThan(0);
     expect(inspection.hasTheme).toBe(true);
     expect(inspection.hasContentTypes).toBe(true);
+    expect(inspection.hasPresentationXml).toBe(true);
+    const { validatePptxSource } = await import("../pptxArchiveInspect.js");
+    const validation = await validatePptxSource(pptx);
+    expect(validation.valid).toBe(true);
+    expect(validation.hasContentTypes).toBe(true);
+    expect(validation.hasPresentationXml).toBe(true);
+    expect(validation.slideCount).toBe(CONVOLUTION_DECK_SLIDE_COUNT);
+  });
+
+  it("uses isolated per-job working directories", () => {
+    const presentationId = "pres-a";
+    const jobA = path.join(os.tmpdir(), "classroom-render", presentationId, "job-1");
+    const jobB = path.join(os.tmpdir(), "classroom-render", presentationId, "job-2");
+    expect(jobA).not.toBe(jobB);
+    expect(jobA).toContain("classroom-render");
   });
 
   it("keeps conversion failure reasons specific instead of a bare CLASSROOM_RENDER_FAILED", async () => {

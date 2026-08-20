@@ -17,6 +17,7 @@ import {
   downloadPresentationPptx,
   downloadPresentationExportPdf,
   persistPptxBuffer,
+  persistPdfBuffer,
   resolvePresentationSource,
   sha256OfBuffer,
 } from "./classroomSourceResolver.js";
@@ -27,6 +28,8 @@ import {
   canonicalSlideSvgRelative,
   canonicalSourceRelative,
 } from "./classroomAssetPath.js";
+import { CLASSROOM_RENDER_JOB_TIMEOUT_MS } from "./presentationAccess.js";
+import { classroomPptxPipelineLog } from "./classroomPipelineLog.js";
 
 function classroomRenderPersistLog(
   presentationId: string,
@@ -77,7 +80,12 @@ export function startExclusiveVisualRender(
 ): { started: boolean; job: Promise<unknown> } {
   const existing = inflightVisualRenders.get(presentationId);
   if (existing) return { started: false, job: existing };
-  const job = work().finally(() => {
+  const job = withDeadline(
+    work(),
+    CLASSROOM_RENDER_JOB_TIMEOUT_MS,
+    "CLASSROOM_RENDER_TIMEOUT",
+    `CLASSROOM_RENDER_TIMEOUT overall render job presentationId=${presentationId}`,
+  ).finally(() => {
     inflightVisualRenders.delete(presentationId);
   });
   inflightVisualRenders.set(presentationId, job);
@@ -198,6 +206,15 @@ export async function regeneratePresentationVisuals(
     const pptxBuffer = await downloadPresentationPptx(resolved);
     const downloadedSha = sha256OfBuffer(pptxBuffer);
     const storedPdf = await downloadPresentationExportPdf(presentationId);
+    classroomPptxPipelineLog("source_download_complete", {
+      presentationId,
+      sourceType: presentation.sourceType,
+      sourceKey: resolved.key,
+      storedBytes: resolved.bytes,
+      downloadedBytes: pptxBuffer.length,
+      bytesMatch: resolved.bytes === pptxBuffer.length,
+      hasStoredPdf: Boolean(storedPdf),
+    });
     console.info("[CLASSROOM_SOURCE]", {
       presentationId,
       origin: resolved.origin,
@@ -319,6 +336,11 @@ export async function renderAndPersistPresentationVisuals(
     const relative = canonicalSlideSvgRelative(presentationId, render.index + 1);
     const diskPath = path.join(outputDir, path.basename(render.path));
     classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-start", relative);
+    classroomPptxPipelineLog("visual_upload_started", {
+      presentationId,
+      slideNumber: render.index + 1,
+      sourceKey: `uploads/${relative}`,
+    });
     let svgText = render.svgText;
     if (!svgText) {
       try {
@@ -366,6 +388,11 @@ export async function renderAndPersistPresentationVisuals(
       classroomRenderPersistLog(presentationId, render.index + 1, relative, render.svgLength);
     }
     classroomRenderLogPersist(presentationId, render.index + 1, "b2-upload-complete", relative);
+    classroomPptxPipelineLog("visual_upload_completed", {
+      presentationId,
+      slideNumber: render.index + 1,
+      sourceKey: `uploads/${relative}`,
+    });
     const slide = presentation.slides.find((item) => item.order === render.index + 1);
     if (slide) {
       classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-start", relative);
@@ -376,6 +403,11 @@ export async function renderAndPersistPresentationVisuals(
         },
       });
       classroomRenderLogPersist(presentationId, render.index + 1, "db-persist-complete", relative);
+      classroomPptxPipelineLog("slide_persisted", {
+        presentationId,
+        slideId: slide.id,
+        slideNumber: render.index + 1,
+      });
     }
     persistedIndexes.add(render.index);
   };
@@ -384,6 +416,14 @@ export async function renderAndPersistPresentationVisuals(
     .map((slide) => slide.order - 1)
     .filter((index) => !alreadyRendered.has(index));
   const storedPdf = options?.pdfBuffer ?? (await downloadPresentationExportPdf(presentationId)) ?? undefined;
+  classroomPptxPipelineLog("source_resolved", {
+    presentationId,
+    sourceKey: `uploads/${sourceRelative}`,
+    originalBytes: pptxBuffer.length,
+    pdfBytes: storedPdf?.length,
+    pdfSource: storedPdf ? "stored-or-google-pdf" : "libreoffice-pptx",
+    slideCount: expected,
+  });
   console.info("[CLASSROOM_RENDER]", {
     presentationId,
     pdfSource: storedPdf ? "stored-or-google-pdf" : "libreoffice-pptx",
@@ -398,6 +438,15 @@ export async function renderAndPersistPresentationVisuals(
       pdfBuffer: storedPdf,
       sourceSha256: options?.sourceSha256 ?? inputSha256,
     });
+
+  if (!storedPdf && renderResult.pdfBuffer) {
+    await persistPdfBuffer(presentationId, renderResult.pdfBuffer).catch((error) => {
+      console.warn("[CLASSROOM_SOURCE] libreoffice_pdf_persist_failed", {
+        presentationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 
   try {
     for (const render of renderResult.renders) {
@@ -450,6 +499,13 @@ export async function renderAndPersistPresentationVisuals(
     console.info(
       `[CLASSROOM_RENDER] complete requested=${expected} rendered=${persistedIndexes.size} failed=${failedSlideNumbers.length} skipped=${alreadyRendered.size} status=${status} presentationId=${presentationId}`,
     );
+    classroomPptxPipelineLog("render_complete", {
+      presentationId,
+      overallRenderStatus: status,
+      slidesSucceeded: persistedIndexes.size,
+      slidesFailed: failedSlideNumbers.length,
+      method: renderResult.method,
+    });
 
     if (persistedIndexes.size === 0) {
       throw new AppError(500, "Slide visuals could not be generated from the PowerPoint source", true, {

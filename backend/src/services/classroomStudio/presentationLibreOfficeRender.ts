@@ -13,11 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isValidRenderedSvg, withDeadline, type PresentationRenderResult, type SlideRenderResult } from './presentationRenderService.js';
-import { formatPptxInspectionLog, inspectPptxArchive } from './pptxArchiveInspect.js';
+import { formatPptxInspectionLog, inspectPptxArchive, validatePptxSource } from './pptxArchiveInspect.js';
+import { classroomPptxPipelineLog } from './classroomPipelineLog.js';
 
-const PDF_CONVERT_TIMEOUT_MS = 120_000;
+const PDF_CONVERT_TIMEOUT_MS = 180_000;
 const PAGE_RENDER_TIMEOUT_MS = 45_000;
 const LOG_TEXT_LIMIT = 4_000;
+const IMPRESS_PDF_FILTER = 'pdf:impress_pdf_Export';
 
 const JAVA_DISABLE_REGISTRY = `<?xml version="1.0" encoding="UTF-8"?>
 <oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -151,7 +153,7 @@ export function buildLibreOfficeConvertArgs(args: {
     '--nofirststartwizard',
     '--nologo',
     '--convert-to',
-    args.filter ?? 'pdf',
+    args.filter ?? IMPRESS_PDF_FILTER,
     '--outdir',
     args.outputDir,
     args.pptxPath,
@@ -171,6 +173,23 @@ export function parsePdfPageCountFromBuffer(pdf: Buffer): number {
   return counts.length ? Math.max(...counts) : 0;
 }
 
+function killSpawnedProcess(child: ReturnType<typeof spawn>): void {
+  if (!child.pid) return;
+  try {
+    if (process.platform !== 'win32') {
+      process.kill(-child.pid, 'SIGKILL');
+      return;
+    }
+  } catch {
+    /* process group may not exist; fall through */
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    /* already exited */
+  }
+}
+
 async function runCommand(
   command: string,
   args: string[],
@@ -178,16 +197,18 @@ async function runCommand(
   options?: { cwd?: string; env?: NodeJS.ProcessEnv },
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
+    const useProcessGroup = process.platform !== 'win32';
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: options?.cwd,
       env: options?.env ?? process.env,
       windowsHide: true,
+      detached: useProcessGroup,
     });
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => {
-      child.kill('SIGKILL');
+      killSpawnedProcess(child);
       const error = new Error(`CLASSROOM_RENDER_TIMEOUT command=${path.basename(command)} after ${timeoutMs}ms`);
       (error as Error & { code?: string }).code = 'CLASSROOM_RENDER_TIMEOUT';
       reject(error);
@@ -466,21 +487,25 @@ async function convertPptxToPdf(args: {
   outputDir: string;
   sha256: string;
   presentationId?: string;
-}): Promise<{ pdfPath: string; pdfBytes: number; pageCount: number; pdfText: string }> {
+}): Promise<{ pdfPath: string; pdfBytes: number; pageCount: number; pdfText: string; pdfBuffer: Buffer }> {
   const env = libreOfficeJobEnv(args.workDir);
   await writeLibreOfficeProfile(args.profileDir);
   const convertArgs = buildLibreOfficeConvertArgs({
     profileDir: args.profileDir,
     outputDir: args.outputDir,
     pptxPath: args.pptxPath,
-    filter: 'pdf',
+  });
+  const convertStarted = Date.now();
+  classroomPptxPipelineLog('libreoffice_started', {
+    presentationId: args.presentationId,
+    sourceKey: args.pptxPath,
   });
   classroomRenderLog({
     presentation: args.presentationId,
     stage: 'pptx-to-pdf',
     status: 'start',
     pdfSource: 'libreoffice-pptx',
-    filter: 'pdf',
+    filter: IMPRESS_PDF_FILTER,
     executable: args.soffice,
     command: `${path.basename(args.soffice)} ${convertArgs.join(' ')}`,
     cwd: args.workDir,
@@ -497,17 +522,23 @@ async function convertPptxToPdf(args: {
     'CLASSROOM_RENDER_TIMEOUT',
     'CLASSROOM_RENDER_TIMEOUT stage=LIBREOFFICE_CONVERT',
   );
-  const last = { ...convert, command: `${args.soffice} ${convertArgs.join(' ')}`, filter: 'pdf' };
+  const last = { ...convert, command: `${args.soffice} ${convertArgs.join(' ')}`, filter: IMPRESS_PDF_FILTER };
   let pdfPath = path.join(args.outputDir, 'source.pdf');
   const found = (await findNamedFile(args.outputDir, (name) => name.toLowerCase().endsWith('.pdf'))) ?? pdfPath;
   if (existsSync(found)) pdfPath = found;
   classroomRenderLog({
     presentation: args.presentationId,
     stage: 'pptx-to-pdf',
-    filter: 'pdf',
+    filter: IMPRESS_PDF_FILTER,
     exitCode: convert.exitCode,
     stdout: convert.stdout.slice(0, LOG_TEXT_LIMIT),
     stderr: convert.stderr.slice(0, LOG_TEXT_LIMIT),
+    pdfExists: existsSync(pdfPath),
+  });
+  classroomPptxPipelineLog('libreoffice_completed', {
+    presentationId: args.presentationId,
+    durationMs: Date.now() - convertStarted,
+    libreofficeExitCode: convert.exitCode,
     pdfExists: existsSync(pdfPath),
   });
 
@@ -540,7 +571,7 @@ async function convertPptxToPdf(args: {
   return { pdfPath, ...meta };
 }
 
-async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pageCount: number; pdfText: string; pdfBytes: number }> {
+async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pageCount: number; pdfText: string; pdfBytes: number; pdfBuffer: Buffer }> {
   const pdf = await readFile(pdfPath);
   if (pdf.length < 200 || !pdf.subarray(0, 4).equals(Buffer.from('%PDF'))) {
     throw new Error(`LIBREOFFICE_CONVERSION_FAILED PDF is empty or invalid bytes=${pdf.length}`);
@@ -562,7 +593,7 @@ async function readPdfMetadata(pdfPath: string, outputDir: string): Promise<{ pa
   if (pageCount < 1) {
     throw new Error('LIBREOFFICE_CONVERSION_FAILED PDF was produced but page count could not be determined');
   }
-  return { pageCount, pdfText, pdfBytes: pdf.length };
+  return { pageCount, pdfText, pdfBytes: pdf.length, pdfBuffer: pdf };
 }
 
 export async function renderPresentationSlidesLibreOffice(
@@ -588,10 +619,18 @@ export async function renderPresentationSlidesLibreOffice(
     classroomRenderLog({ presentation: presentationId, method, ...fields });
 
   const inputSha256 = sha256Hex(pptxBuffer);
-  const archive = await inspectPptxArchive(pptxBuffer).catch(() => null);
+  const validation = await validatePptxSource(pptxBuffer).catch(() => null);
+  const archive = validation?.inspection ?? (await inspectPptxArchive(pptxBuffer).catch(() => null));
   if (archive) {
     console.info(formatPptxInspectionLog(options?.pdfBuffer ? 'CLASSROOM_SOURCE_B' : 'CLASSROOM_SOURCE_A', archive));
   }
+  classroomPptxPipelineLog('pptx_validation_complete', {
+    presentationId,
+    pptxValid: validation?.valid ?? false,
+    originalBytes: pptxBuffer.length,
+    slideCount: archive?.slideCount,
+    hasDirectPdf: Boolean(options?.pdfBuffer),
+  });
   log({
     stage: 'RENDER_START',
     status: 'start',
@@ -627,6 +666,12 @@ export async function renderPresentationSlidesLibreOffice(
     return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
   }
 
+  if (!options?.pdfBuffer && validation && !validation.valid) {
+    const error = `CLASSROOM_PPTX_INVALID ${validation.reasons.join('; ')}`;
+    log({ stage: 'PPTX_VALIDATED', status: 'failure', errorCode: 'CLASSROOM_PPTX_INVALID', errorMessage: error });
+    return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
+  }
+
   if (!options?.pdfBuffer && (pptxBuffer.length < 4 || pptxBuffer[0] !== 0x50 || pptxBuffer[1] !== 0x4b)) {
     log({ stage: 'PPTX_VALIDATED', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', errorMessage: 'Invalid PPTX buffer (missing ZIP signature)' });
     return {
@@ -650,12 +695,20 @@ export async function renderPresentationSlidesLibreOffice(
   let pdfPath = path.join(convertDir, 'source.pdf');
   let pdfBytes = 0;
   let pdfText = '';
+  let producedPdfBuffer: Buffer | undefined;
   try {
     if (options?.pdfBuffer && options.pdfBuffer.length > 100 && options.pdfBuffer.subarray(0, 4).equals(Buffer.from('%PDF'))) {
       await writeFile(pdfPath, options.pdfBuffer);
       const meta = await readPdfMetadata(pdfPath, convertDir);
       pdfBytes = meta.pdfBytes;
       pdfText = meta.pdfText;
+      producedPdfBuffer = meta.pdfBuffer;
+      classroomPptxPipelineLog('pdf_created', {
+        presentationId,
+        pdfBytes: meta.pdfBytes,
+        pdfPages: meta.pageCount,
+        pdfSource: 'stored-or-google-pdf',
+      });
       log({
         stage: 'DIRECT_PDF_LOADED',
         status: 'success',
@@ -669,6 +722,12 @@ export async function renderPresentationSlidesLibreOffice(
       await writeFile(pptxPath, pptxBuffer);
       const written = await readFile(pptxPath);
       const writtenSha = sha256Hex(written);
+      classroomPptxPipelineLog('local_file_created', {
+        presentationId,
+        originalBytes: pptxBuffer.length,
+        localBytes: written.length,
+        bytesMatch: written.length === pptxBuffer.length,
+      });
       console.info('[CLASSROOM_SOURCE]', {
         presentationId,
         bytes: pptxBuffer.length,
@@ -679,9 +738,9 @@ export async function renderPresentationSlidesLibreOffice(
         inputBytes: written.length,
         inputSha256: writtenSha,
       });
-      if (writtenSha !== inputSha256) {
-        const error = 'CLASSROOM_RENDER_SOURCE_FAILED written PPTX SHA-256 does not match render input';
-        log({ stage: 'SHA256_MISMATCH', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', inputSha256, writtenSha });
+      if (writtenSha !== inputSha256 || written.length !== pptxBuffer.length) {
+        const error = 'CLASSROOM_RENDER_SOURCE_FAILED written PPTX SHA-256 or byte size does not match render input';
+        log({ stage: 'SHA256_MISMATCH', status: 'failure', errorCode: 'CLASSROOM_RENDER_SOURCE_FAILED', inputSha256, writtenSha, originalBytes: pptxBuffer.length, localBytes: written.length });
         return { success: false, slideCount: 0, renders: [], warnings, errors: [error], method };
       }
       log({
@@ -709,6 +768,13 @@ export async function renderPresentationSlidesLibreOffice(
         pdfPath = converted.pdfPath;
         pdfBytes = converted.pdfBytes;
         pdfText = converted.pdfText;
+        producedPdfBuffer = converted.pdfBuffer;
+        classroomPptxPipelineLog('pdf_created', {
+          presentationId,
+          pdfBytes: converted.pdfBytes,
+          pdfPages: converted.pageCount,
+          pdfSource: 'libreoffice-pptx',
+        });
         if (converted.pageCount < 1) {
           const error = 'LIBREOFFICE_CONVERSION_FAILED PDF was produced but page count could not be determined';
           log({ stage: 'pptx-to-pdf', status: 'failure', errorCode: 'LIBREOFFICE_CONVERSION_FAILED', errorMessage: error });
@@ -742,19 +808,24 @@ export async function renderPresentationSlidesLibreOffice(
     }
     const sourceTextRuns = archive?.slides.reduce((sum, slide) => sum + slide.textRuns, 0) ?? 0;
     if (tools.pdftotext && sourceTextRuns > 0 && !pdfText.replace(/\s+/g, '')) {
-      const error = 'LIBREOFFICE_CONVERSION_FAILED source PPTX contains text but the PDF has no extractable text';
+      const warning = 'PDF has no extractable text; continuing page rasterization because native PowerPoint drawings may still be present';
+      warnings.push(warning);
       log({
         stage: 'PDF_READY',
-        status: 'failure',
-        errorCode: 'LIBREOFFICE_CONVERSION_FAILED',
-        errorMessage: error,
+        status: 'success',
+        errorCode: 'PDF_TEXT_EMPTY',
+        errorMessage: warning,
         sourceTextRuns,
         pdfBytes,
       });
-      return { success: false, slideCount: pageCount, renders: [], warnings, errors: [error], method };
     }
     const lastPage = Math.min(pageCount, options?.maxSlides && options.maxSlides > 0 ? options.maxSlides : pageCount);
     log({ stage: 'PDF_READY', status: 'success', pages: pageCount, requested: lastPage });
+    classroomPptxPipelineLog('pdf_page_count', {
+      presentationId,
+      pdfBytes,
+      pdfPages: pageCount,
+    });
 
     const renders: SlideRenderResult[] = [];
     for (let index = 0; index < lastPage; index += 1) {
@@ -765,6 +836,10 @@ export async function renderPresentationSlidesLibreOffice(
       }
       const started = Date.now();
       log({ stage: 'RENDER_API_CALLED', slide, status: 'start' });
+      classroomPptxPipelineLog('slide_render_started', {
+        presentationId,
+        slideNumber: slide,
+      });
       try {
         await options?.onProgress?.({ slide, total: pageCount });
         const pageSvg = await renderPdfPageToSvg({
@@ -820,6 +895,11 @@ export async function renderPresentationSlidesLibreOffice(
           durationMs: Date.now() - started,
           bytes: render.svgLength,
         });
+        classroomPptxPipelineLog('slide_render_completed', {
+          presentationId,
+          slideNumber: slide,
+          durationMs: Date.now() - started,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const code = /TIMEOUT/.test(message)
@@ -860,6 +940,7 @@ export async function renderPresentationSlidesLibreOffice(
       method,
       pdfBytes,
       pdfText,
+      pdfBuffer: producedPdfBuffer,
     };
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
