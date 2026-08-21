@@ -706,7 +706,7 @@ export function InteractiveClassroomEditor() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-full min-h-0 items-center justify-center bg-background">
         <div className="text-center space-y-3">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" />
           <p className="text-sm text-muted-foreground">Loading presentation…</p>
@@ -717,7 +717,7 @@ export function InteractiveClassroomEditor() {
 
   if (!presentation) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-full min-h-0 items-center justify-center bg-background">
         <p className="text-muted-foreground">Presentation not found</p>
       </div>
     );
@@ -728,7 +728,7 @@ export function InteractiveClassroomEditor() {
     : -1;
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-background">
       {/* Top toolbar */}
       <header className="h-14 shrink-0 border-b bg-card px-3 flex items-center gap-2 min-w-0">
         <div className="flex items-center gap-1 shrink-0">

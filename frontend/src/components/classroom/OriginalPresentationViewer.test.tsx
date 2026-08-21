@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { OriginalPresentationViewer, clearClassroomPptxBufferCache, prepareSlideSvg } from "./OriginalPresentationViewer";
+import { OriginalPresentationViewer, clearClassroomPptxBufferCache, prepareSlideSvg, fitSlideToStage } from "./OriginalPresentationViewer";
 import { fetchAuthenticatedUpload } from "@/lib/courseMediaUrls";
 
 vi.mock("pptx-svg", () => ({
@@ -67,6 +67,11 @@ describe("OriginalPresentationViewer", () => {
   beforeEach(() => {
     clearClassroomPptxBufferCache();
     mockedFetch.mockReset();
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
   });
 
   it("embeds public Google Slides without fetching the PPTX", async () => {
@@ -144,6 +149,8 @@ describe("OriginalPresentationViewer", () => {
     expect(prepared.markup).not.toMatch(/<svg[^>]*\bheight="540"/);
     expect(prepared.markup).toContain('width:100%');
     expect(prepared.markup).toContain('height:100%');
+    expect(prepared.markup).toContain('position:absolute');
+    expect(prepared.markup).not.toContain('max-width:100%');
   });
 
   it("handles 4:3 slide dimensions correctly", () => {
@@ -161,6 +168,40 @@ describe("OriginalPresentationViewer", () => {
     expect(prepared.width).toBeCloseTo(960);
     expect(prepared.height).toBeCloseTo(540);
     expect(prepared.markup).toContain('viewBox="0 0 960 540"');
+  });
+
+  it("does not overwrite pptx-svg drawing size with EMU/9525", () => {
+    const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" data-ooxml-slide-cx="12192000" data-ooxml-slide-cy="6858000" data-ooxml-scale="12700"><rect width="960" height="540"/></svg>';
+    const prepared = prepareSlideSvg(rawSvg);
+    expect(prepared.width).toBe(960);
+    expect(prepared.height).toBe(540);
+    expect(prepared.aspectRatio).toBeCloseTo(16 / 9);
+    expect(prepared.markup).toContain('viewBox="0 0 960 540"');
+    expect(prepared.markup).not.toContain('viewBox="0 0 1280');
+  });
+
+  it("uses data-ooxml-scale when width/height are missing", () => {
+    const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" data-ooxml-slide-cx="12192000" data-ooxml-slide-cy="6858000" data-ooxml-scale="12700"><g></g></svg>';
+    const prepared = prepareSlideSvg(rawSvg);
+    expect(prepared.width).toBeCloseTo(960);
+    expect(prepared.height).toBeCloseTo(540);
+    expect(prepared.markup).toContain('viewBox="0 0 960 540"');
+  });
+
+  it("fits a 16:9 slide to a wide stage using full height", () => {
+    const box = fitSlideToStage(1600, 700, 16 / 9);
+    expect(box.height).toBe(700);
+    expect(box.width).toBe(Math.floor(700 * (16 / 9)));
+    expect(box.offsetY).toBe(0);
+    expect(box.offsetX).toBeGreaterThan(0);
+  });
+
+  it("fits a 16:9 slide to a tall stage using full width", () => {
+    const box = fitSlideToStage(1000, 900, 16 / 9);
+    expect(box.width).toBe(1000);
+    expect(box.height).toBe(Math.floor(1000 / (16 / 9)));
+    expect(box.offsetX).toBe(0);
+    expect(box.offsetY).toBeGreaterThan(0);
   });
 });
 

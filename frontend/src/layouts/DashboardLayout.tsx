@@ -69,9 +69,13 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
   const isInteractiveClassroomLive =
     /\/instructor\/interactive-classroom\/session\//.test(location.pathname) ||
     /\/student\/classroom\/session\//.test(location.pathname);
+  const isInteractiveClassroomEditor =
+    /\/instructor\/interactive-classroom\/presentations\/[^/]+\/editor/.test(location.pathname) ||
+    /\/instructor\/interactive-classroom\/[^/]+\/edit\/?$/.test(location.pathname);
   const isImmersiveWorkspace =
     isLearnExperience || isImmersiveCoursePlayer || isQuizAuthoringStudio || isQuizRoomStudio || isInteractiveClassroomLive;
   const hideDashboardChrome = isImmersiveWorkspace;
+  const fillRemainingViewport = isImmersiveWorkspace || isInteractiveClassroomEditor;
   const sidebarBeforeImmersive = useRef<boolean | null>(null);
 
   useLayoutEffect(() => {
@@ -273,9 +277,11 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
         "flex flex-col flex-1 min-h-0 w-full transition-all duration-300",
         hideDashboardChrome
           ? "h-dvh pl-0"
-          : isSidebarOpen && isDesktop
-            ? "pl-72"
-            : "pl-0"
+          : fillRemainingViewport
+            ? cn("h-dvh", isSidebarOpen && isDesktop ? "pl-72" : "pl-0")
+            : isSidebarOpen && isDesktop
+              ? "pl-72"
+              : "pl-0"
       )}>
         {/* Top bar — hidden during immersive learn / workspace so it cannot cut into course outline */}
         {!hideDashboardChrome && (
@@ -312,7 +318,7 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
         <div
             className={cn(
               "flex-1 w-full min-w-0",
-              isImmersiveWorkspace
+              isImmersiveWorkspace || isInteractiveClassroomEditor
                 ? "min-h-0 p-0 overflow-hidden flex flex-col"
                 : "app-workspace app-workspace--lg app-workspace--section"
             )}
