@@ -446,8 +446,9 @@ export function OriginalPresentationViewer({
       };
     }
 
-    const availW = stageDimensions.width;
-    const availH = stageDimensions.height;
+    const padding = 24;
+    const availW = Math.max(1, stageDimensions.width - padding);
+    const availH = Math.max(1, stageDimensions.height - padding);
     const stageAspect = availW / availH;
 
     let renderedW: number;
@@ -465,12 +466,12 @@ export function OriginalPresentationViewer({
 
     const floorW = Math.max(1, Math.floor(renderedW));
     const floorH = Math.max(1, Math.floor(renderedH));
-    const offX = Math.floor((availW - floorW) / 2);
-    const offY = Math.floor((availH - floorH) / 2);
+    const offX = Math.floor((stageDimensions.width - floorW) / 2);
+    const offY = Math.floor((stageDimensions.height - floorH) / 2);
     const calculatedScale = floorW / slideDimensions.width;
 
     console.info(
-      `[PRESENTATION_LAYOUT_DEBUG] stageWidth=${availW} stageHeight=${availH} slideIntrinsicWidth=${slideDimensions.width} slideIntrinsicHeight=${slideDimensions.height} slideRenderedWidth=${floorW} slideRenderedHeight=${floorH} scale=${calculatedScale.toFixed(3)} offsetX=${offX} offsetY=${offY} aspectRatio=${slideAspect.toFixed(3)}`
+      `[PRESENTATION_LAYOUT_DEBUG] stageWidth=${stageDimensions.width} stageHeight=${stageDimensions.height} slideIntrinsicWidth=${slideDimensions.width} slideIntrinsicHeight=${slideDimensions.height} slideRenderedWidth=${floorW} slideRenderedHeight=${floorH} scale=${calculatedScale.toFixed(3)} offsetX=${offX} offsetY=${offY} aspectRatio=${slideAspect.toFixed(3)}`
     );
 
     return {
@@ -486,14 +487,14 @@ export function OriginalPresentationViewer({
     return (
       <div
         className={className}
-        style={{ width: "100%", height: "100%", background: "#000", overflow: "hidden" }}
+        style={{ width: "100%", height: "100%", background: "#080d1a", overflow: "hidden" }}
       >
         <iframe
           key={embedSrc}
           data-testid="classroom-google-embed"
           title={`Google Slides ${slideNumber}`}
           src={embedSrc}
-          style={{ width: "100%", height: "100%", border: 0, background: "#000", display: "block" }}
+          style={{ width: "100%", height: "100%", border: 0, background: "#080d1a", display: "block" }}
           allow="fullscreen"
           allowFullScreen
           onLoad={() => viewLog({ event: "google_iframe_load", presentationId, slide: slideNumber })}
@@ -515,7 +516,7 @@ export function OriginalPresentationViewer({
           height: "100%",
           display: "grid",
           placeItems: "center",
-          background: "#0f172a",
+          background: "#080d1a",
           color: "#e2e8f0",
         }}
       >
@@ -534,7 +535,7 @@ export function OriginalPresentationViewer({
           display: "grid",
           placeItems: "center",
           padding: 32,
-          background: "#0f172a",
+          background: "#080d1a",
           color: "#e2e8f0",
           textAlign: "center",
         }}
@@ -555,7 +556,7 @@ export function OriginalPresentationViewer({
       style={{
         width: "100%",
         height: "100%",
-        background: "#000",
+        background: "#080d1a",
         overflow: "hidden",
         display: "flex",
         alignItems: "center",
@@ -590,6 +591,9 @@ export function OriginalPresentationViewer({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          background: "#000000",
+          boxShadow: "0 10px 30px -5px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08)",
+          borderRadius: 4,
           overflow: "hidden",
         }}
       >

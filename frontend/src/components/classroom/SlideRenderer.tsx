@@ -1715,7 +1715,7 @@ export function SlideRenderer({
     return (
       <div
         ref={wrapperRef}
-        className={`flex items-center justify-center bg-black ${className}`}
+        className={`flex items-center justify-center bg-[#080d1a] ${className}`}
         onPointerMove={handlePointer}
         style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' }}
       >

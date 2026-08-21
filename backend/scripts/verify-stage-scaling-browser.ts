@@ -104,7 +104,7 @@ const html = `<!doctype html>
     justify-content: center;
     position: relative;
     overflow: hidden;
-    background: #000;
+    background: #080d1a;
   }
   
   .slide-viewport {
@@ -114,6 +114,9 @@ const html = `<!doctype html>
     justify-content: center;
     max-width: 100%;
     max-height: 100%;
+    background: #000000;
+    box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
     overflow: hidden;
   }
   
