@@ -101,12 +101,14 @@ export async function renderGoogleSlidesPdf(
   try {
     browser = await puppeteer.launch({
       headless: true,
+      timeout: 10000,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-web-security',
         '--disable-features=IsolateOrigins,site-per-process',
         '--disable-gpu',
+        '--disable-dev-shm-usage',
       ],
     });
 

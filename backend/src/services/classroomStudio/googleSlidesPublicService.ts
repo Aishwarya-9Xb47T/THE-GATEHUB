@@ -361,12 +361,11 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
       const slideCount = parsedPptx.slides.length;
       console.info(`[GoogleSlides] Extracted ${slideCount} structured slides from PPTX`);
 
-      // Render visual assets and thumbnails
-      // Use PDF buffer if available or render PPTX
+      // Render visual assets and thumbnails in background non-blockingly
       if (hasPdf) {
         const pdfBuffer = (pdfResult as { pdfBuffer: Buffer }).pdfBuffer;
-        await renderGoogleSlidesPdf(presentation.id, pdfBuffer).catch((err) => {
-          console.warn('[GoogleSlides] Visual PDF render warning:', err);
+        void renderGoogleSlidesPdf(presentation.id, pdfBuffer).catch((err) => {
+          console.warn('[GoogleSlides] Background visual PDF render warning:', err);
         });
       }
 
