@@ -3,8 +3,9 @@ import { fetchAuthenticatedUpload } from "@/lib/courseMediaUrls";
 import {
   classroomOriginalPptxUrl,
   classroomSlideVisualUrls,
-  googleSlidesEmbedUrl,
+  buildGoogleSlidesEmbedUrl,
   googleSlidesPresentationId,
+  shouldUseGoogleSlidesEmbed,
 } from "@/lib/classroom/originalPresentationUrls";
 import { isSvgMarkup } from "@/lib/classroom/classroomAssetUrls";
 
@@ -313,17 +314,19 @@ export function OriginalPresentationViewer({
 }) {
   const slideIndex = Math.max(0, slideNumber - 1);
   const googleId = googleSlidesId || googleSlidesPresentationId(sourceUrl);
-  const useGoogle = Boolean(googleId)
-    && visualSource !== "original_pptx"
-    && (visualSource === "google_embed" || sourceType === "google_slides");
-  const embedSrc = useGoogle && googleId ? googleSlidesEmbedUrl(googleId, slideNumber) : null;
+  const useGoogle = shouldUseGoogleSlidesEmbed({
+    sourceType,
+    visualSource,
+    googleSlidesId: googleId,
+    sourceUrl,
+  });
+  const embedSrc = useGoogle && googleId ? buildGoogleSlidesEmbedUrl(googleId, slideNumber) : null;
   const [svgMarkup, setSvgMarkup] = useState<string | null>(null);
   const [rasterUrl, setRasterUrl] = useState<string | null>(null);
   const [rasterDimensions, setRasterDimensions] = useState<{ width: number; height: number } | null>(null);
   const [stageDimensions, setStageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!useGoogle && !svgMarkup);
-  const [googleFailed, setGoogleFailed] = useState(false);
   const requestId = useRef(0);
   const rasterRef = useRef<string | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -333,7 +336,6 @@ export function OriginalPresentationViewer({
     setRasterUrl(null);
     setRasterDimensions(null);
     setError(null);
-    setGoogleFailed(false);
     if (rasterRef.current) {
       URL.revokeObjectURL(rasterRef.current);
       rasterRef.current = null;
@@ -341,7 +343,7 @@ export function OriginalPresentationViewer({
   }, [presentationId]);
 
   useEffect(() => {
-    if (embedSrc && !googleFailed) {
+    if (embedSrc) {
       viewLog({
         event: "google_embed",
         sourceType: "google_slides",
@@ -351,7 +353,7 @@ export function OriginalPresentationViewer({
         viewerInitialized: true,
       });
     }
-  }, [embedSrc, presentationId, slideNumber, googleFailed]);
+  }, [embedSrc, presentationId, slideNumber]);
 
   useEffect(() => {
     return () => {
@@ -378,10 +380,10 @@ export function OriginalPresentationViewer({
     const ro = new ResizeObserver(updateStage);
     ro.observe(stage);
     return () => ro.disconnect();
-  }, [svgMarkup, rasterUrl, embedSrc, googleFailed, loading, error]);
+  }, [svgMarkup, rasterUrl, embedSrc, loading, error]);
 
   useEffect(() => {
-    const skipPptx = Boolean(embedSrc) && !googleFailed;
+    const skipPptx = Boolean(embedSrc);
     if (skipPptx || !presentationId) {
       setLoading(false);
       return;
@@ -453,7 +455,7 @@ export function OriginalPresentationViewer({
         }
       }
     })();
-  }, [presentationId, slideIndex, slideNumber, embedSrc, googleFailed, sourceUrl, sourceType]);
+  }, [presentationId, slideIndex, slideNumber, embedSrc, sourceUrl, sourceType, useGoogle]);
 
   const preparedSvg = useMemo(() => (svgMarkup ? prepareSlideSvg(svgMarkup) : null), [svgMarkup]);
   const slideDebug =
@@ -539,10 +541,20 @@ export function OriginalPresentationViewer({
     maxHeight: "none",
   };
 
-  if (embedSrc && !googleFailed) {
+  if (embedSrc) {
     return (
       <div ref={stageRef} className={className} style={stageStyle}>
-        <div data-testid="classroom-google-viewport" style={viewportStyle}>
+        <div
+          data-testid="classroom-google-viewport"
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+            background: "transparent",
+          }}
+        >
           <iframe
             key={embedSrc}
             data-testid="classroom-google-embed"
@@ -554,7 +566,6 @@ export function OriginalPresentationViewer({
             onLoad={() => viewLog({ event: "google_iframe_load", presentationId, slide: slideNumber })}
             onError={() => {
               viewLog({ event: "google_iframe_error", presentationId, slide: slideNumber });
-              setGoogleFailed(true);
             }}
           />
         </div>

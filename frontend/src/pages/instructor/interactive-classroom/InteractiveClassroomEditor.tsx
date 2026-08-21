@@ -342,6 +342,15 @@ export function InteractiveClassroomEditor() {
         return;
       }
       const result = await response.json().catch(() => null);
+      if (result?.skipped || result?.reason === "google_embed") {
+        if (!options?.silent) {
+          toast({
+            title: "Google Slides is already the visual source",
+            description: "The official Google embed is shown. Background extraction does not replace it.",
+          });
+        }
+        return;
+      }
       if (result?.code === "CLASSROOM_RENDERING") {
         if (!options?.silent) {
           toast({

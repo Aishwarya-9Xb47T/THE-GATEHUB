@@ -121,8 +121,8 @@ export function InteractiveClassroomCreate() {
           console.info("[CLASSROOM_FRONTEND] create-response-presentation-id=" + presentationId);
           console.info("[CLASSROOM_FRONTEND] navigating-to-presentation-id=" + presentationId);
           toast({
-            title: "Google Slides imported",
-            description: `${slideCount ?? 0} slides saved. Opening the original presentation…`,
+            title: "Google Slides ready",
+            description: `${slideCount ?? 0} slides. Opening the original Google Slides presentation…`,
           });
           navigate(`/instructor/interactive-classroom/presentations/${presentationId}/editor`);
         };

@@ -17,6 +17,9 @@ import {
   parseClassroomAssetFilename,
   sanitizeClassroomAssetRest,
   classroomStorageRelatives,
+  buildGoogleSlidesEmbedUrl,
+  mergeExtractedSlideVisual,
+  buildOriginalSlideVisual,
 } from "../classroomAssetPath.js";
 import { classroomAssetLookupRelatives } from "../classroomAssetUrls.js";
 
@@ -118,5 +121,56 @@ describe("classroomAssetPath", () => {
       exclusiveRunning: true,
       jobStatus: "RENDERING",
     })).toBe("ready");
+  });
+
+  it("builds official Google embed URLs without duplicating query markers", () => {
+    expect(buildGoogleSlidesEmbedUrl("abc123", 1)).toBe(
+      "https://docs.google.com/presentation/d/abc123/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=1",
+    );
+    expect(buildGoogleSlidesEmbedUrl("abc123", 2)).toContain("slide=2");
+    expect(buildGoogleSlidesEmbedUrl("abc123", 10)).toContain("slide=10");
+    expect(buildGoogleSlidesEmbedUrl("abc123", 10).includes("??")).toBe(false);
+    expect(buildGoogleSlidesEmbedUrl("abc123", 10).split("?").length).toBe(2);
+  });
+
+  it("does not let background extraction overwrite a google_embed visual", () => {
+    const existing = {
+      type: "google_slides",
+      visualSource: "google_embed" as const,
+      embedUrl: "https://docs.google.com/presentation/d/abc123/embed?slide=1",
+      googleSlidesId: "abc123",
+      googleSlidesUrl: "https://docs.google.com/presentation/d/abc123/edit",
+      renderStatus: "ready",
+      availability: "available",
+    };
+    const extracted = {
+      type: "image",
+      visualSource: "original_pptx",
+      src: "/uploads/classroom/p/renders/slide-001.png",
+      embedUrl: "https://docs.google.com/presentation/d/abc123/embed?slide=1",
+      googleSlidesId: "abc123",
+    };
+    const merged = mergeExtractedSlideVisual(existing, extracted);
+    expect(merged.type).toBe("google_slides");
+    expect(merged.visualSource).toBe("google_embed");
+    expect(merged.embedUrl).toContain("/presentation/d/abc123/embed");
+    expect(merged.renderStatus).toBe("ready");
+  });
+
+  it("keeps google_embed when extraction rebuilds the visual from PPTX metadata", () => {
+    const next = buildOriginalSlideVisual("pres-1", 0, {
+      sourceType: "google_slides",
+      visualSource: "google_embed",
+      googleSlidesId: "abc123",
+      googleSlidesUrl: "https://docs.google.com/presentation/d/abc123/edit",
+      extractionStatus: "complete",
+    });
+    const merged = mergeExtractedSlideVisual(
+      { visualSource: "google_embed", embedUrl: String(next.embedUrl), googleSlidesId: "abc123" },
+      { ...next, type: "image", visualSource: "original_pptx" },
+    );
+    expect(merged.visualSource).toBe("google_embed");
+    expect(merged.type).toBe("google_slides");
+    expect(merged.extractionStatus).toBe("complete");
   });
 });

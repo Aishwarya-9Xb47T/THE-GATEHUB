@@ -5,6 +5,24 @@ import {
 } from "./classroomRenderState";
 
 describe("classroomRenderState", () => {
+  it("keeps Google Slides visually ready even if extraction or PDF stages are reported", () => {
+    expect(
+      classroomSlideUiState({
+        visual: { type: "google_slides", visualSource: "google_embed", availability: "available", renderStatus: "ready" },
+        pipelineStatus: "extracting",
+        sourceType: "google_slides",
+        imageReady: false,
+      }),
+    ).toBe("ready");
+    expect(
+      shouldPollClassroomRender({
+        status: "extracting",
+        sourceType: "google_slides",
+        slides: [{ content: { visual: { type: "google_slides", visualSource: "google_embed", availability: "available", renderStatus: "ready" } } }],
+      }),
+    ).toBe(false);
+  });
+
   it("treats original PPTX/Google visual sources as ready without PDF conversion", () => {
     expect(
       classroomSlideUiState({

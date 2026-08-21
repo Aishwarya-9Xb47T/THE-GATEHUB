@@ -75,18 +75,62 @@ describe("OriginalPresentationViewer", () => {
   });
 
   it("embeds public Google Slides without fetching the PPTX", async () => {
+    const { rerender } = render(
+      <OriginalPresentationViewer
+        presentationId="pres-g"
+        slideNumber={1}
+        sourceType="google_slides"
+        sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
+        visualSource="google_embed"
+      />,
+    );
+    let iframe = await screen.findByTestId("classroom-google-embed");
+    expect(iframe.getAttribute("src")).toContain("/presentation/d/abc123/embed");
+    expect(iframe.getAttribute("src")).toContain("slide=1");
+    expect(mockedFetch).not.toHaveBeenCalled();
+
+    rerender(
+      <OriginalPresentationViewer
+        presentationId="pres-g"
+        slideNumber={2}
+        sourceType="google_slides"
+        sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
+        visualSource="google_embed"
+      />,
+    );
+    iframe = await screen.findByTestId("classroom-google-embed");
+    expect(iframe.getAttribute("src")).toContain("slide=2");
+    expect(iframe.getAttribute("src")).toContain("/presentation/d/abc123/embed");
+
+    rerender(
+      <OriginalPresentationViewer
+        presentationId="pres-g"
+        slideNumber={10}
+        sourceType="google_slides"
+        sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
+        visualSource="google_embed"
+      />,
+    );
+    iframe = await screen.findByTestId("classroom-google-embed");
+    expect(iframe.getAttribute("src")).toContain("slide=10");
+    expect(iframe.getAttribute("src")).toContain("/presentation/d/abc123/embed");
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to PPTX when a public Google iframe reports an error", async () => {
     render(
       <OriginalPresentationViewer
         presentationId="pres-g"
-        slideNumber={3}
+        slideNumber={1}
         sourceType="google_slides"
         sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
         visualSource="google_embed"
       />,
     );
     const iframe = await screen.findByTestId("classroom-google-embed");
-    expect(iframe.getAttribute("src")).toContain("/presentation/d/abc123/embed");
-    expect(iframe.getAttribute("src")).toContain("slide=3");
+    iframe.dispatchEvent(new Event("error"));
+    expect(screen.getByTestId("classroom-google-embed")).toBeTruthy();
+    expect(screen.queryByTestId("classroom-original-pptx")).toBeNull();
     expect(mockedFetch).not.toHaveBeenCalled();
   });
 

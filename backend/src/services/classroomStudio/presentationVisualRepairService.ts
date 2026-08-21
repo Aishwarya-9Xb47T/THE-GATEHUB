@@ -439,6 +439,17 @@ export async function regeneratePresentationVisuals(
     });
   }
 
+  const googleEmbedReady = presentation.sourceType === "google_slides"
+    && presentation.slides.some((slide) => readSlideVisual(slide.content)?.visualSource === "google_embed");
+  if (googleEmbedReady || (presentation.sourceType === "google_slides" && presentation.slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content))))) {
+    return {
+      presentationId,
+      skipped: true,
+      reason: "google_embed",
+      slideCount: presentation.slides.length,
+    };
+  }
+
   const resolved = await resolvePresentationSource(presentationId);
   if (!resolved.ok) {
     console.warn("[CLASSROOM_REPAIR] source_not_found", {

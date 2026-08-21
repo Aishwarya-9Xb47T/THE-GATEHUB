@@ -89,9 +89,40 @@ export type PresentationRenderStatus = "rendering" | "rendering_partial" | "read
 
 export type OriginalVisualSource = "original_pptx" | "google_embed";
 
-export function googleSlidesEmbedUrl(presentationId: string, slideNumber: number): string {
+export function buildGoogleSlidesEmbedUrl(presentationId: string, slideNumber = 1): string {
+  const id = String(presentationId || "").trim();
   const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
-  return `https://docs.google.com/presentation/d/${encodeURIComponent(presentationId)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+  if (!id) return "";
+  return `https://docs.google.com/presentation/d/${encodeURIComponent(id)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+}
+
+export const googleSlidesEmbedUrl = buildGoogleSlidesEmbedUrl;
+
+export function mergeExtractedSlideVisual(
+  existing: SlideVisualRecord | null | undefined,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const existingSource = existing?.visualSource;
+  const nextSource = next.visualSource;
+  const keepGoogleEmbed = existingSource === "google_embed" || nextSource === "google_embed";
+  if (!keepGoogleEmbed) return next;
+  const embedUrl = existing?.embedUrl || next.embedUrl;
+  const googleSlidesId = existing?.googleSlidesId || next.googleSlidesId;
+  const googleSlidesUrl = existing?.googleSlidesUrl || next.googleSlidesUrl;
+  return {
+    ...next,
+    type: "google_slides",
+    visualSource: "google_embed",
+    embedUrl,
+    googleSlidesId,
+    googleSlidesUrl,
+    src: embedUrl || next.src,
+    availability: "available",
+    renderStatus: "ready",
+    errorCode: undefined,
+    errorMessage: undefined,
+    renderError: null,
+  };
 }
 
 export type SlideVisualRecord = {

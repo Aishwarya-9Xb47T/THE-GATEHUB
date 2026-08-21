@@ -397,7 +397,27 @@ describe('SlideRenderer', () => {
       },
     });
 
-    render(
+    const { rerender } = render(
+      <SlideRenderer
+        content={content as any}
+        title="Numerical example"
+        slideNumber={1}
+        presentationId="demo"
+        sourceType="google_slides"
+        sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
+        pipelineStatus="rendering"
+        renderStage="PPTX_TO_PDF"
+      />,
+    );
+
+    let embed = await screen.findByTestId("classroom-google-embed");
+    expect(embed.getAttribute("src")).toContain("/presentation/d/abc123/embed");
+    expect(embed.getAttribute("src")).toContain("slide=1");
+    expect(screen.queryByText("Slide visual is still rendering")).toBeNull();
+    expect(screen.queryByText("Converting PowerPoint to PDF...")).toBeNull();
+    expect(screen.queryByTestId("classroom-original-pptx")).toBeNull();
+
+    rerender(
       <SlideRenderer
         content={content as any}
         title="Numerical example"
@@ -405,15 +425,12 @@ describe('SlideRenderer', () => {
         presentationId="demo"
         sourceType="google_slides"
         sourceUrl="https://docs.google.com/presentation/d/abc123/edit"
-        pipelineStatus="rendering"
+        pipelineStatus="extracting"
       />,
     );
-
-    const embed = await screen.findByTestId("classroom-google-embed");
-    expect(embed.getAttribute("src")).toContain("/presentation/d/abc123/embed");
+    embed = await screen.findByTestId("classroom-google-embed");
     expect(embed.getAttribute("src")).toContain("slide=2");
-    expect(screen.queryByText("Slide visual is still rendering")).toBeNull();
-    expect(screen.queryByText("Converting PowerPoint to PDF...")).toBeNull();
+    expect(embed.getAttribute("src")).toContain("/presentation/d/abc123/embed");
   });
 
   it('does not use extracted equations as the visual when the PNG cannot be loaded', async () => {

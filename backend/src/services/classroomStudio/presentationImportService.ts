@@ -30,6 +30,8 @@ import {
   canonicalSourceRelative,
   buildOriginalSlideVisual,
   buildSlideVisual,
+  mergeExtractedSlideVisual,
+  readSlideVisual,
   PPTX_MIME,
   PNG_MIME,
 } from './classroomAssetPath.js';
@@ -97,6 +99,10 @@ export interface ImportPresentationResult {
   extractionStatus?: string;
   visualRenderStatus?: string;
   overallStatus?: string;
+  visualStatus?: string;
+  sourceType?: PresentationSourceType;
+  sourceUrl?: string;
+  embedUrl?: string;
   renderedCount?: number;
   method?: string;
   code?: string;
@@ -718,6 +724,14 @@ export async function enrichExtractedContentInBackground(args: {
         if (!extracted) continue;
         const contentRest = { ...((extracted.content ?? {}) as Record<string, unknown>) };
         delete contentRest.ooxml;
+        delete contentRest.visual;
+        const nextVisual = buildOriginalSlideVisual(args.presentationId, index, {
+          sourceType: args.sourceType,
+          visualSource: args.visualSource,
+          googleSlidesId: args.sourceType === 'google_slides' ? googleSlidesId : undefined,
+          googleSlidesUrl: args.googleSlidesUrl,
+          extractionStatus: 'complete',
+        });
         await prisma.slide.update({
           where: { id: slide.id },
           data: {
@@ -725,13 +739,7 @@ export async function enrichExtractedContentInBackground(args: {
             notes: extracted.notes,
             content: {
               ...contentRest,
-              visual: buildOriginalSlideVisual(args.presentationId, index, {
-                sourceType: args.sourceType,
-                visualSource: args.visualSource,
-                googleSlidesId: args.sourceType === 'google_slides' ? googleSlidesId : undefined,
-                googleSlidesUrl: args.googleSlidesUrl,
-                extractionStatus: 'complete',
-              }),
+              visual: mergeExtractedSlideVisual(readSlideVisual(slide.content), nextVisual),
             },
           },
         });
@@ -761,11 +769,54 @@ export async function importPresentation(
     instructorId: input.instructorId,
   });
 
+  if (input.sourceType === 'google_slides' && !input.file && input.sourceUrl) {
+    const { importPublicGoogleSlides } = await import('./googleSlidesPublicService.js');
+    const publicResult = await importPublicGoogleSlides({
+      instructorId: input.instructorId,
+      url: input.sourceUrl,
+      title: input.title,
+      description: input.description,
+    });
+    if (publicResult.success && publicResult.presentationId) {
+      console.info('[CLASSROOM_IMPORT] public_google_embed_ready', {
+        presentationId: publicResult.presentationId,
+        slideCount: publicResult.slideCount,
+        visualStatus: publicResult.visualStatus,
+        extractionStatus: publicResult.extractionStatus,
+      });
+      return {
+        presentationId: publicResult.presentationId,
+        slideCount: publicResult.slidesImported ?? publicResult.slideCount ?? 0,
+        sourceSlideCount: publicResult.sourceSlideCount,
+        warnings: publicResult.warnings,
+        extractionWarnings: [],
+        renderErrors: [],
+        sourcePptxStatus: 'n/a',
+        extractionStatus: publicResult.extractionStatus || 'pending',
+        visualRenderStatus: 'complete',
+        overallStatus: 'ready',
+        visualStatus: 'ready',
+        sourceType: 'google_slides',
+        sourceUrl: publicResult.sourceUrl || input.sourceUrl,
+        embedUrl: publicResult.embedUrl,
+        slidesSucceeded: publicResult.slidesImported,
+        slidesFailed: 0,
+        failedSlideNumbers: [],
+        code: 'CLASSROOM_SOURCE_READY',
+      };
+    }
+    if (!publicResult.requiresAuthentication) {
+      throw new AppError(400, publicResult.error || 'GOOGLE_SLIDES_IMPORT_FAILED', true, {
+        code: String(publicResult.error || 'GOOGLE_SLIDES_IMPORT_FAILED').split(':')[0].trim(),
+        stage: 'google-public',
+      });
+    }
+    console.info('[CLASSROOM_IMPORT] public_google_requires_auth falling_back_to_oauth_pptx');
+  }
+
   const isPptxPipeline = input.sourceType === 'powerpoint' || input.sourceType === 'google_slides';
   const onProgress = input.onProgress ?? (async () => undefined);
-  const providedSourceFile = Boolean(input.file);
-  const originalVisualSource: 'original_pptx' | 'google_embed' =
-    input.sourceType === 'google_slides' && providedSourceFile ? 'google_embed' : 'original_pptx';
+  const originalVisualSource: 'original_pptx' | 'google_embed' = 'original_pptx';
 
   if (input.sourceType === 'powerpoint') {
     if (!input.file || !isValidPptxBuffer(input.file)) {
@@ -943,7 +994,9 @@ export async function importPresentation(
         visualSource: originalVisualSource,
         googleSlidesUrl: input.sourceType === 'google_slides' ? input.sourceUrl : undefined,
       });
-      void startClassroomVisualCache(presentation.id);
+      if (input.sourceType === 'powerpoint') {
+        void startClassroomVisualCache(presentation.id);
+      }
 
       await onProgress({ stage: 'ready', percent: 100, message: 'Presentation ready.' });
       const sourceRelative = canonicalSourceRelative(presentation.id);
@@ -954,7 +1007,7 @@ export async function importPresentation(
       console.info('[CLASSROOM_IMPORT] stage=create-success', {
         presentationId: presentation.id,
         overallStatus: 'ready',
-        visualSource: input.sourceType === 'google_slides' ? 'google_embed' : 'original_pptx',
+        visualSource: originalVisualSource,
         slideCount: committed?._count.slides,
       });
       return {
@@ -968,6 +1021,9 @@ export async function importPresentation(
         extractionStatus: 'pending',
         visualRenderStatus: 'complete',
         overallStatus: 'ready',
+        visualStatus: 'ready',
+        sourceType: input.sourceType,
+        sourceUrl: input.sourceUrl,
         renderedCount: slideCount,
         slidesSucceeded: slideCount,
         slidesFailed: 0,
@@ -1210,7 +1266,6 @@ export async function updatePresentationFromSource(
     visualSource: 'google_embed',
     googleSlidesUrl: presentation.sourceUrl || undefined,
   });
-  void startClassroomVisualCache(presentationId);
 
   if (warnings.length) {
     console.warn('[Classroom import] Sync warnings', { presentationId, warnings });

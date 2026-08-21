@@ -33,6 +33,13 @@ describe("public Google Slides probe", () => {
     expect(parsed.slideCount).toBe(11);
   });
 
+  it("does not invent a slide count when public metadata is missing", () => {
+    const parsed = parseGoogleSlidesProbeHtml("<html>punch-viewer embed-container</html>", "https://docs.google.com/presentation/d/abc/embed?slide=1");
+    expect(parsed.accessible).toBe(true);
+    expect(parsed.requiresAuthentication).toBe(false);
+    expect(parsed.slideCount).toBeUndefined();
+  });
+
   it("reads slide indexes from Google viewerData", () => {
     const parsed = parseGoogleSlidesProbeHtml(
       String.raw`var viewerData = {docData: [[1,1],[["p",0,"Title"],["gabc_1",1,"One"],["gabc_2",2,"Two"],["gabc_3",3,"Three"]]}`,

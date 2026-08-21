@@ -6,9 +6,27 @@ export function googleSlidesPresentationId(url?: string | null): string | null {
   return match?.[1] ?? null;
 }
 
-export function googleSlidesEmbedUrl(presentationId: string, slideNumber: number): string {
+export function buildGoogleSlidesEmbedUrl(presentationId: string, slideNumber = 1): string {
+  const id = String(presentationId || "").trim();
   const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
-  return `https://docs.google.com/presentation/d/${encodeURIComponent(presentationId)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+  if (!id) return "";
+  return `https://docs.google.com/presentation/d/${encodeURIComponent(id)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+}
+
+export const googleSlidesEmbedUrl = buildGoogleSlidesEmbedUrl;
+
+export function shouldUseGoogleSlidesEmbed(args: {
+  sourceType?: string | null;
+  visualSource?: string | null;
+  googleSlidesId?: string | null;
+  sourceUrl?: string | null;
+}): boolean {
+  if (args.visualSource === "original_pptx") return false;
+  const id = args.googleSlidesId || googleSlidesPresentationId(args.sourceUrl);
+  if (!id) return false;
+  return args.visualSource === "google_embed"
+    || args.visualSource === "google_slides"
+    || args.sourceType === "google_slides";
 }
 
 export function classroomOriginalPptxUrl(presentationId: string): string {
