@@ -54,6 +54,14 @@ describe("public Google Slides probe", () => {
     expect(parsed.slideCount).toBeUndefined();
   });
 
+  it("counts PPTX-imported Google slides whose ids are p1, p2, p10 rather than g...", () => {
+    const html = String.raw`var viewerData = {docId: 'unit2', title: 'Unit-2 Discussion.pptx', docData: [[487680,274320],[["p1",0,"Numerical example of 3D convolution"],["p2",1,"Case 2"],["g33dc27e2992_0_8",2,"Three"],["g33dc27e2992_0_18",3,"Four"],["p4",4,"Five"],["p5",5,"Six"],["p7",6,"Seven"],["p6",7,"Eight"],["p8",8,"Nine"],["p9",9,"Ten"],["p10",10,"Eleven"]]}`;
+    const parsed = parseGoogleSlidesProbeHtml(`<html>${html}</html>`, "https://docs.google.com/presentation/d/unit2/embed", "unit2");
+    expect(parsed.accessible).toBe(true);
+    expect(parsed.slideCount).toBe(11);
+    expect(parseReliableGoogleSlideCount(html)?.slideCount).toBe(11);
+  });
+
   it("counts the first Google slide even when its id is p instead of g...", () => {
     const parsed = parseGoogleSlidesProbeHtml(
       `<html>${THIRTEEN_SLIDE_VIEWER} ["geometric",16,"] ["gameday",22,"]</html>`,

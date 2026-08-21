@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { OriginalPresentationViewer, clearClassroomPptxBufferCache, prepareSlideSvg, fitSlideToStage } from "./OriginalPresentationViewer";
+import { OriginalPresentationViewer, clearClassroomPptxBufferCache, prepareSlideSvg, fitSlideToStage, fitGoogleEmbedStage } from "./OriginalPresentationViewer";
 import { fetchAuthenticatedUpload } from "@/lib/courseMediaUrls";
 
 vi.mock("pptx-svg", () => ({
@@ -89,6 +89,8 @@ describe("OriginalPresentationViewer", () => {
     expect(iframe.getAttribute("src")).toContain("slide=1");
     expect(iframe.getAttribute("src")).not.toContain("rm=minimal");
     expect(iframe.getAttribute("data-visual-source")).toBe("google_embed");
+    expect(screen.getByTestId("classroom-google-stage")).toBeTruthy();
+    expect(screen.getByTestId("classroom-google-viewport")).toBeTruthy();
     expect(mockedFetch).not.toHaveBeenCalled();
 
     rerender(
@@ -248,6 +250,18 @@ describe("OriginalPresentationViewer", () => {
     expect(box.height).toBe(Math.floor(1000 / (16 / 9)));
     expect(box.offsetX).toBe(0);
     expect(box.offsetY).toBeGreaterThan(0);
+  });
+
+  it("fits a 16:9 Google embed to a wide stage using full height", () => {
+    const box = fitGoogleEmbedStage(1600, 700);
+    expect(box.height).toBe(700);
+    expect(box.width).toBe(Math.floor(700 * (16 / 9)));
+  });
+
+  it("fits a 16:9 Google embed to a tall stage using full width", () => {
+    const box = fitGoogleEmbedStage(1000, 900);
+    expect(box.width).toBe(1000);
+    expect(box.height).toBe(Math.floor(1000 / (16 / 9)));
   });
 });
 

@@ -271,15 +271,14 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
       };
     }
 
-    let slideCount = probe.slideCount && probe.slideCount > 0 ? probe.slideCount : 0;
-    let countSource: 'viewerData' | 'slideCount' | 'pptx_zip' = probe.countSource || 'viewerData';
+    const googleCount = probe.slideCount && probe.slideCount > 0 ? probe.slideCount : 0;
+    let pptxCount = 0;
     let countBuffer: Buffer | undefined;
-    if (!slideCount) {
+    try {
       const pptxResult = await downloadPublicGoogleSlidesPptx(googlePresentationId);
       if ('fileBuffer' in pptxResult) {
         const inspection = await inspectPptxArchive(pptxResult.fileBuffer);
-        slideCount = inspection.slideCount;
-        countSource = 'pptx_zip';
+        pptxCount = inspection.slideCount || 0;
         countBuffer = pptxResult.fileBuffer;
       } else {
         console.warn('[CLASSROOM_IMPORT] public_google_count_pptx_unavailable', {
@@ -287,13 +286,29 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
           reason: 'error' in pptxResult ? pptxResult.error : 'export_login_wall',
         });
       }
-    } else {
-      console.info('[CLASSROOM_IMPORT] public_google_slide_count', {
+    } catch (error) {
+      console.warn('[CLASSROOM_IMPORT] public_google_count_pptx_unavailable', {
         googlePresentationId,
-        slideCount,
-        countSource,
+        reason: error instanceof Error ? error.message : String(error),
       });
     }
+
+    const slideCount = Math.max(googleCount, pptxCount);
+    const countSource: 'viewerData' | 'slideCount' | 'pptx_zip' =
+      googleCount >= pptxCount && googleCount > 0
+        ? (probe.countSource || 'viewerData')
+        : pptxCount > 0
+          ? 'pptx_zip'
+          : (probe.countSource || 'viewerData');
+
+    console.info('[CLASSROOM_IMPORT] public_google_slide_count', {
+      googlePresentationId,
+      viewerDataCount: googleCount,
+      pptxSlideCount: pptxCount,
+      creatingSlides: slideCount,
+      countSource,
+    });
+
     if (!slideCount) {
       return {
         success: false,

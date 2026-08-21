@@ -11,36 +11,38 @@ const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const GOOGLE_SLIDE_ENTRY =
-  /\["(p|g[0-9a-fA-F]+(?:_[0-9]+)+)",(\d+),"/g;
+  /\["(p\d*|g[0-9a-fA-F]+(?:_[0-9]+)+)",(\d+),"/g;
 
 export function parseReliableGoogleSlideCount(html: string): { slideCount: number; source: "viewerData" | "slideCount" } | undefined {
   const text = String(html || "");
-  const explicit = text.match(/"slideCount"\s*:\s*(\d+)/);
-  if (explicit) {
-    const n = Number(explicit[1]);
-    if (Number.isFinite(n) && n >= 1 && n <= 500) {
-      return { slideCount: n, source: "slideCount" };
-    }
-  }
+  const viewer = text.match(/var viewerData = \{[\s\S]{0,2000000}/)?.[0] || text;
 
-  const viewer = text.match(/var viewerData = \{[\s\S]{0,500000}/)?.[0] || text;
   const indexes = [...viewer.matchAll(GOOGLE_SLIDE_ENTRY)]
     .map((match) => Number(match[2]))
     .filter((n) => Number.isFinite(n) && n >= 0 && n <= 500);
-  if (!indexes.length) return undefined;
 
-  const unique = [...new Set(indexes)].sort((a, b) => a - b);
-  const min = unique[0];
-  const max = unique[unique.length - 1];
-  if (min === 0 && unique.length === max + 1) {
-    return { slideCount: unique.length, source: "viewerData" };
+  let fromEntries: number | undefined;
+  if (indexes.length) {
+    const unique = [...new Set(indexes)].sort((a, b) => a - b);
+    const min = unique[0];
+    const max = unique[unique.length - 1];
+    if (min === 0 && unique.length === max + 1) fromEntries = unique.length;
+    else if (min === 1 && unique.length === max) fromEntries = unique.length;
+    else fromEntries = unique.length;
   }
-  if (min === 1 && unique.length === max) {
-    return { slideCount: unique.length, source: "viewerData" };
+
+  const explicit = viewer.match(/"slideCount"\s*:\s*(\d+)/);
+  const fromJson = explicit ? Number(explicit[1]) : undefined;
+  const usableJson = Number.isFinite(fromJson) && fromJson >= 1 && fromJson <= 500 ? fromJson : undefined;
+
+  if (fromEntries && usableJson) {
+    return {
+      slideCount: Math.max(fromEntries, usableJson),
+      source: fromEntries >= usableJson ? "viewerData" : "slideCount",
+    };
   }
-  if (unique.length >= 1 && unique.length <= 500) {
-    return { slideCount: unique.length, source: "viewerData" };
-  }
+  if (fromEntries) return { slideCount: fromEntries, source: "viewerData" };
+  if (usableJson) return { slideCount: usableJson, source: "slideCount" };
   return undefined;
 }
 

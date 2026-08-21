@@ -197,6 +197,22 @@ function parsePositiveNumber(value: string | undefined): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+export function fitGoogleEmbedStage(
+  stageWidth: number,
+  stageHeight: number,
+): { width: number; height: number } {
+  const aspect = 16 / 9;
+  const availW = Math.max(1, stageWidth);
+  const availH = Math.max(1, stageHeight);
+  const stageAspect = availW / availH;
+  if (stageAspect > aspect) {
+    const height = availH;
+    return { width: Math.max(1, Math.floor(height * aspect)), height: Math.max(1, Math.floor(height)) };
+  }
+  const width = availW;
+  return { width: Math.max(1, Math.floor(width)), height: Math.max(1, Math.floor(width / aspect)) };
+}
+
 export function fitSlideToStage(
   stageWidth: number,
   stageHeight: number,
@@ -485,8 +501,15 @@ export function OriginalPresentationViewer({
     return { ...box, scale, ready: true, slideAspect };
   }, [stageDimensions, slideDimensions]);
 
+  const googleFit = useMemo(() => {
+    if (!stageDimensions || stageDimensions.width <= 0 || stageDimensions.height <= 0) {
+      return { width: 0, height: 0, ready: false };
+    }
+    return { ...fitGoogleEmbedStage(stageDimensions.width, stageDimensions.height), ready: true };
+  }, [stageDimensions]);
+
   useEffect(() => {
-    if (!fitted.ready || !stageDimensions) return;
+    if (embedSrc || !fitted.ready || !stageDimensions) return;
     viewLog({
       event: "stage_fit",
       presentationId,
@@ -500,7 +523,20 @@ export function OriginalPresentationViewer({
       scale: Number(fitted.scale.toFixed(4)),
       aspectRatio: Number(fitted.slideAspect.toFixed(4)),
     });
-  }, [fitted, stageDimensions, slideDimensions, presentationId, slideNumber]);
+  }, [fitted, stageDimensions, slideDimensions, presentationId, slideNumber, embedSrc]);
+
+  useEffect(() => {
+    if (!embedSrc || !googleFit.ready || !stageDimensions) return;
+    viewLog({
+      event: "google_stage_fit",
+      presentationId,
+      slide: slideNumber,
+      stageWidth: stageDimensions.width,
+      stageHeight: stageDimensions.height,
+      iframeWidth: googleFit.width,
+      iframeHeight: googleFit.height,
+    });
+  }, [embedSrc, googleFit, stageDimensions, presentationId, slideNumber]);
 
   const stageStyle: React.CSSProperties = {
     width: "100%",
@@ -543,18 +579,46 @@ export function OriginalPresentationViewer({
 
   if (embedSrc) {
     return (
-      <div ref={stageRef} className={className} style={stageStyle}>
+      <div
+        ref={stageRef}
+        data-testid="classroom-google-stage"
+        className={className}
+        style={{
+          width: "100%",
+          height: "100%",
+          minWidth: 0,
+          minHeight: 0,
+          overflow: "hidden",
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#000",
+        }}
+      >
         <div
           data-testid="classroom-google-viewport"
           data-visual-source="google_embed"
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            overflow: "hidden",
-            background: "transparent",
-          }}
+          style={
+            googleFit.ready
+              ? {
+                  width: googleFit.width,
+                  height: googleFit.height,
+                  position: "relative",
+                  overflow: "hidden",
+                  flex: "0 0 auto",
+                }
+              : {
+                  width: "100%",
+                  height: "100%",
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  aspectRatio: "16 / 9",
+                  position: "relative",
+                  overflow: "hidden",
+                  flex: "0 0 auto",
+                }
+          }
         >
           <iframe
             key={embedSrc}
@@ -562,7 +626,15 @@ export function OriginalPresentationViewer({
             data-visual-source="google_embed"
             title={`Google Slides ${slideNumber}`}
             src={embedSrc}
-            style={{ ...mediaFillStyle, border: 0, background: "#0f172a" }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              border: 0,
+              display: "block",
+              background: "#000",
+            }}
             allow="fullscreen"
             allowFullScreen
             onLoad={() => viewLog({ event: "google_iframe_load", presentationId, slide: slideNumber })}
