@@ -6,7 +6,11 @@ import { getObjectStream, listObjectKeys } from "../b2StorageService.js";
 import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload, streamMemoryUpload } from "../../middlewares/persistUpload.js";
 import { classroomAssetLookupRelatives } from "./classroomAssetUrls.js";
 import { classroomAssetAccessDecision } from "./classroomAssetAccess.js";
-import { getPresentationOriginalSource, readOriginalPptxFromDatabase } from "./classroomSourceResolver.js";
+import {
+  getPresentationOriginalSource,
+  readOriginalPptxFromDatabase,
+  resolveOriginalPresentationSource,
+} from "./classroomSourceResolver.js";
 import {
   CLASSROOM_SOURCE_REST,
   PPTX_MIME,
@@ -134,10 +138,10 @@ export async function streamClassroomPresentationAsset(
   }
 
   if (safeRest === CLASSROOM_SOURCE_REST || /(^|\/)original\.pptx$/i.test(safeRest)) {
-    const source = await getPresentationOriginalSource(presentationId);
+    const source = await resolveOriginalPresentationSource(presentationId);
 
-    if (source.exists && source.origin === "local" && source.absoluteStoragePath) {
-      const streamed = await streamLocalUpload(res, source.absoluteStoragePath, {
+    if (source.exists && source.origin === "local" && source.absolutePath) {
+      const streamed = await streamLocalUpload(res, source.absolutePath, {
         range: options?.range,
         method: options?.method,
         origin: options?.origin,
@@ -147,7 +151,7 @@ export async function streamClassroomPresentationAsset(
       if (streamed) {
         console.info("[CLASSROOM_ASSET] streamed", {
           presentationId,
-          relative: source.relativeStoragePath,
+          relative: source.storageKey,
           origin: "local",
           status: 200,
         });
@@ -155,10 +159,10 @@ export async function streamClassroomPresentationAsset(
       }
     }
 
-    if (source.origin === "b2" && source.key) {
+    if (source.origin === "b2" && source.storageKey) {
       try {
         const b2Range = options?.range;
-        const streamed = await getObjectStream(source.key, b2Range);
+        const streamed = await getObjectStream(source.storageKey, b2Range);
         applyUploadCorsHeaders(res, options?.origin);
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Accept-Ranges", "bytes");
@@ -171,7 +175,7 @@ export async function streamClassroomPresentationAsset(
           streamed.body.resume?.();
           console.info("[CLASSROOM_ASSET] streamed", {
             presentationId,
-            relative: source.relativeStoragePath,
+            relative: source.storageKey,
             origin: "b2",
             status: 200,
             head: 1,
@@ -184,7 +188,7 @@ export async function streamClassroomPresentationAsset(
         streamed.body.on("error", (err) => {
           console.error("[CLASSROOM_ASSET] stream_error", {
             presentationId,
-            key: source.key,
+            key: source.storageKey,
             message: err instanceof Error ? err.message : "unknown",
           });
           if (!res.headersSent) res.status(502).end();
@@ -193,7 +197,7 @@ export async function streamClassroomPresentationAsset(
         streamed.body.pipe(res);
         console.info("[CLASSROOM_ASSET] streamed", {
           presentationId,
-          relative: source.relativeStoragePath,
+          relative: source.storageKey,
           origin: "b2",
           status: streamed.status || 200,
         });
@@ -201,15 +205,15 @@ export async function streamClassroomPresentationAsset(
       } catch (error) {
         console.error("[CLASSROOM_ASSET] b2_get_failed", {
           presentationId,
-          key: source.key,
+          key: source.storageKey,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
 
-    const stored = await readOriginalPptxFromDatabase(presentationId);
-    if (stored) {
-      const streamed = streamMemoryUpload(res, stored.buffer, {
+    const storedBuffer = source.buffer || (await readOriginalPptxFromDatabase(presentationId))?.buffer;
+    if (storedBuffer && storedBuffer.length > 0) {
+      const streamed = streamMemoryUpload(res, storedBuffer, {
         range: options?.range,
         method: options?.method,
         origin: options?.origin,
@@ -219,7 +223,7 @@ export async function streamClassroomPresentationAsset(
       if (streamed) {
         console.info("[CLASSROOM_ASSET] streamed", {
           presentationId,
-          relative: source.relativeStoragePath,
+          relative: source.storageKey,
           origin: "database",
           status: 200,
         });
@@ -230,9 +234,9 @@ export async function streamClassroomPresentationAsset(
     throw new AppError(404, "Original PowerPoint was not found in storage", true, {
       code: "ORIGINAL_PPTX_UNAVAILABLE",
       stage: "storage",
-      reason: source.reason || "FILE_NOT_FOUND",
+      reason: "FILE_NOT_FOUND",
       presentationId,
-      sourceKey: source.relativeStoragePath,
+      sourceKey: source.storageKey,
     });
   }
 

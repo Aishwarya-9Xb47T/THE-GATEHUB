@@ -148,10 +148,14 @@ export async function getPresentationById(
 
   const importLocked = ['import_failed', 'extraction_failed', 'uploading', 'extracting'].includes(presentation.status);
   const hasVisualPipeline = slides.some((slide) => readSlideVisual(slide.content));
+  const isSourcePresentation = presentation.sourceType === 'powerpoint'
+    || presentation.sourceType === 'google_slides'
+    || originalSourceReady;
+
   let status = presentation.status;
-  if (originalSourceReady) {
+  if (isSourcePresentation) {
     status = 'ready';
-    if (presentation.status !== 'ready') {
+    if (presentation.status !== 'ready' && !['draft', 'archived'].includes(presentation.status)) {
       await prisma.presentation.update({
         where: { id: presentation.id },
         data: { status: 'ready' },

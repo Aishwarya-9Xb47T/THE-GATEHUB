@@ -20,6 +20,9 @@ build/
 .vite/
 .output/
 .nuxt/
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Environment Variables (Never commit secrets)
 .env

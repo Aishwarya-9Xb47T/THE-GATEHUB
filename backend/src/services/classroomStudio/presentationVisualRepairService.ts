@@ -261,15 +261,23 @@ async function writePresentationStatusIfCurrentJob(args: {
   }
   let nextStatus = args.status;
   if (nextStatus !== "ready") {
-    const slides = await prisma.slide.findMany({
-      where: { presentationId: args.presentationId },
-      select: { content: true },
+    const presentation = await prisma.presentation.findUnique({
+      where: { id: args.presentationId },
+      select: { sourceType: true },
     });
-    if (
-      slides.length > 0
-      && slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)))
-    ) {
+    if (presentation?.sourceType === "powerpoint" || presentation?.sourceType === "google_slides") {
       nextStatus = "ready";
+    } else {
+      const slides = await prisma.slide.findMany({
+        where: { presentationId: args.presentationId },
+        select: { content: true },
+      });
+      if (
+        slides.length > 0
+        && slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)))
+      ) {
+        nextStatus = "ready";
+      }
     }
   }
   logRenderState({

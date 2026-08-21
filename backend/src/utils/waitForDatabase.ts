@@ -7,6 +7,12 @@ export async function waitForDatabase(maxAttempts = 30, delayMs = 2000): Promise
       if (attempt > 1) {
         console.log(`[PRISMA] Database connected on attempt ${attempt}`);
       }
+      try {
+        const { ensureClassroomOriginalFileTable } = await import("../services/classroomStudio/classroomSourceResolver.js");
+        await ensureClassroomOriginalFileTable();
+      } catch {
+        /* table ensure optional */
+      }
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

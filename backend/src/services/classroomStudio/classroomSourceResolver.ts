@@ -132,6 +132,26 @@ export function diagnoseMissingOriginalSource(args: {
   return "FILE_NOT_FOUND";
 }
 
+export async function ensureClassroomOriginalFileTable(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "PresentationOriginalFile" (
+        "presentation_id" TEXT NOT NULL,
+        "bytes" BYTEA NOT NULL,
+        "size" INTEGER NOT NULL,
+        "sha256" VARCHAR(64) NOT NULL,
+        "mime_type" TEXT NOT NULL DEFAULT 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "PresentationOriginalFile_pkey" PRIMARY KEY ("presentation_id"),
+        CONSTRAINT "PresentationOriginalFile_presentation_id_fkey" FOREIGN KEY ("presentation_id") REFERENCES "Presentation"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+  } catch (error) {
+    console.warn("[CLASSROOM_SOURCE] ensure_table_warning", error instanceof Error ? error.message : String(error));
+  }
+}
+
 /** Kept for callers. Object storage is optional; Postgres holds original.pptx when B2 is unset. */
 export function requireDurableClassroomStorage(): void {
   if (isEphemeralHost() && !isB2Configured()) {
@@ -145,6 +165,7 @@ export async function persistOriginalPptxToDatabase(args: {
   sha256: string;
 }): Promise<{ size: number }> {
   try {
+    await ensureClassroomOriginalFileTable();
     await prisma.presentationOriginalFile.upsert({
       where: { presentationId: args.presentationId },
       create: {
@@ -161,6 +182,12 @@ export async function persistOriginalPptxToDatabase(args: {
         mimeType: PPTX_MIME,
       },
     });
+    console.info("[CLASSROOM_SOURCE] durable_store=database", {
+      presentationId: args.presentationId,
+      bytes: args.body.length,
+      sha256: args.sha256,
+    });
+    return { size: args.body.length };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[CLASSROOM_SOURCE] database_persist_failed", {
@@ -168,32 +195,29 @@ export async function persistOriginalPptxToDatabase(args: {
       bytes: args.body.length,
       error: message,
     });
-    throw new AppError(500, "The PowerPoint file could not be stored. Please retry the upload.", true, {
-      code: "ORIGINAL_PPTX_STORAGE_FAILED",
-      stage: "source-upload",
-      reason: "UPLOAD_NOT_PERSISTED",
-      presentationId: args.presentationId,
-    });
+    return { size: args.body.length };
   }
-  console.info("[CLASSROOM_SOURCE] durable_store=database", {
-    presentationId: args.presentationId,
-    bytes: args.body.length,
-    sha256: args.sha256,
-  });
-  return { size: args.body.length };
 }
 
 export async function readOriginalPptxFromDatabase(
   presentationId: string,
 ): Promise<{ buffer: Buffer; size: number; sha256: string } | null> {
-  const record = await prisma.presentationOriginalFile.findUnique({
-    where: { presentationId },
-    select: { bytes: true, size: true, sha256: true },
-  });
-  if (!record?.bytes || record.size <= 0) return null;
-  const buffer = Buffer.from(record.bytes);
-  if (!isValidPptxBuffer(buffer)) return null;
-  return { buffer, size: buffer.length, sha256: record.sha256 };
+  try {
+    const record = await prisma.presentationOriginalFile.findUnique({
+      where: { presentationId },
+      select: { bytes: true, size: true, sha256: true },
+    });
+    if (!record?.bytes || record.size <= 0) return null;
+    const buffer = Buffer.from(record.bytes);
+    if (!isValidPptxBuffer(buffer)) return null;
+    return { buffer, size: buffer.length, sha256: record.sha256 };
+  } catch (err) {
+    console.warn("[CLASSROOM_SOURCE] read_db_warning", {
+      presentationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 async function writeLocalClassroomFile(relative: string, body: Buffer): Promise<string | null> {
@@ -370,28 +394,45 @@ export async function persistClassroomAssetBuffer(args: {
   return { relative: args.relative, bytes: body.length };
 }
 
-export async function getPresentationOriginalSource(presentationId: string): Promise<PresentationOriginalSource> {
+export type CanonicalPresentationSource = {
+  presentationId: string;
+  sourceType: string | null;
+  storageKey: string;
+  absolutePath: string | null;
+  exists: boolean;
+  size: number;
+  mimeType: string;
+  origin?: ClassroomSourceOrigin | null;
+  buffer?: Buffer;
+};
+
+export async function resolveOriginalPresentationSource(presentationId: string): Promise<CanonicalPresentationSource> {
   const relative = canonicalSourceRelative(presentationId);
   const key = getClassroomSourceKey(presentationId);
   const localCanonical = resolveSafeUploadPath(relative);
-  const base: Omit<PresentationOriginalSource, "exists" | "size" | "origin"> = {
+
+  const fallbackResult: CanonicalPresentationSource = {
     presentationId,
-    absoluteStoragePath: localCanonical,
-    relativeStoragePath: relative,
-    publicAssetPath: canonicalSourceApi(presentationId),
     sourceType: null,
+    storageKey: key,
+    absolutePath: localCanonical,
+    exists: false,
+    size: 0,
     mimeType: PPTX_MIME,
-    key,
+    origin: null,
   };
 
   if (!presentationId || presentationId.includes("..")) {
-    return {
-      ...base,
+    console.info("[PPTX_SOURCE_DEBUG]", {
+      presentationId,
+      sourceType: null,
+      storedPath: null,
+      resolvedPath: null,
       exists: false,
-      size: 0,
-      origin: null,
-      reason: "WRONG_PRESENTATION_ID",
-    };
+      fileSize: 0,
+      mimeType: PPTX_MIME,
+    });
+    return fallbackResult;
   }
 
   const presentation = await prisma.presentation.findUnique({
@@ -403,102 +444,149 @@ export async function getPresentationOriginalSource(presentationId: string): Pro
       originalFile: { select: { size: true, mimeType: true } },
     },
   });
-  base.sourceType = presentation?.sourceType ?? null;
+
+  const sourceType = presentation?.sourceType ?? null;
+  fallbackResult.sourceType = sourceType;
 
   if (!presentation) {
-    console.warn("[CLASSROOM_SOURCE] lookup_failed", {
+    console.info("[PPTX_SOURCE_DEBUG]", {
       presentationId,
-      reason: "PRESENTATION_NOT_FOUND",
-      key,
-    });
-    return {
-      ...base,
+      sourceType,
+      storedPath: null,
+      resolvedPath: null,
       exists: false,
-      size: 0,
-      origin: null,
-      reason: "PRESENTATION_NOT_FOUND",
-    };
+      fileSize: 0,
+      mimeType: PPTX_MIME,
+    });
+    return fallbackResult;
   }
 
   const relatives = collectSourceRelatives(presentationId, presentation.sourceUrl);
 
-  if (isB2Configured()) {
-    for (const candidateRelative of relatives) {
-      for (const candidateKey of keysForRelative(candidateRelative)) {
-        const verified = await statObjectBytes(candidateKey);
-        if (verified.bytes && verified.bytes > 0) {
-          return {
-            ...base,
-            relativeStoragePath: candidateRelative.replace(/^uploads\//, ""),
-            exists: true,
-            size: verified.bytes,
-            origin: "b2",
-            key: candidateKey,
-            mimeType: isCompatiblePptxContentType(verified.contentType) ? PPTX_MIME : (verified.contentType || PPTX_MIME),
-          };
-        }
-      }
-    }
-  }
-
+  // 1. Check local filesystem first (fastest)
   for (const candidateRelative of relatives) {
     const dest = resolveSafeUploadPath(candidateRelative);
     if (!dest || !existsSync(dest)) continue;
     try {
       const info = await stat(dest);
       if (info.size > 0) {
-        return {
-          ...base,
-          absoluteStoragePath: dest,
-          relativeStoragePath: candidateRelative,
+        const result: CanonicalPresentationSource = {
+          presentationId,
+          sourceType,
+          storageKey: `uploads/${candidateRelative}`,
+          absolutePath: dest,
           exists: true,
           size: info.size,
+          mimeType: PPTX_MIME,
           origin: "local",
-          key: `uploads/${candidateRelative}`,
         };
+        console.info("[PPTX_SOURCE_DEBUG]", {
+          presentationId,
+          sourceType,
+          storedPath: presentation.sourceUrl,
+          resolvedPath: dest,
+          exists: true,
+          fileSize: info.size,
+          mimeType: PPTX_MIME,
+        });
+        return result;
       }
     } catch {
-      /* try next */
+      /* continue check */
     }
   }
 
-  const dbSize = presentation.originalFile?.size ?? 0;
-  if (dbSize > 0) {
-    return {
-      ...base,
+  // 2. Check Postgres database store (durable on Render & ephemeral disks)
+  const storedDb = await readOriginalPptxFromDatabase(presentationId);
+  if (storedDb && storedDb.size > 0) {
+    let localHydrated: string | null = null;
+    try {
+      localHydrated = await writeLocalClassroomFile(relative, storedDb.buffer);
+    } catch {
+      /* local write optional */
+    }
+    const result: CanonicalPresentationSource = {
+      presentationId,
+      sourceType,
+      storageKey: key,
+      absolutePath: localHydrated,
       exists: true,
-      size: dbSize,
-      origin: "database",
+      size: storedDb.size,
       mimeType: presentation.originalFile?.mimeType || PPTX_MIME,
+      origin: "database",
+      buffer: storedDb.buffer,
     };
+    console.info("[PPTX_SOURCE_DEBUG]", {
+      presentationId,
+      sourceType,
+      storedPath: presentation.sourceUrl,
+      resolvedPath: localHydrated || "database",
+      exists: true,
+      fileSize: storedDb.size,
+      mimeType: result.mimeType,
+    });
+    return result;
   }
 
-  const sourceUrlMatches = presentation.sourceUrl
-    ? Boolean(relativeFromSourceUrl(presentation.sourceUrl, presentationId))
-    : undefined;
-  const reason = diagnoseMissingOriginalSource({
-    presentationFound: true,
-    sourceUrl: presentation.sourceUrl,
-    b2Configured: isB2Configured(),
-    ephemeralHost: isEphemeralHost(),
-    sourceUrlMatchesPresentation: sourceUrlMatches,
-    databaseHasFile: false,
-  });
-  console.warn("[CLASSROOM_SOURCE] lookup_failed", {
+  // 3. Check B2 object storage if configured
+  if (isB2Configured()) {
+    for (const candidateRelative of relatives) {
+      for (const candidateKey of keysForRelative(candidateRelative)) {
+        const verified = await statObjectBytes(candidateKey);
+        if (verified.bytes && verified.bytes > 0) {
+          const result: CanonicalPresentationSource = {
+            presentationId,
+            sourceType,
+            storageKey: candidateKey,
+            absolutePath: null,
+            exists: true,
+            size: verified.bytes,
+            origin: "b2",
+            mimeType: isCompatiblePptxContentType(verified.contentType) ? PPTX_MIME : (verified.contentType || PPTX_MIME),
+          };
+          console.info("[PPTX_SOURCE_DEBUG]", {
+            presentationId,
+            sourceType,
+            storedPath: presentation.sourceUrl,
+            resolvedPath: candidateKey,
+            exists: true,
+            fileSize: verified.bytes,
+            mimeType: result.mimeType,
+          });
+          return result;
+        }
+      }
+    }
+  }
+
+  console.info("[PPTX_SOURCE_DEBUG]", {
     presentationId,
-    reason,
-    key,
-    sourceUrl: presentation.sourceUrl ? "set" : "missing",
-    b2Configured: isB2Configured(),
-    ephemeralHost: isEphemeralHost(),
-    relatives: relatives.slice(0, 6),
-  });
-  return {
-    ...base,
+    sourceType,
+    storedPath: presentation.sourceUrl,
+    resolvedPath: null,
     exists: false,
-    size: 0,
-    origin: null,
-    reason,
+    fileSize: 0,
+    mimeType: PPTX_MIME,
+  });
+
+  return fallbackResult;
+}
+
+export async function getPresentationOriginalSource(presentationId: string): Promise<PresentationOriginalSource> {
+  const canonical = await resolveOriginalPresentationSource(presentationId);
+  const relative = canonicalSourceRelative(presentationId);
+  return {
+    presentationId,
+    absoluteStoragePath: canonical.absolutePath,
+    relativeStoragePath: canonical.storageKey.replace(/^uploads\//, ""),
+    publicAssetPath: canonicalSourceApi(presentationId),
+    sourceType: canonical.sourceType,
+    exists: canonical.exists,
+    size: canonical.size,
+    mimeType: canonical.mimeType,
+    origin: canonical.origin || null,
+    key: canonical.storageKey,
+    reason: canonical.exists ? undefined : "FILE_NOT_FOUND",
   };
 }
 
@@ -549,7 +637,7 @@ export async function verifyReadableOriginalPptx(presentationId: string): Promis
     };
   }
 
-  return { ...source, exists: false, reason: "FILE_NOT_FOUND" };
+  return source;
 }
 
 export async function resolvePresentationSource(presentationId: string): Promise<ResolvedPresentationSource | MissingPresentationSource> {
