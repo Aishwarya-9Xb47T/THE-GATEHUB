@@ -54,8 +54,24 @@ async function main() {
     if (await page.$("[data-testid=classroom-google-embed]")) {
       throw new Error("PPTX editor showed google embed");
     }
+    for (const slide of [2, 5, 10]) {
+      await page.evaluate((wanted) => {
+        const btn = document.querySelector(`button[aria-label^="Slide ${wanted}:"]`) as HTMLButtonElement | null;
+        btn?.click();
+      }, slide);
+      await page.waitForFunction(
+        (expected) => {
+          const label = document.querySelector(`[aria-label^="Slide ${expected}:"]`);
+          return Boolean(label);
+        },
+        { timeout: 15_000 },
+        slide,
+      );
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-testid=classroom-original-pptx]", { timeout: 60_000 });
     await page.screenshot({ path: out });
-    console.info("PPTX_REGRESSION_PASS", id, "visualSource=original_pptx", "status=" + pres.status);
+    console.info("PPTX_REGRESSION_PASS", id, "visualSource=original_pptx", "status=" + pres.status, "slides=" + (pres.slides?.length || 0));
   } finally {
     await browser.close();
   }

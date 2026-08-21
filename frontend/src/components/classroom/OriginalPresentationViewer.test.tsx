@@ -87,6 +87,8 @@ describe("OriginalPresentationViewer", () => {
     let iframe = await screen.findByTestId("classroom-google-embed");
     expect(iframe.getAttribute("src")).toContain("/presentation/d/abc123/embed");
     expect(iframe.getAttribute("src")).toContain("slide=1");
+    expect(iframe.getAttribute("src")).not.toContain("rm=minimal");
+    expect(iframe.getAttribute("data-visual-source")).toBe("google_embed");
     expect(mockedFetch).not.toHaveBeenCalled();
 
     rerender(

@@ -93,23 +93,32 @@ export function buildGoogleSlidesEmbedUrl(presentationId: string, slideNumber = 
   const id = String(presentationId || "").trim();
   const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
   if (!id) return "";
-  return `https://docs.google.com/presentation/d/${encodeURIComponent(id)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+  return `https://docs.google.com/presentation/d/${encodeURIComponent(id)}/embed?start=false&loop=false&delayms=3000000&slide=${n}`;
 }
 
 export const googleSlidesEmbedUrl = buildGoogleSlidesEmbedUrl;
+
+export function isGoogleEmbedVisual(visual?: SlideVisualRecord | null): boolean {
+  return visual?.visualSource === "google_embed" || visual?.type === "google_slides";
+}
 
 export function mergeExtractedSlideVisual(
   existing: SlideVisualRecord | null | undefined,
   next: Record<string, unknown>,
 ): Record<string, unknown> {
-  const existingSource = existing?.visualSource;
-  const nextSource = next.visualSource;
-  const keepGoogleEmbed = existingSource === "google_embed" || nextSource === "google_embed";
+  const keepGoogleEmbed = isGoogleEmbedVisual(existing)
+    || next.visualSource === "google_embed"
+    || next.type === "google_slides";
   if (!keepGoogleEmbed) return next;
-  const embedUrl = existing?.embedUrl || next.embedUrl;
   const googleSlidesId = existing?.googleSlidesId || next.googleSlidesId;
   const googleSlidesUrl = existing?.googleSlidesUrl || next.googleSlidesUrl;
+  const slideIndex = Number(next.slideIndex ?? existing?.slideIndex ?? 0);
+  const rebuiltEmbed = googleSlidesId
+    ? buildGoogleSlidesEmbedUrl(String(googleSlidesId), slideIndex + 1)
+    : undefined;
+  const embedUrl = rebuiltEmbed || next.embedUrl || existing?.embedUrl;
   return {
+    ...existing,
     ...next,
     type: "google_slides",
     visualSource: "google_embed",
@@ -119,10 +128,21 @@ export function mergeExtractedSlideVisual(
     src: embedUrl || next.src,
     availability: "available",
     renderStatus: "ready",
+    extractionStatus: next.extractionStatus ?? existing?.extractionStatus ?? "pending",
     errorCode: undefined,
     errorMessage: undefined,
     renderError: null,
   };
+}
+
+export function preserveGoogleEmbedVisual(
+  existing: SlideVisualRecord | null | undefined,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  if (isGoogleEmbedVisual(existing)) {
+    return mergeExtractedSlideVisual(existing, next);
+  }
+  return next;
 }
 
 export type SlideVisualRecord = {
@@ -142,6 +162,7 @@ export type SlideVisualRecord = {
   googleSlidesId?: string;
   googleSlidesUrl?: string;
   embedUrl?: string;
+  slideIndex?: number;
 };
 
 export function readSlideVisual(content: unknown): SlideVisualRecord | null {
@@ -227,9 +248,9 @@ export function buildOriginalSlideVisual(
     googleSlidesId: googleId,
     googleSlidesUrl: options.googleSlidesUrl,
     embedUrl,
-    renderedImageUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
-    thumbnailUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
-    visualCacheUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
+    renderedImageUrl: visualSource === "google_embed" ? undefined : canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
+    thumbnailUrl: visualSource === "google_embed" ? undefined : canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
+    visualCacheUrl: visualSource === "google_embed" ? undefined : canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
     storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
     mimeType: visualSource === "google_embed" ? "text/html" : PPTX_MIME,
     slideIndex,
@@ -320,6 +341,20 @@ export function aggregatePresentationRenderStatus(args: {
   if (jobActive || inflight > 0) return ready > 0 ? "rendering_partial" : "rendering";
   if (failed > 0 || ready < visualSlides) return "render_failed";
   return "ready";
+}
+
+export function aggregateGoogleExtractionStatus(
+  slides: Array<{ content?: unknown }>,
+): "pending" | "complete" | "failed" | undefined {
+  const visuals = slides.map((slide) => readSlideVisual(slide.content)).filter(isGoogleEmbedVisual);
+  if (!visuals.length) return undefined;
+  if (visuals.every((visual) => visual?.extractionStatus === "complete")) return "complete";
+  if (visuals.every((visual) => visual?.extractionStatus === "failed")) return "failed";
+  if (visuals.some((visual) => visual?.extractionStatus === "failed")
+    && visuals.every((visual) => visual?.extractionStatus === "failed" || visual?.extractionStatus === "complete")) {
+    return "failed";
+  }
+  return "pending";
 }
 
 export function computeClassroomRenderProgress(

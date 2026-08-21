@@ -10,7 +10,7 @@ export function buildGoogleSlidesEmbedUrl(presentationId: string, slideNumber = 
   const id = String(presentationId || "").trim();
   const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
   if (!id) return "";
-  return `https://docs.google.com/presentation/d/${encodeURIComponent(id)}/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=${n}`;
+  return `https://docs.google.com/presentation/d/${encodeURIComponent(id)}/embed?start=false&loop=false&delayms=3000000&slide=${n}`;
 }
 
 export const googleSlidesEmbedUrl = buildGoogleSlidesEmbedUrl;

@@ -30,6 +30,7 @@ import {
   aggregatePresentationRenderStatus,
   isStaleSlideRenderWrite,
   isOriginalVisualSource,
+  isGoogleEmbedVisual,
   readSlideVisual,
   slideVisualIsInFlight,
   slideVisualIsReady,
@@ -85,6 +86,9 @@ function withVisual(
       ? { ...(content as Record<string, unknown>) }
       : {};
   const existing = readSlideVisual(content);
+  if (isGoogleEmbedVisual(existing)) {
+    return base;
+  }
   if (isOriginalVisualSource(existing)) {
     if (hasRenderedImage) {
       base.visual = {
@@ -440,12 +444,20 @@ export async function regeneratePresentationVisuals(
   }
 
   const googleEmbedReady = presentation.sourceType === "google_slides"
-    && presentation.slides.some((slide) => readSlideVisual(slide.content)?.visualSource === "google_embed");
-  if (googleEmbedReady || (presentation.sourceType === "google_slides" && presentation.slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content))))) {
+    && presentation.slides.some((slide) => isGoogleEmbedVisual(readSlideVisual(slide.content)));
+  if (googleEmbedReady) {
     return {
       presentationId,
       skipped: true,
       reason: "google_embed",
+      slideCount: presentation.slides.length,
+    };
+  }
+  if (presentation.sourceType === "google_slides" && presentation.slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)))) {
+    return {
+      presentationId,
+      skipped: true,
+      reason: "original_source",
       slideCount: presentation.slides.length,
     };
   }
@@ -704,6 +716,23 @@ export async function renderAndPersistPresentationVisuals(
   });
   if (!presentation) {
     throw new AppError(404, "Presentation not found");
+  }
+
+  if (
+    presentation.sourceType === "google_slides"
+    && presentation.slides.some((slide) => isGoogleEmbedVisual(readSlideVisual(slide.content)))
+  ) {
+    console.info("[CLASSROOM_RENDER] skip_google_embed_visual_pipeline", { presentationId });
+    return {
+      presentationId,
+      rendered: 0,
+      skipped: presentation.slides.length,
+      slideCount: presentation.slides.length,
+      method: "google_embed",
+      slidesSucceeded: presentation.slides.length,
+      slidesFailed: 0,
+      failedSlideNumbers: [],
+    };
   }
 
   const expected = presentation.slides.length;
@@ -1058,6 +1087,21 @@ export async function retrySlideVisual(
   }
   const slide = presentation.slides.find((item) => item.id === slideId);
   if (!slide) throw new AppError(404, "Slide not found");
+
+  if (isGoogleEmbedVisual(readSlideVisual(slide.content))) {
+    return {
+      presentationId,
+      rendered: 1,
+      skipped: 1,
+      slideCount: presentation.slides.length,
+      code: "CLASSROOM_REGENERATE_OK",
+      reason: "google_embed",
+      slidesSucceeded: 1,
+      slidesFailed: 0,
+      failedSlideNumbers: [],
+      alreadyReady: true,
+    };
+  }
 
   if (slideVisualIsReady(slide.content)) {
     return {

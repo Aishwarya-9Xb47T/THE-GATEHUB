@@ -8,9 +8,12 @@ import { AppError } from '../../middlewares/errorHandler.js';
 import { rewriteClassroomAssetTree } from './classroomAssetUrls.js';
 import {
   aggregatePresentationRenderStatus,
+  aggregateGoogleExtractionStatus,
   computeClassroomRenderProgress,
   isOriginalVisualSource,
+  isGoogleEmbedVisual,
   readSlideVisual,
+  buildGoogleSlidesEmbedUrl,
   slideVisualIsFailed,
 } from './classroomAssetPath.js';
 import { presentationOwnershipAllowed } from './presentationAccess.js';
@@ -138,12 +141,15 @@ export async function getPresentationById(
   const exclusiveRunning = visualRepair.isExclusiveVisualRenderRunning(presentation.id);
   const originalSourceReady = slides.length > 0
     && slides.every((slide) => isOriginalVisualSource(readSlideVisual(slide.content)));
-  if (jobProgress && !originalSourceReady) {
+  const googleEmbedReady = presentation.sourceType === 'google_slides'
+    && slides.some((slide) => isGoogleEmbedVisual(readSlideVisual(slide.content)));
+  const extractionStatus = aggregateGoogleExtractionStatus(slides);
+  if (jobProgress && !originalSourceReady && !googleEmbedReady) {
     renderProgress.stage = jobProgress.stage;
     if (jobProgress.currentSlide > 0) renderProgress.currentSlide = jobProgress.currentSlide;
     if (jobProgress.totalSlides > 0) renderProgress.total = jobProgress.totalSlides;
   }
-  const failedSlide = originalSourceReady ? undefined : slides.find((slide) => slideVisualIsFailed(slide.content));
+  const failedSlide = originalSourceReady || googleEmbedReady ? undefined : slides.find((slide) => slideVisualIsFailed(slide.content));
   const failedVisual = (failedSlide?.content as { visual?: { errorCode?: string; errorMessage?: string } } | null)?.visual;
 
   const importLocked = ['import_failed', 'extraction_failed', 'uploading', 'extracting'].includes(presentation.status);
@@ -186,13 +192,17 @@ export async function getPresentationById(
     }
   }
 
+  const googleId = String(presentation.sourceUrl || "").match(/\/presentation\/d\/([a-zA-Z0-9_-]+)/)?.[1];
   return {
     ...presentation,
     status,
     slides,
     renderProgress,
     renderedVisuals: renderProgress.rendered,
-    renderJob,
+    renderJob: googleEmbedReady ? null : renderJob,
+    visualStatus: googleEmbedReady || originalSourceReady ? 'ready' : undefined,
+    extractionStatus,
+    embedUrl: googleEmbedReady && googleId ? buildGoogleSlidesEmbedUrl(googleId, 1) : undefined,
     lastRenderError: failedVisual?.errorCode
       ? { code: failedVisual.errorCode, message: failedVisual.errorMessage || null, slide: failedSlide?.order ?? null }
       : null,

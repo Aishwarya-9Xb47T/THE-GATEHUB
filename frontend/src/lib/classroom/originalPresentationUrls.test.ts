@@ -17,6 +17,7 @@ describe("originalPresentationUrls", () => {
     expect(googleSlidesEmbedUrl("abc123", 2)).toContain("/presentation/d/abc123/embed");
     expect(googleSlidesEmbedUrl("abc123", 2)).toContain("slide=2");
     expect(buildGoogleSlidesEmbedUrl("abc123", 10)).toContain("slide=10");
+    expect(buildGoogleSlidesEmbedUrl("abc123", 10)).not.toContain("rm=minimal");
     expect(buildGoogleSlidesEmbedUrl("abc123", 10)).not.toMatch(/\?.*\?/);
     expect(buildGoogleSlidesEmbedUrl("abc123", 10).split("?").length).toBe(2);
   });

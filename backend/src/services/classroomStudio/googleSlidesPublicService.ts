@@ -6,11 +6,16 @@
 import { prisma } from '../../utils/prisma.js';
 import * as presentationImportService from './presentationImportService.js';
 import { persistPptxBuffer, requireDurableClassroomStorage } from './classroomSourceResolver.js';
-import { probePublicGoogleSlides, parseGoogleSlidesProbeHtml } from './googleSlidesProbe.js';
-import { buildGoogleSlidesEmbedUrl } from './classroomAssetPath.js';
+import { probePublicGoogleSlides } from './googleSlidesProbe.js';
+import {
+  buildGoogleSlidesEmbedUrl,
+  isGoogleEmbedVisual,
+  mergeExtractedSlideVisual,
+  readSlideVisual,
+} from './classroomAssetPath.js';
 import { inspectPptxArchive } from './pptxArchiveInspect.js';
 
-export { parseGoogleSlidesProbeHtml, probePublicGoogleSlides };
+export { parseGoogleSlidesProbeHtml, parseReliableGoogleSlideCount, probePublicGoogleSlides } from './googleSlidesProbe.js';
 
 export interface ValidationResult {
   valid: boolean;
@@ -64,7 +69,8 @@ export interface PublicImportResult {
   embedUrl?: string;
   overallStatus?: 'ready';
   visualStatus?: 'ready';
-  extractionStatus?: 'pending' | 'complete';
+  extractionStatus?: 'pending' | 'complete' | 'failed';
+  countSource?: 'viewerData' | 'slideCount' | 'pptx_zip';
   warnings?: string[];
   message?: string;
   error?: string;
@@ -74,7 +80,7 @@ export async function downloadPublicGoogleSlidesPptx(
   presentationId: string,
 ): Promise<{ fileBuffer: Buffer } | { requiresAuthentication: true; message: string } | { error: string }> {
   const exportUrl = `https://docs.google.com/presentation/d/${presentationId}/export/pptx`;
-  console.info('[CLASSROOM_IMPORT] sourceType=GOOGLE_SLIDES stage=PPTX_EXPORT presentationId=' + presentationId);
+  console.info('[CLASSROOM_IMPORT] sourceType=GOOGLE_SLIDES stage=OPTIONAL_PPTX_EXTRACT presentationId=' + presentationId);
 
   const response = await fetch(exportUrl, {
     method: 'GET',
@@ -151,6 +157,39 @@ export async function downloadPublicGoogleSlidesPdf(
   return null;
 }
 
+async function setGoogleEmbedExtractionStatus(
+  presentationId: string,
+  extractionStatus: 'pending' | 'complete' | 'failed',
+): Promise<void> {
+  const slides = await prisma.slide.findMany({
+    where: { presentationId },
+    select: { id: true, content: true, order: true },
+  });
+  for (const slide of slides) {
+    const existing = readSlideVisual(slide.content);
+    if (!isGoogleEmbedVisual(existing)) continue;
+    const content = slide.content && typeof slide.content === 'object' && !Array.isArray(slide.content)
+      ? { ...(slide.content as Record<string, unknown>) }
+      : {};
+    content.visual = mergeExtractedSlideVisual(existing, {
+      ...existing,
+      slideIndex: (existing?.slideIndex ?? slide.order - 1),
+      extractionStatus,
+    });
+    await prisma.slide.update({
+      where: { id: slide.id },
+      data: { content },
+    });
+  }
+}
+
+async function keepPublicGoogleReady(presentationId: string): Promise<void> {
+  await prisma.presentation.update({
+    where: { id: presentationId },
+    data: { status: 'ready' },
+  }).catch(() => undefined);
+}
+
 async function enrichPublicGoogleInBackground(args: {
   presentationId: string;
   googlePresentationId: string;
@@ -162,26 +201,18 @@ async function enrichPublicGoogleInBackground(args: {
     if (!buffer) {
       const pptxResult = await downloadPublicGoogleSlidesPptx(args.googlePresentationId);
       if (!('fileBuffer' in pptxResult)) {
-        console.warn('[CLASSROOM_IMPORT] public_google_background_no_pptx', {
+        console.warn('[CLASSROOM_IMPORT] public_google_extraction_failed', {
           presentationId: args.presentationId,
           reason: 'error' in pptxResult ? pptxResult.error : 'requiresAuthentication',
         });
+        await setGoogleEmbedExtractionStatus(args.presentationId, 'failed');
+        await keepPublicGoogleReady(args.presentationId);
         return;
       }
       buffer = pptxResult.fileBuffer;
     }
     requireDurableClassroomStorage();
     await persistPptxBuffer(args.presentationId, buffer);
-    const inspection = await inspectPptxArchive(buffer).catch(() => null);
-    if (inspection?.slideCount) {
-      await presentationImportService.ensureOriginalSourceSlideCount({
-        presentationId: args.presentationId,
-        slideCount: inspection.slideCount,
-        sourceType: 'google_slides',
-        visualSource: 'google_embed',
-        googleSlidesUrl: args.sourceUrl,
-      });
-    }
     await presentationImportService.enrichExtractedContentInBackground({
       presentationId: args.presentationId,
       buffer,
@@ -189,19 +220,22 @@ async function enrichPublicGoogleInBackground(args: {
       visualSource: 'google_embed',
       googleSlidesUrl: args.sourceUrl,
     });
-    await prisma.presentation.update({
-      where: { id: args.presentationId },
-      data: { status: 'ready' },
-    }).catch(() => undefined);
+    const slides = await prisma.slide.findMany({
+      where: { presentationId: args.presentationId },
+      select: { content: true },
+    });
+    const completed = slides.some((slide) => readSlideVisual(slide.content)?.extractionStatus === 'complete');
+    if (!completed) {
+      await setGoogleEmbedExtractionStatus(args.presentationId, 'failed');
+    }
+    await keepPublicGoogleReady(args.presentationId);
   } catch (error) {
     console.warn('[CLASSROOM_IMPORT] public_google_background_failed', {
       presentationId: args.presentationId,
       error: error instanceof Error ? error.message : String(error),
     });
-    await prisma.presentation.update({
-      where: { id: args.presentationId },
-      data: { status: 'ready' },
-    }).catch(() => undefined);
+    await setGoogleEmbedExtractionStatus(args.presentationId, 'failed').catch(() => undefined);
+    await keepPublicGoogleReady(args.presentationId);
   }
 }
 
@@ -238,7 +272,7 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
     }
 
     let slideCount = probe.slideCount && probe.slideCount > 0 ? probe.slideCount : 0;
-    let countSource: 'probe' | 'pptx_zip' = 'probe';
+    let countSource: 'viewerData' | 'slideCount' | 'pptx_zip' = probe.countSource || 'viewerData';
     let countBuffer: Buffer | undefined;
     if (!slideCount) {
       const pptxResult = await downloadPublicGoogleSlidesPptx(googlePresentationId);
@@ -247,7 +281,18 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
         slideCount = inspection.slideCount;
         countSource = 'pptx_zip';
         countBuffer = pptxResult.fileBuffer;
+      } else {
+        console.warn('[CLASSROOM_IMPORT] public_google_count_pptx_unavailable', {
+          googlePresentationId,
+          reason: 'error' in pptxResult ? pptxResult.error : 'export_login_wall',
+        });
       }
+    } else {
+      console.info('[CLASSROOM_IMPORT] public_google_slide_count', {
+        googlePresentationId,
+        slideCount,
+        countSource,
+      });
     }
     if (!slideCount) {
       return {
@@ -304,7 +349,9 @@ export async function importPublicGoogleSlides(input: ImportPublicGoogleSlidesIn
       overallStatus: 'ready',
       visualStatus: 'ready',
       extractionStatus: 'pending',
-      warnings: countSource === 'pptx_zip' ? ['Slide count was read from the exported PPTX archive; the live Google embed is still the visual source.'] : [],
+      warnings: countSource === 'pptx_zip'
+        ? ['Slide count was read from the exported PPTX archive; the live Google embed is still the visual source.']
+        : [],
     };
   } catch (error) {
     console.error('[Public Google Slides Import] Exception during import:', error);

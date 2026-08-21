@@ -125,7 +125,7 @@ describe("classroomAssetPath", () => {
 
   it("builds official Google embed URLs without duplicating query markers", () => {
     expect(buildGoogleSlidesEmbedUrl("abc123", 1)).toBe(
-      "https://docs.google.com/presentation/d/abc123/embed?start=false&loop=false&delayms=600000&rm=minimal&slide=1",
+      "https://docs.google.com/presentation/d/abc123/embed?start=false&loop=false&delayms=3000000&slide=1",
     );
     expect(buildGoogleSlidesEmbedUrl("abc123", 2)).toContain("slide=2");
     expect(buildGoogleSlidesEmbedUrl("abc123", 10)).toContain("slide=10");

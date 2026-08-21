@@ -32,6 +32,7 @@ import {
   buildSlideVisual,
   mergeExtractedSlideVisual,
   readSlideVisual,
+  isGoogleEmbedVisual,
   PPTX_MIME,
   PNG_MIME,
 } from './classroomAssetPath.js';
@@ -645,8 +646,22 @@ export async function ensureOriginalSourceSlideCount(args: {
   const wanted = Math.max(1, Math.floor(args.slideCount || 1));
   const existing = await prisma.slide.findMany({
     where: { presentationId: args.presentationId },
-    select: { order: true },
+    select: { order: true, content: true },
   });
+  if (
+    existing.length > 0
+    && (
+      args.visualSource === 'google_embed'
+      || existing.some((slide) => isGoogleEmbedVisual(readSlideVisual(slide.content)))
+    )
+  ) {
+    console.info('[CLASSROOM_IMPORT] skip_google_embed_slide_count_mutation', {
+      presentationId: args.presentationId,
+      have: existing.length,
+      wanted,
+    });
+    return;
+  }
   const have = new Set(existing.map((slide) => slide.order));
   const missing = [];
   for (let order = 1; order <= wanted; order += 1) {
@@ -1219,62 +1234,74 @@ export async function updatePresentationFromSource(
   }
 
   const googleId = getGooglePresentationId(presentation.sourceUrl);
-  const exportResult = await googleSlidesAdapter.exportGoogleSlidesToPptxForUser(googleId, instructorId);
-  if ('error' in exportResult) {
-    throw new AppError(400, exportResult.error);
+  const { probePublicGoogleSlides, downloadPublicGoogleSlidesPptx } = await import('./googleSlidesPublicService.js');
+  const probe = await probePublicGoogleSlides(googleId);
+  const publicEmbed = Boolean(probe.accessible);
+  const visualSource: 'google_embed' | 'original_pptx' = publicEmbed ? 'google_embed' : 'original_pptx';
+
+  let fileBuffer: Buffer | undefined;
+  if (publicEmbed) {
+    const pptxResult = await downloadPublicGoogleSlidesPptx(googleId);
+    if ('fileBuffer' in pptxResult) fileBuffer = pptxResult.fileBuffer;
+  } else {
+    const exportResult = await googleSlidesAdapter.exportGoogleSlidesToPptxForUser(googleId, instructorId);
+    if ('error' in exportResult) {
+      throw new AppError(400, exportResult.error);
+    }
+    fileBuffer = exportResult.fileBuffer;
   }
 
-  const importResult = await powerPointParser.parsePowerPoint(
-    exportResult.fileBuffer,
-    DEFAULT_PPTX_OPTIONS,
-  );
-
-  if (!importResult.success || !importResult.slides) {
-    throw new AppError(400, importResult.error || 'Sync failed');
+  let slideCount = publicEmbed && probe.slideCount ? probe.slideCount : 0;
+  if (!slideCount && fileBuffer) {
+    const inspection = await inspectPptxArchive(fileBuffer).catch(() => null);
+    slideCount = inspection?.slideCount || 0;
+  }
+  if (!slideCount && fileBuffer) {
+    const importResult = await powerPointParser.parsePowerPoint(fileBuffer, DEFAULT_PPTX_OPTIONS);
+    slideCount = importResult.slides?.length || 0;
+  }
+  if (!slideCount) {
+    throw new AppError(400, 'GOOGLE_SLIDES_IMPORT_FAILED: Could not determine the number of slides.');
   }
 
-  const warnings = collectImportWarnings(importResult);
-
-  requireDurableClassroomStorage();
-  const stored = await persistPptxBuffer(presentationId, exportResult.fileBuffer);
-  const verified = await verifyReadableOriginalPptx(presentationId);
-  if (!verified.exists) {
-    throw new AppError(500, 'The PowerPoint file could not be stored. Please retry the upload.', true, {
-      code: 'ORIGINAL_PPTX_STORAGE_FAILED',
-      stage: 'source-upload',
-      reason: verified.reason || 'UPLOAD_NOT_PERSISTED',
-      presentationId,
-      sourceKey: stored.relative,
-    });
+  if (fileBuffer) {
+    requireDurableClassroomStorage();
+    const stored = await persistPptxBuffer(presentationId, fileBuffer);
+    const verified = await verifyReadableOriginalPptx(presentationId);
+    if (!verified.exists) {
+      throw new AppError(500, 'The PowerPoint file could not be stored. Please retry the upload.', true, {
+        code: 'ORIGINAL_PPTX_STORAGE_FAILED',
+        stage: 'source-upload',
+        reason: verified.reason || 'UPLOAD_NOT_PERSISTED',
+        presentationId,
+        sourceKey: stored.relative,
+      });
+    }
   }
+
   await prisma.slide.deleteMany({ where: { presentationId } });
   await createOriginalSourceSlides({
     presentationId,
-    slideCount: importResult.slides.length,
+    slideCount,
     sourceType: 'google_slides',
-    visualSource: 'google_embed',
+    visualSource,
     googleSlidesUrl: presentation.sourceUrl,
   });
   await prisma.presentation.update({
     where: { id: presentationId },
     data: { status: 'ready' },
   });
-  void enrichExtractedContentInBackground({
-    presentationId,
-    buffer: exportResult.fileBuffer,
-    sourceType: 'google_slides',
-    visualSource: 'google_embed',
-    googleSlidesUrl: presentation.sourceUrl || undefined,
-  });
-
-  if (warnings.length) {
-    console.warn('[Classroom import] Sync warnings', { presentationId, warnings });
+  if (fileBuffer) {
+    void enrichExtractedContentInBackground({
+      presentationId,
+      buffer: fileBuffer,
+      sourceType: 'google_slides',
+      visualSource,
+      googleSlidesUrl: presentation.sourceUrl || undefined,
+    });
   }
 
-  return {
-    slideCount: importResult.slides.length,
-    warnings: warnings.length ? warnings : undefined,
-  };
+  return { slideCount };
 }
 
 export async function getImportSources(

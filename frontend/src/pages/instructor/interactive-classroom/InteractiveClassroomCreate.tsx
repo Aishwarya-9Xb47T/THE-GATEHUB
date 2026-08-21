@@ -187,11 +187,19 @@ export function InteractiveClassroomCreate() {
           return;
         }
 
-        throw new Error(
-          typeof data.error === "string"
-            ? data.error
-            : data.error?.message || data.error?.code || "Failed to import Google Slides presentation",
-        );
+        const rawError = typeof data.error === "string"
+          ? data.error
+          : data.error?.message || data.error?.code || "Failed to import Google Slides presentation";
+        if (/INVALID_URL/i.test(rawError)) {
+          throw new Error("INVALID_URL: That is not a valid Google Slides presentation URL.");
+        }
+        if (/GOOGLE_SLIDES_NOT_ACCESSIBLE|SOURCE_NOT_FOUND/i.test(rawError)) {
+          throw new Error("GOOGLE_SLIDES_NOT_ACCESSIBLE: This Google Slides presentation was not found or cannot be opened.");
+        }
+        if (/GOOGLE_SLIDES_PERMISSION_REQUIRED|SOURCE_PERMISSION_DENIED/i.test(rawError)) {
+          throw new Error("GOOGLE_SLIDES_PERMISSION_REQUIRED: This presentation is private. Connect Google or share it with anyone who has the link.");
+        }
+        throw new Error(rawError);
       }
 
       if (sourceType === "powerpoint" && file) {
@@ -331,9 +339,17 @@ export function InteractiveClassroomCreate() {
       }
     } catch (error: any) {
       console.error("[Classroom import] Error creating presentation:", error);
+      const message = error instanceof Error ? error.message : "Failed to create presentation";
+      const title = /INVALID_URL/i.test(message)
+        ? "Invalid Google Slides URL"
+        : /GOOGLE_SLIDES_NOT_ACCESSIBLE/i.test(message)
+          ? "Google Slides not accessible"
+          : /GOOGLE_SLIDES_PERMISSION_REQUIRED/i.test(message)
+            ? "Google Slides permission required"
+            : "Import Error";
       toast({
-        title: "Import Error",
-        description: error instanceof Error ? error.message : "Failed to create presentation",
+        title,
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -547,7 +563,7 @@ export function InteractiveClassroomCreate() {
                       <Label htmlFor="sourceUrl">Google Slides URL *</Label>
                       <Input
                         id="sourceUrl"
-                        placeholder="https://docs.google.com/presentation/d/1JcUxO92Ksa9vFSvY9_JrBXySEf2j1ARYs5-dwnMg6FQ/edit"
+                        placeholder="https://docs.google.com/presentation/d/PRESENTATION_ID/edit"
                         value={formData.sourceUrl}
                         onChange={(e) => setFormData({ ...formData, sourceUrl: e.target.value })}
                       />

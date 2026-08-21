@@ -546,6 +546,7 @@ export function OriginalPresentationViewer({
       <div ref={stageRef} className={className} style={stageStyle}>
         <div
           data-testid="classroom-google-viewport"
+          data-visual-source="google_embed"
           style={{
             position: "absolute",
             inset: 0,
@@ -558,6 +559,7 @@ export function OriginalPresentationViewer({
           <iframe
             key={embedSrc}
             data-testid="classroom-google-embed"
+            data-visual-source="google_embed"
             title={`Google Slides ${slideNumber}`}
             src={embedSrc}
             style={{ ...mediaFillStyle, border: 0, background: "#0f172a" }}
