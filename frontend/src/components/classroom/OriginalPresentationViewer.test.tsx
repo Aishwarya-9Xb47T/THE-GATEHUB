@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { OriginalPresentationViewer, clearClassroomPptxBufferCache } from "./OriginalPresentationViewer";
+import { OriginalPresentationViewer, clearClassroomPptxBufferCache, prepareSlideSvg } from "./OriginalPresentationViewer";
 import { fetchAuthenticatedUpload } from "@/lib/courseMediaUrls";
 
 vi.mock("pptx-svg", () => ({
@@ -131,4 +131,36 @@ describe("OriginalPresentationViewer", () => {
       expect(pptxCalls.some((call) => String(call[0]).includes("pres-b"))).toBe(true);
     });
   });
+
+  it("injects viewBox and strips fixed width/height so slides scale responsively", () => {
+    const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" style="background:#000"><rect width="960" height="540" fill="#000"/></svg>';
+    const prepared = prepareSlideSvg(rawSvg);
+    expect(prepared.width).toBe(960);
+    expect(prepared.height).toBe(540);
+    expect(prepared.aspectRatio).toBeCloseTo(16 / 9);
+    expect(prepared.markup).toContain('viewBox="0 0 960 540"');
+    expect(prepared.markup).toContain('preserveAspectRatio="xMidYMid meet"');
+    expect(prepared.markup).not.toMatch(/<svg[^>]*\bwidth="960"/);
+    expect(prepared.markup).not.toMatch(/<svg[^>]*\bheight="540"/);
+    expect(prepared.markup).toContain('width:100%');
+    expect(prepared.markup).toContain('height:100%');
+  });
+
+  it("handles 4:3 slide dimensions correctly", () => {
+    const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720"><rect width="960" height="720"/></svg>';
+    const prepared = prepareSlideSvg(rawSvg);
+    expect(prepared.width).toBe(960);
+    expect(prepared.height).toBe(720);
+    expect(prepared.aspectRatio).toBeCloseTo(4 / 3);
+    expect(prepared.markup).toContain('viewBox="0 0 960 720"');
+  });
+
+  it("extracts dimensions from data-ooxml-slide-cx/cy when width/height are absent", () => {
+    const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" data-ooxml-slide-cx="9144000" data-ooxml-slide-cy="5143500"><g></g></svg>';
+    const prepared = prepareSlideSvg(rawSvg);
+    expect(prepared.width).toBeCloseTo(960);
+    expect(prepared.height).toBeCloseTo(540);
+    expect(prepared.markup).toContain('viewBox="0 0 960 540"');
+  });
 });
+

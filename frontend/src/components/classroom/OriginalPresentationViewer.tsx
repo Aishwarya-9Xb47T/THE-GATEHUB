@@ -183,6 +183,80 @@ async function fetchSlideVisualMarkup(presentationId: string, slideNumber: numbe
   throw new Error(lastError);
 }
 
+export type PreparedSlide = {
+  markup: string;
+  width: number;
+  height: number;
+  aspectRatio: number;
+};
+
+export function prepareSlideSvg(svgStr: string): PreparedSlide {
+  if (!svgStr) return { markup: "", width: 960, height: 540, aspectRatio: 16 / 9 };
+
+  let w = 960;
+  let h = 540;
+
+  const viewBoxMatch = svgStr.match(/<svg[^>]*\bviewBox=["']?([0-9.\s,-]+)["']/i);
+  const widthMatch = svgStr.match(/<svg[^>]*\bwidth=["']?([0-9.]+)/i);
+  const heightMatch = svgStr.match(/<svg[^>]*\bheight=["']?([0-9.]+)/i);
+
+  if (viewBoxMatch && viewBoxMatch[1]) {
+    const parts = viewBoxMatch[1].trim().split(/[\s,]+/).map(Number);
+    if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+      w = parts[2];
+      h = parts[3];
+    }
+  } else if (widthMatch && heightMatch) {
+    const pw = parseFloat(widthMatch[1]);
+    const ph = parseFloat(heightMatch[1]);
+    if (pw > 0 && ph > 0) {
+      w = pw;
+      h = ph;
+    }
+  }
+
+  if (!viewBoxMatch) {
+    const cxMatch = svgStr.match(/data-ooxml-slide-cx=["']?([0-9.]+)/i);
+    const cyMatch = svgStr.match(/data-ooxml-slide-cy=["']?([0-9.]+)/i);
+    if (cxMatch && cyMatch) {
+      const cx = parseFloat(cxMatch[1]);
+      const cy = parseFloat(cyMatch[1]);
+      if (cx > 0 && cy > 0) {
+        w = cx / 9525;
+        h = cy / 9525;
+      }
+    }
+  }
+
+  // Strip hardcoded width & height attributes from the root <svg> tag
+  let modifiedSvg = svgStr.replace(/<svg\b([^>]*)>/i, (_full, attrs: string) => {
+    let cleanAttrs = attrs
+      .replace(/\s+\bwidth=["'][^"']*["']/gi, "")
+      .replace(/\s+\bheight=["'][^"']*["']/gi, "");
+    if (!viewBoxMatch) {
+      cleanAttrs = ` viewBox="0 0 ${w} ${h}"` + cleanAttrs;
+    }
+    if (!/preserveAspectRatio=/i.test(cleanAttrs)) {
+      cleanAttrs = ` preserveAspectRatio="xMidYMid meet"` + cleanAttrs;
+    }
+    if (/style=["']/i.test(cleanAttrs)) {
+      cleanAttrs = cleanAttrs.replace(/style=["']([^"']*)["']/i, (_m, existing) => {
+        return `style="${existing};width:100%;height:100%;max-width:100%;max-height:100%;display:block;"`;
+      });
+    } else {
+      cleanAttrs = ` style="width:100%;height:100%;max-width:100%;max-height:100%;display:block;"` + cleanAttrs;
+    }
+    return `<svg${cleanAttrs}>`;
+  });
+
+  return {
+    markup: modifiedSvg,
+    width: w,
+    height: h,
+    aspectRatio: w / h,
+  };
+}
+
 export function OriginalPresentationViewer({
   presentationId,
   slideNumber,
@@ -208,15 +282,19 @@ export function OriginalPresentationViewer({
   const embedSrc = useGoogle && googleId ? googleSlidesEmbedUrl(googleId, slideNumber) : null;
   const [svgMarkup, setSvgMarkup] = useState<string | null>(null);
   const [rasterUrl, setRasterUrl] = useState<string | null>(null);
+  const [rasterDimensions, setRasterDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [stageDimensions, setStageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!useGoogle && !svgMarkup);
   const [googleFailed, setGoogleFailed] = useState(false);
   const requestId = useRef(0);
   const rasterRef = useRef<string | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSvgMarkup(null);
     setRasterUrl(null);
+    setRasterDimensions(null);
     setError(null);
     setGoogleFailed(false);
     if (rasterRef.current) {
@@ -245,6 +323,27 @@ export function OriginalPresentationViewer({
   }, []);
 
   useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const updateStage = () => {
+      if (!stageRef.current) return;
+      const { clientWidth, clientHeight } = stageRef.current;
+      if (clientWidth > 0 && clientHeight > 0) {
+        setStageDimensions((prev) => {
+          if (prev && prev.width === clientWidth && prev.height === clientHeight) return prev;
+          return { width: clientWidth, height: clientHeight };
+        });
+      }
+    };
+
+    updateStage();
+    const ro = new ResizeObserver(updateStage);
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
     const skipPptx = Boolean(embedSrc) && !googleFailed;
     if (skipPptx || !presentationId) {
       setLoading(false);
@@ -264,6 +363,7 @@ export function OriginalPresentationViewer({
         }
         setSvgMarkup(svg);
         setRasterUrl(null);
+        setRasterDimensions(null);
         setLoading(false);
         viewLog({
           event: "slide_displayed",
@@ -318,7 +418,69 @@ export function OriginalPresentationViewer({
     })();
   }, [presentationId, slideIndex, slideNumber, embedSrc, googleFailed, sourceUrl, sourceType]);
 
-  const svgHtml = useMemo(() => svgMarkup, [svgMarkup]);
+  const preparedSvg = useMemo(() => (svgMarkup ? prepareSlideSvg(svgMarkup) : null), [svgMarkup]);
+
+  const slideDimensions = useMemo(() => {
+    if (preparedSvg) {
+      return { width: preparedSvg.width, height: preparedSvg.height, aspectRatio: preparedSvg.aspectRatio };
+    }
+    if (rasterDimensions) {
+      return {
+        width: rasterDimensions.width,
+        height: rasterDimensions.height,
+        aspectRatio: rasterDimensions.width / rasterDimensions.height,
+      };
+    }
+    return { width: 960, height: 540, aspectRatio: 16 / 9 };
+  }, [preparedSvg, rasterDimensions]);
+
+  const { viewportWidth, viewportHeight, scale, offsetX, offsetY } = useMemo(() => {
+    const slideAspect = slideDimensions.aspectRatio || slideDimensions.width / slideDimensions.height;
+    if (!stageDimensions || stageDimensions.width <= 0 || stageDimensions.height <= 0) {
+      return {
+        viewportWidth: "100%",
+        viewportHeight: "100%",
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+      };
+    }
+
+    const availW = stageDimensions.width;
+    const availH = stageDimensions.height;
+    const stageAspect = availW / availH;
+
+    let renderedW: number;
+    let renderedH: number;
+
+    if (stageAspect > slideAspect) {
+      // Stage is wider than slide -> height constrained
+      renderedH = availH;
+      renderedW = availH * slideAspect;
+    } else {
+      // Stage is taller than slide -> width constrained
+      renderedW = availW;
+      renderedH = availW / slideAspect;
+    }
+
+    const floorW = Math.max(1, Math.floor(renderedW));
+    const floorH = Math.max(1, Math.floor(renderedH));
+    const offX = Math.floor((availW - floorW) / 2);
+    const offY = Math.floor((availH - floorH) / 2);
+    const calculatedScale = floorW / slideDimensions.width;
+
+    console.info(
+      `[PRESENTATION_LAYOUT_DEBUG] stageWidth=${availW} stageHeight=${availH} slideIntrinsicWidth=${slideDimensions.width} slideIntrinsicHeight=${slideDimensions.height} slideRenderedWidth=${floorW} slideRenderedHeight=${floorH} scale=${calculatedScale.toFixed(3)} offsetX=${offX} offsetY=${offY} aspectRatio=${slideAspect.toFixed(3)}`
+    );
+
+    return {
+      viewportWidth: `${floorW}px`,
+      viewportHeight: `${floorH}px`,
+      scale: calculatedScale,
+      offsetX: offX,
+      offsetY: offY,
+    };
+  }, [stageDimensions, slideDimensions]);
 
   if (embedSrc && !googleFailed) {
     return (
@@ -331,7 +493,7 @@ export function OriginalPresentationViewer({
           data-testid="classroom-google-embed"
           title={`Google Slides ${slideNumber}`}
           src={embedSrc}
-          style={{ width: "100%", height: "100%", border: 0, background: "#000" }}
+          style={{ width: "100%", height: "100%", border: 0, background: "#000", display: "block" }}
           allow="fullscreen"
           allowFullScreen
           onLoad={() => viewLog({ event: "google_iframe_load", presentationId, slide: slideNumber })}
@@ -344,7 +506,7 @@ export function OriginalPresentationViewer({
     );
   }
 
-  if (loading && !svgHtml && !rasterUrl) {
+  if (loading && !preparedSvg && !rasterUrl) {
     return (
       <div
         data-testid="classroom-original-loading"
@@ -362,7 +524,7 @@ export function OriginalPresentationViewer({
     );
   }
 
-  if (error && !svgHtml && !rasterUrl) {
+  if (error && !preparedSvg && !rasterUrl) {
     return (
       <div
         data-testid="classroom-visual-error"
@@ -387,15 +549,18 @@ export function OriginalPresentationViewer({
 
   return (
     <div
+      ref={stageRef}
       data-testid="classroom-original-pptx"
-      className={className}
+      className={`presentation-stage ${className}`}
       style={{
         width: "100%",
         height: "100%",
         background: "#000",
         overflow: "hidden",
-        display: "grid",
-        placeItems: "center",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
       }}
     >
       <style>{`
@@ -409,11 +574,50 @@ export function OriginalPresentationViewer({
           display: block;
         }
       `}</style>
-      {rasterUrl ? (
-        <img src={rasterUrl} alt="" style={{ objectFit: "contain" }} />
-      ) : svgHtml ? (
-        <div style={{ width: "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: svgHtml }} />
-      ) : null}
+      <div
+        data-testid="classroom-slide-viewport"
+        className="slide-viewport"
+        style={{
+          width: typeof viewportWidth === "string" && viewportWidth.endsWith("px") ? viewportWidth : "100%",
+          height: typeof viewportHeight === "string" && viewportHeight.endsWith("px") ? viewportHeight : "100%",
+          aspectRatio:
+            typeof viewportWidth === "string" && viewportWidth.endsWith("px")
+              ? undefined
+              : `${slideDimensions.width} / ${slideDimensions.height}`,
+          maxWidth: "100%",
+          maxHeight: "100%",
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {rasterUrl ? (
+          <img
+            src={rasterUrl}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                setRasterDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+              }
+            }}
+          />
+        ) : preparedSvg ? (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            dangerouslySetInnerHTML={{ __html: preparedSvg.markup }}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
