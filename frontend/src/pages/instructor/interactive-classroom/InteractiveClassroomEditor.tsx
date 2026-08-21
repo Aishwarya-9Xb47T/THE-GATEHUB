@@ -889,14 +889,15 @@ export function InteractiveClassroomEditor() {
                         </span>
                         <div className="min-w-0 flex-1">
                           {(() => {
-                            const thumbs = presentationId
-                              ? classroomThumbnailCandidateUrls(presentationId, slide.order)
-                              : [];
-                            const first = thumbs[0] || (slide.thumbnail
+                            const candidates = [
+                              ...(slide.thumbnail ? [slide.thumbnail] : []),
+                              ...(presentationId ? classroomThumbnailCandidateUrls(presentationId, slide.order) : []),
+                            ].filter(Boolean);
+                            const first = candidates[0] || (slide.thumbnail
                               ? classroomRenderedImageUrl(presentationId, slide.order, slide.thumbnail)
                               : null);
                             return (
-                              <div className="w-full h-16 bg-slate-900 rounded mb-1 overflow-hidden relative">
+                              <div className="w-full h-16 bg-slate-900 rounded mb-1 overflow-hidden relative border border-white/5">
                                 {first ? (
                                   <img
                                     src={withUploadAuth(first)}
@@ -906,9 +907,9 @@ export function InteractiveClassroomEditor() {
                                     onError={(event) => {
                                       const img = event.currentTarget;
                                       const index = Number(img.dataset.thumbIndex || "0") + 1;
-                                      if (index < thumbs.length) {
+                                      if (index < candidates.length) {
                                         img.dataset.thumbIndex = String(index);
-                                        img.src = withUploadAuth(thumbs[index]);
+                                        img.src = withUploadAuth(candidates[index]);
                                         return;
                                       }
                                       img.style.display = "none";

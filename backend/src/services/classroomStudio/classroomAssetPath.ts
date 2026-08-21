@@ -40,8 +40,16 @@ export function canonicalExportPdfRelative(presentationId: string): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/${CLASSROOM_EXPORT_PDF_REST}`;
 }
 
+export function canonicalSourcePdfRelative(presentationId: string): string {
+  return `${CLASSROOM_PREFIX}/${presentationId}/source/original.pdf`;
+}
+
 export function canonicalSlidePngRelative(presentationId: string, slideNumber: number): string {
   return `${CLASSROOM_PREFIX}/${presentationId}/renders/${paddedSlidePng(slideNumber)}`;
+}
+
+export function canonicalSlideThumbnailRelative(presentationId: string, slideNumber: number): string {
+  return `${CLASSROOM_PREFIX}/${presentationId}/renders/slide-${String(slideNumber).padStart(3, "0")}-thumb.png`;
 }
 
 export function canonicalSlideSvgRelative(presentationId: string, slideNumber: number): string {
@@ -120,15 +128,18 @@ export function mergeExtractedSlideVisual(
   return {
     ...existing,
     ...next,
-    type: "google_slides",
-    visualSource: "google_embed",
+    type: existing?.type || "google_slides",
+    visualSource: existing?.visualSource || "google_embed",
     embedUrl,
     googleSlidesId,
     googleSlidesUrl,
-    src: embedUrl || next.src,
+    src: existing?.src || embedUrl || next.src,
+    renderedImageUrl: existing?.renderedImageUrl || next.renderedImageUrl,
+    thumbnailUrl: existing?.thumbnailUrl || next.thumbnailUrl,
+    svgUrl: existing?.svgUrl || next.svgUrl,
     availability: "available",
     renderStatus: "ready",
-    extractionStatus: next.extractionStatus ?? existing?.extractionStatus ?? "pending",
+    extractionStatus: next.extractionStatus ?? existing?.extractionStatus ?? "complete",
     errorCode: undefined,
     errorMessage: undefined,
     renderError: null,
@@ -248,9 +259,9 @@ export function buildOriginalSlideVisual(
     googleSlidesId: googleId,
     googleSlidesUrl: options.googleSlidesUrl,
     embedUrl,
-    renderedImageUrl: visualSource === "google_embed" ? undefined : canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
-    thumbnailUrl: visualSource === "google_embed" ? undefined : canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
-    visualCacheUrl: visualSource === "google_embed" ? undefined : canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
+    renderedImageUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+    thumbnailUrl: canonicalSlidePngApi(presentationId, slideIndex + 1),
+    visualCacheUrl: canonicalVisualApi(presentationId, slideIndex + 1, "svg"),
     storageKey: `uploads/${canonicalSourceRelative(presentationId)}`,
     mimeType: visualSource === "google_embed" ? "text/html" : PPTX_MIME,
     slideIndex,

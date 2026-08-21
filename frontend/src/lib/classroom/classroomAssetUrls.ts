@@ -51,10 +51,11 @@ export function classroomThumbnailCandidateUrls(
   const n = Math.max(1, Math.floor(Number(slideNumber) || 1));
   const padded = String(n).padStart(3, "0");
   return [
-    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.svg`),
-    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.png`),
-    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.svg`),
     canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.png`),
+    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}-thumb.png`),
+    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.png`),
+    canonicalClassroomApiAsset(presentationId, "visuals", `${n}.svg`),
+    canonicalClassroomApiAsset(presentationId, "renders", `slide-${padded}.svg`),
   ];
 }
 

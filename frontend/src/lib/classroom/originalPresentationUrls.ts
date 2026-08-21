@@ -21,12 +21,10 @@ export function shouldUseGoogleSlidesEmbed(args: {
   googleSlidesId?: string | null;
   sourceUrl?: string | null;
 }): boolean {
-  if (args.visualSource === "original_pptx") return false;
+  if (args.visualSource === "original_pptx" || args.visualSource === "rendered_image") return false;
   const id = args.googleSlidesId || googleSlidesPresentationId(args.sourceUrl);
   if (!id) return false;
-  return args.visualSource === "google_embed"
-    || args.visualSource === "google_slides"
-    || args.sourceType === "google_slides";
+  return args.visualSource === "google_embed";
 }
 
 export function classroomOriginalPptxUrl(presentationId: string): string {
@@ -51,8 +49,10 @@ export function isOriginalPresentationVisual(visual?: {
   if (!visual) return false;
   return visual.visualSource === "original_pptx"
     || visual.visualSource === "google_embed"
+    || visual.visualSource === "rendered_image"
     || visual.type === "original_pptx"
-    || visual.type === "google_slides";
+    || visual.type === "google_slides"
+    || visual.type === "rendered_image";
 }
 
 export function usesOriginalPresentationSource(
@@ -63,3 +63,4 @@ export function usesOriginalPresentationSource(
     || sourceType === "google_slides"
     || isOriginalPresentationVisual(visual);
 }
+
