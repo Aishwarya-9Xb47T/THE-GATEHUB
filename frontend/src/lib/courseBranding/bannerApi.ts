@@ -1,4 +1,5 @@
 import { api, apiFormData } from "@/lib/api";
+import { resolveCourseMediaUrl } from "@/lib/courseMediaUrls";
 import type { BannerType } from "./types";
 
 export interface BannerAsset {
@@ -118,10 +119,10 @@ export async function uploadBannerFiles(banner: Blob, thumbnail?: Blob) {
 
 export function resolveBannerSrc(url: string): string {
   if (!url) return "";
-  if (url.startsWith("http") || url.startsWith("blob:")) return url;
+  if (url.startsWith("blob:")) return url;
   const cached = imageCache.get(url);
   if (cached) return cached;
-  const resolved = `${window.location.origin}${url.startsWith("/") ? url : `/${url}`}`;
+  const resolved = resolveCourseMediaUrl(url) || url;
   imageCache.set(url, resolved);
   return resolved;
 }

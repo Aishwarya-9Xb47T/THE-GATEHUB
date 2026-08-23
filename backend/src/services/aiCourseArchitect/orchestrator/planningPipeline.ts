@@ -24,6 +24,9 @@ export async function runPlanningPipeline(input: PlanningPipelineInput): Promise
   };
 
   const coursePlanner = await runCoursePlannerAgent(interview);
+  if (!coursePlanner.output) {
+    throw new Error("course-planner produced no output");
+  }
   manifest.planningStages.push({
     stage: "course-planner",
     confidence: coursePlanner.confidence,
@@ -31,6 +34,9 @@ export async function runPlanningPipeline(input: PlanningPipelineInput): Promise
   });
 
   const curriculum = await runCurriculumArchitectAgent(interview);
+  if (!curriculum.output?.blueprint) {
+    throw new Error("curriculum-architect produced no blueprint");
+  }
   manifest.planningStages.push({
     stage: "curriculum-architect",
     confidence: curriculum.confidence,

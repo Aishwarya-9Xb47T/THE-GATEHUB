@@ -226,6 +226,7 @@ export function AICourseArchitectPage() {
   const [bannerUrl, setBannerUrl] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [bannerType, setBannerType] = useState<BannerType>("upload");
+  const [bannerId, setBannerId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     api<{ categories: typeof categories }>("/categories").then((res) => {
@@ -371,7 +372,9 @@ export function AICourseArchitectPage() {
     const payload = {
       ...activeInterview,
       productType,
-      banner: bannerUrl ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType } : undefined,
+      banner: bannerUrl
+        ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType, bannerId }
+        : undefined,
     };
     try {
       const res = await api<{
@@ -396,7 +399,7 @@ export function AICourseArchitectPage() {
     } finally {
       setLoadingBlueprint(false);
     }
-  }, [applyPendingYouTubeDraft, bannerUrl, thumbnailUrl, bannerType, toast, productType]);
+  }, [applyPendingYouTubeDraft, bannerUrl, thumbnailUrl, bannerType, bannerId, toast, productType]);
 
   const handleNext = async () => {
     if (!validateStep()) return;
@@ -404,7 +407,9 @@ export function AICourseArchitectPage() {
       applyPendingYouTubeDraft();
       setInterview((prev) => ({
         ...prev,
-        banner: bannerUrl ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType } : undefined,
+        banner: bannerUrl
+          ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType, bannerId }
+          : undefined,
       }));
       setStep(9);
       await fetchBlueprint();
@@ -511,9 +516,11 @@ export function AICourseArchitectPage() {
   const uploadSingleVideoFile = async (file: File): Promise<VideoMapping> => {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await apiFormData<{ url: string }>("/upload", fd);
-    if (res.error || !res.data?.url) throw new Error(res.error || `Upload failed for ${file.name}`);
-    const rawUrl = res.data.url;
+    const res = await apiFormData<{ url?: string; success?: boolean; data?: { url?: string } }>("/upload", fd);
+    const rawUrl = res.data?.url || res.data?.data?.url;
+    if (res.error || !rawUrl) {
+      throw new Error(res.error || `Upload failed for ${file.name}`);
+    }
     const cleanFile = rawUrl.replace(/^.*\/uploads\//, "").replace(/^uploads\//, "");
     return {
       type: "upload",
@@ -636,7 +643,9 @@ export function AICourseArchitectPage() {
     const payload = {
       ...activeInterview,
       productType,
-      banner: bannerUrl ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType } : undefined,
+      banner: bannerUrl
+        ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType, bannerId }
+        : undefined,
     };
 
     try {
@@ -1490,7 +1499,12 @@ export function AICourseArchitectPage() {
                   bannerUrl={bannerUrl}
                   thumbnailUrl={thumbnailUrl || bannerUrl}
                   bannerType={bannerType}
-                  onChange={(sel) => { setBannerUrl(sel.bannerUrl); setThumbnailUrl(sel.thumbnailUrl); setBannerType(sel.bannerType); }}
+                  onChange={(sel) => {
+                    setBannerUrl(sel.bannerUrl);
+                    setThumbnailUrl(sel.thumbnailUrl);
+                    setBannerType(sel.bannerType);
+                    setBannerId(sel.bannerId);
+                  }}
                   title={interview.courseInfo.title}
                   subtitle={interview.courseInfo.subtitle}
                   categoryName={interview.courseInfo.categoryName}

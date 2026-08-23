@@ -309,7 +309,14 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
 
   const universes = await prisma.learningUniverse.findMany({
     where: { instructorId: req.user.id },
-    select: { id: true, sourceProjectId: true, structuredData: true, status: true },
+    select: {
+      id: true,
+      sourceProjectId: true,
+      structuredData: true,
+      status: true,
+      bannerUrl: true,
+      thumbnail: true,
+    },
   });
 
   const studioEditByCourseId = new Map<string, { learningUniverseId: string; sourceProjectId?: string }>();
@@ -339,7 +346,9 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     const status = linkedUniverse
       ? resolvePremiumCourseDisplayStatus(course.status, linkedUniverse.status)
       : course.status;
-    return { ...normalized, status, academicStudioEdit };
+    const bannerUrl = course.bannerUrl || linkedUniverse?.bannerUrl || null;
+    const thumbnail = course.thumbnail || linkedUniverse?.thumbnail || bannerUrl;
+    return { ...normalized, status, academicStudioEdit, bannerUrl, thumbnail };
   });
 
   res.json({ success: true, courses: enriched });

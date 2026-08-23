@@ -45,6 +45,7 @@ export interface ProductSyncInput {
   subtitle?: string;
   description?: string;
   thumbnail?: string | null;
+  bannerUrl?: string | null;
   categoryId?: string | null;
   difficulty?: string;
   price?: number;
@@ -459,8 +460,8 @@ export async function syncProductListingRecord(input: ProductSyncInput): Promise
             title: input.title,
             subtitle: input.subtitle,
             description: desc,
-            thumbnail: input.thumbnail || undefined,
-            bannerUrl: input.thumbnail || undefined,
+            thumbnail: input.thumbnail || input.bannerUrl || undefined,
+            bannerUrl: input.bannerUrl || input.thumbnail || undefined,
             categoryId: input.categoryId || undefined,
             difficulty: normalizeDifficulty(input.difficulty),
             price: typeof input.price === "number" ? input.price : existingCourse.price,
@@ -478,8 +479,8 @@ export async function syncProductListingRecord(input: ProductSyncInput): Promise
           subtitle: input.subtitle,
           description: desc,
           price: typeof input.price === "number" ? input.price : 0,
-          thumbnail: input.thumbnail || undefined,
-          bannerUrl: input.thumbnail || undefined,
+          thumbnail: input.thumbnail || input.bannerUrl || undefined,
+          bannerUrl: input.bannerUrl || input.thumbnail || undefined,
           categoryId: input.categoryId || undefined,
           difficulty: normalizeDifficulty(input.difficulty),
           language: "en",

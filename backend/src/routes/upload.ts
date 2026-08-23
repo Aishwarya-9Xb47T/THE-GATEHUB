@@ -29,14 +29,25 @@ uploadRouter.post("/", authenticate, uploadLimiter, upload.single("file"), async
     });
 
     const url = await persistMulterFile(req.file);
-    console.log("Generated file URL:", url);
+    console.log("[VIDEO_UPLOAD_BACKEND] STORED", { url, size: req.file.size });
     res.json({ success: true, url });
   } catch (error: any) {
-    console.error("Upload error:", error);
-    const isProd = process.env.NODE_ENV === "production";
+    const { isB2Configured } = await import("../services/b2StorageService.js");
+    const b2Configured = isB2Configured();
+    console.error("[VIDEO_UPLOAD_BACKEND] FAILED", {
+      message: error?.message,
+      name: error?.name,
+      b2Configured,
+      size: req.file?.size,
+      mime: req.file?.mimetype,
+    });
     res.status(500).json({
       success: false,
-      error: isProd ? "Upload failed. Please try again." : (error?.message || "Upload failed"),
+      error: !b2Configured
+        ? "Persistent storage is not configured. Set B2_APPLICATION_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_NAME, B2_ENDPOINT, and B2_REGION."
+        : error?.message?.includes("B2") || error?.message?.includes("HEAD")
+          ? "Upload reached the server but failed while saving to persistent storage. Retry the upload."
+          : "Upload failed while saving the file. Please retry.",
     });
   }
 });

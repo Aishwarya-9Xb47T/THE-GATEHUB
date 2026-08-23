@@ -18,6 +18,7 @@ interface Course {
   description?: string | null;
   status: string;
   thumbnail?: string | null;
+  bannerUrl?: string | null;
   averageRating?: number;
   reviewCount?: number;
   _count: { enrollments: number; sections: number; reviews?: number };

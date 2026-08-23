@@ -12,6 +12,7 @@ interface InstructorCourseCardProps {
     subtitle?: string | null;
     description?: string | null;
     thumbnail?: string | null;
+    bannerUrl?: string | null;
     averageRating?: number;
     reviewCount?: number;
     _count: { enrollments: number; sections: number; reviews?: number };
@@ -48,6 +49,7 @@ export function InstructorCourseCard({
   return (
     <article className="course-card group">
       <CourseCardBanner
+        bannerUrl={course.bannerUrl}
         thumbnailUrl={course.thumbnail}
         alt={course.title}
         placeholderSeed={course.title}

@@ -79,21 +79,24 @@ async function executeCoursePlanner(
   if (!getOpenAi()) return buildHeuristicCoursePlan(normalized);
 
   try {
-    const res = await getOpenAi()!.chat.completions.create({
-      model: getArchitectModel("blueprint"),
-      messages: [
-        { role: "system", content: PROFESSOR_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
+    const res = await getOpenAi()!.chat.completions.create(
+      {
+        model: getArchitectModel("blueprint"),
+        messages: [
+          { role: "system", content: PROFESSOR_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
 ${buildInterviewContext(normalized)}
 ${ANTI_HALLUCINATION_RULES}
 Schema: executiveSummary, learningOutcomes[], careerOutcomes[], skillMap[], prerequisites[], industryApplications[], estimatedHours, recommendedLearningPath[], assessmentStrategy, projectStrategy, labStrategy, certificationGoals[], recommendedModuleCount, recommendedLessonCount`,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.45,
-    });
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.45,
+      },
+      { timeout: 20_000, signal: AbortSignal.timeout(20_000) }
+    );
     const raw = res.choices[0]?.message?.content;
     if (raw) {
       const parsed = JSON.parse(raw) as CoursePlannerOutput;

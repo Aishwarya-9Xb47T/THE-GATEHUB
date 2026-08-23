@@ -39,6 +39,9 @@ export interface ArchitectCompletionOptions {
   temperature?: number;
 }
 
+/** Keep each LLM hop well under Render's ~100s HTTP timeout so planning can fall back. */
+const OPENAI_PLANNING_TIMEOUT_MS = 20_000;
+
 async function callOpenAI(
   model: string,
   system: string,
@@ -49,16 +52,19 @@ async function callOpenAI(
 ): Promise<string | null> {
   const client = getOpenAi();
   if (!client) return null;
-  const res = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    ...(json ? { response_format: { type: "json_object" as const } } : {}),
-    temperature,
-    max_tokens: maxTokens,
-  });
+  const res = await client.chat.completions.create(
+    {
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      ...(json ? { response_format: { type: "json_object" as const } } : {}),
+      temperature,
+      max_tokens: maxTokens,
+    },
+    { timeout: OPENAI_PLANNING_TIMEOUT_MS, signal: AbortSignal.timeout(OPENAI_PLANNING_TIMEOUT_MS) }
+  );
   return res.choices[0]?.message?.content ?? null;
 }
 

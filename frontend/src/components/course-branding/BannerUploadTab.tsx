@@ -11,7 +11,7 @@ import {
   validateDimensions,
   type CropRegion,
 } from "@/lib/courseBranding/imageUtils";
-import { uploadBannerFiles } from "@/lib/courseBranding/bannerApi";
+import { uploadBannerFiles, resolveBannerSrc } from "@/lib/courseBranding/bannerApi";
 
 interface BannerUploadTabProps {
   value?: string;
@@ -124,7 +124,7 @@ export function BannerUploadTab({ value, onSelect }: BannerUploadTabProps) {
       ) : displayUrl ? (
         <div className="relative rounded-xl overflow-hidden border border-border aspect-[16/9] bg-muted group">
           <img
-            src={displayUrl.startsWith("http") || displayUrl.startsWith("blob:") ? displayUrl : `${window.location.origin}${displayUrl}`}
+            src={displayUrl.startsWith("blob:") ? displayUrl : resolveBannerSrc(displayUrl)}
             alt="Banner preview"
             className="w-full h-full object-cover"
           />

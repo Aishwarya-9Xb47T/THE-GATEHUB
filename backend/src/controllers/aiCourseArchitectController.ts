@@ -265,14 +265,35 @@ export async function architectValidateCurriculum(req: AuthRequest, res: Respons
 }
 
 export async function architectBlueprint(req: AuthRequest, res: Response) {
-  const interview = parseInterview(req.body?.interview ?? req.body);
-  const { research, blueprint, curriculumValidation } = await researchAndPlanCurriculum(interview);
-  const withVideos = applyVideoAssignments(blueprint, interview);
-  const qualityReport = performQualityReview(withVideos, interview);
-  res.json({
-    success: true,
-    data: { research, blueprint: withVideos, curriculumValidation, qualityReport },
-  });
+  const started = Date.now();
+  try {
+    const interview = parseInterview(req.body?.interview ?? req.body);
+    console.info("[AI Architect] blueprint request", {
+      title: interview.courseInfo.title,
+      subject: interview.courseInfo.subject,
+      productType: interview.productType,
+      hasBanner: Boolean(interview.banner?.bannerUrl),
+      videoMappings: interview.videoStrategy.mappings.length,
+    });
+    const { research, blueprint, curriculumValidation } = await researchAndPlanCurriculum(interview);
+    const withVideos = applyVideoAssignments(blueprint, interview);
+    const qualityReport = performQualityReview(withVideos, interview);
+    console.info("[AI Architect] blueprint complete", {
+      ms: Date.now() - started,
+      modules: withVideos.modules?.length ?? 0,
+      lessons: withVideos.modules?.reduce((n, m) => n + (m.lessons?.length ?? 0), 0) ?? 0,
+    });
+    res.json({
+      success: true,
+      data: { research, blueprint: withVideos, curriculumValidation, qualityReport },
+    });
+  } catch (err) {
+    console.error("[AI Architect] blueprint failed", {
+      ms: Date.now() - started,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    throw friendlyArchitectError(err, "blueprint");
+  }
 }
 
 export async function architectQualityReview(req: AuthRequest, res: Response) {
@@ -428,8 +449,13 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     console.warn(`[AI Architect] Draft generation continuing despite QA gate: ${qaWarning}`);
   }
 
-  const bannerUrl = interview.banner?.bannerUrl;
-  const thumbnailUrl = interview.banner?.thumbnailUrl || bannerUrl;
+  const bannerUrl = interview.banner?.bannerUrl?.trim() || undefined;
+  const thumbnailUrl = interview.banner?.thumbnailUrl?.trim() || bannerUrl;
+  console.info("[AI Architect] generate banner", {
+    hasBanner: Boolean(bannerUrl),
+    bannerType: interview.banner?.bannerType || null,
+    bannerId: interview.banner?.bannerId || null,
+  });
 
   stage = "create-draft";
   const categoryId = await resolveValidCategoryId(interview.courseInfo.categoryId);
@@ -513,14 +539,17 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     }
   }
 
+  const persistedBanner = bannerUrl || generatedThumbnail || draft.bannerUrl || undefined;
+  const persistedThumb = thumbnailUrl || generatedThumbnail || draft.thumbnail || persistedBanner;
+
   stage = "persist-course";
   const existingStructured = readStructuredRecord(draft.structuredData);
   await prisma.learningUniverse.update({
     where: { id: draft.id },
     data: {
       sourceProjectId: project.id,
-      thumbnail: generatedThumbnail ?? draft.thumbnail,
-      bannerUrl: generatedThumbnail ?? draft.bannerUrl,
+      thumbnail: persistedThumb ?? draft.thumbnail,
+      bannerUrl: persistedBanner ?? draft.bannerUrl,
       structuredData: serializeStructuredData({
         ...existingStructured,
         ...buildStructuredDataProductMeta(interview.productType, "ai-architect", {
@@ -545,7 +574,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
           title: blueprint.courseTitle,
           description: blueprint.description,
           difficulty: blueprint.difficulty,
-          thumbnail: generatedThumbnail,
+          thumbnail: persistedThumb,
         },
         marketing: blueprint.marketing,
       }),
@@ -559,7 +588,8 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     title: blueprint.courseTitle,
     subtitle: blueprint.subtitle,
     description: blueprint.description,
-    thumbnail: generatedThumbnail ?? draft.thumbnail,
+    thumbnail: persistedThumb ?? generatedThumbnail ?? draft.thumbnail,
+    bannerUrl: persistedBanner,
     categoryId,
     difficulty: blueprint.difficulty,
     price: interview.productType === "premium-course"
@@ -579,12 +609,16 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     );
   }
 
-  if (generatedThumbnail) {
+  if (persistedBanner || persistedThumb) {
     await updateLearningUniverseBranding(draft.id, userId, {
-      thumbnailUrl: generatedThumbnail,
-      bannerUrl: generatedThumbnail,
-      bannerType: interview.banner?.bannerType || "ai-generated",
-    }).catch(() => {});
+      thumbnailUrl: persistedThumb,
+      bannerUrl: persistedBanner || persistedThumb,
+      bannerType: interview.banner?.bannerType || (!bannerUrl && generatedThumbnail ? "ai-generated" : undefined),
+    }).catch((err) => {
+      console.error("[AI Architect] branding update failed", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   const lessonCount = blueprint.modules.reduce((n, m) => n + m.lessons.length, 0);

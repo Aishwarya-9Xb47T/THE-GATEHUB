@@ -16,6 +16,42 @@ import { computeScalePlan, planCurriculumStructure, enforceBlueprintStructure } 
 import { validateCurriculumBlueprint } from "./curriculumValidator.js";
 
 
+/** Stay under Render's ~100s request timeout; remaining work uses the existing heuristic planner. */
+const PLANNING_DEADLINE_MS = 70_000;
+
+function isPlanningDeadline(err: unknown): boolean {
+  return err instanceof Error && (err.message === "PLANNING_DEADLINE" || (err as { code?: string }).code === "PLANNING_DEADLINE");
+}
+
+function heuristicResearchAndPlan(interview: AICourseArchitectInterview): {
+  research: CurriculumResearchReport;
+  blueprint: ArchitectBlueprint;
+  curriculumValidation: ArchitectQualityReport;
+} {
+  const blueprint = generateIntelligentMockBlueprint(interview);
+  const research = blueprint.researchReport ?? {
+    courseRationale: `Curriculum structure for ${interview.courseInfo.subject || interview.courseInfo.title}.`,
+    industryStandards: [],
+    universityReferences: [],
+    officialDocumentation: [],
+    recommendedProgression: [],
+    skillDependencyGraph: "",
+    prerequisiteGraph: "",
+    prerequisites: interview.courseInfo.prerequisites || [],
+    learningOutcomes: interview.courseInfo.expectedOutcomes || [],
+    conceptMap: [],
+    assessmentRecommendations: [],
+    researchSources: [],
+    researchedAt: new Date().toISOString(),
+  };
+  blueprint.researchReport = research;
+  return {
+    research,
+    blueprint,
+    curriculumValidation: validateCurriculumBlueprint(blueprint, interview),
+  };
+}
+
 /** Phase 2–4: V4 orchestrated planning (Agents 1 → 2 → 3). */
 export async function researchAndPlanCurriculum(interview: AICourseArchitectInterview): Promise<{
   research: CurriculumResearchReport;
@@ -23,12 +59,33 @@ export async function researchAndPlanCurriculum(interview: AICourseArchitectInte
   curriculumValidation: ArchitectQualityReport;
 }> {
   const normalized = normalizeInterview(interview);
-  const pipeline = await runPlanningPipeline({ interview: normalized });
-  return {
-    research: pipeline.curriculum.research,
-    blueprint: pipeline.blueprint,
-    curriculumValidation: pipeline.curriculumValidation,
-  };
+  const started = Date.now();
+  try {
+    const pipeline = await Promise.race([
+      runPlanningPipeline({ interview: normalized }),
+      new Promise<never>((_, reject) => {
+        const err = Object.assign(new Error("PLANNING_DEADLINE"), { code: "PLANNING_DEADLINE" });
+        setTimeout(() => reject(err), PLANNING_DEADLINE_MS);
+      }),
+    ]);
+    return {
+      research: pipeline.curriculum.research,
+      blueprint: pipeline.blueprint,
+      curriculumValidation: pipeline.curriculumValidation,
+    };
+  } catch (err) {
+    if (isPlanningDeadline(err)) {
+      console.warn("[AI Architect] Planning deadline reached — using heuristic curriculum", {
+        ms: Date.now() - started,
+      });
+      return heuristicResearchAndPlan(normalized);
+    }
+    console.error("[AI Architect] Planning pipeline failed — using heuristic curriculum", {
+      ms: Date.now() - started,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return heuristicResearchAndPlan(normalized);
+  }
 }
 
 export async function generateCourseBlueprint(interview: AICourseArchitectInterview): Promise<ArchitectBlueprint> {

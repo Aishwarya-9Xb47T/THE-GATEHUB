@@ -20,6 +20,7 @@ interface Course {
   subtitle?: string | null;
   description?: string | null;
   thumbnail?: string | null;
+  bannerUrl?: string | null;
   status: string;
   averageRating: number;
   reviewCount: number;
