@@ -25,6 +25,7 @@ import {
   mimeFromUploadPath as mimeFromExt,
 } from "../utils/uploadMedia.js";
 import { classroomAssetLookupRelatives } from "../services/classroomStudio/classroomAssetUrls.js";
+import { isAllowedCorsOrigin } from "../config/corsOrigins.js";
 
 export type { B2Prefix };
 export { isVideoUploadPath };
@@ -34,22 +35,9 @@ function httpStatusOfGet(err: unknown): number | undefined {
   return (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
 }
 
-function allowedMediaOrigins(): string[] {
-  const isProduction = process.env.NODE_ENV === "production";
-  return [
-    ...(isProduction ? [] : ["http://localhost:5173", "http://localhost:5174"]),
-    process.env.CLIENT_URL,
-    process.env.FRONTEND_URL,
-  ]
-    .filter(Boolean)
-    .map((o) => String(o).replace(/\/$/, ""));
-}
-
 export function applyUploadCorsHeaders(res: Response, originHeader?: string): void {
   const origin = originHeader?.replace(/\/$/, "");
-  const allowed = allowedMediaOrigins();
-  const isDevLocal = process.env.NODE_ENV !== "production" && origin && /^http:\/\/localhost:\d+$/.test(origin);
-  if (origin && (allowed.includes(origin) || isDevLocal)) {
+  if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   } else if (process.env.CLIENT_URL) {

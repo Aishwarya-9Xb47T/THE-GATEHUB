@@ -20,6 +20,7 @@ import passport from "passport";
 import path from "path";
 import rateLimit from "express-rate-limit";
 import fs from "fs";
+import { isAllowedCorsOrigin } from "./config/corsOrigins.js";
 import { createSecurityHeadersMiddleware } from "./middlewares/securityHeaders.js";
 import { authRouter } from "./routes/auth.js";
 import { userRouter } from "./routes/users.js";
@@ -154,24 +155,11 @@ if (isProduction) {
   app.use(limiter);
 }
 
-const allowedOrigins = [
-  ...(isProduction ? [] : ["http://localhost:5173", "http://localhost:5174"]),
-  process.env.CLIENT_URL,
-  process.env.FRONTEND_URL,
-]
-  .filter(Boolean)
-  .map((o) => String(o).replace(/\/$/, ""));
-
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // same-origin / curl / server-to-server
-      const normalized = origin.replace(/\/$/, "");
-      if (allowedOrigins.includes(normalized)) return callback(null, true);
-      // Dev-only: allow other localhost ports
-      if (!isProduction && /^http:\/\/localhost:\d+$/.test(normalized)) {
-        return callback(null, true);
-      }
+      if (isAllowedCorsOrigin(origin)) return callback(null, true);
       return callback(null, false);
     },
     credentials: true,
