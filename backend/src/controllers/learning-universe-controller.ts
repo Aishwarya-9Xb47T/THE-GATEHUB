@@ -198,11 +198,14 @@ async function assertPublishValidation(
     await ensureUniverseMediaFromReferences(universeId, parsed, sourceProjectId);
     const syncedAssets = await prisma.learningUniverseAsset.findMany({
       where: { learningUniverseId: universeId },
-      select: { filename: true },
+      select: { filename: true, storedFilename: true },
     });
     for (const a of syncedAssets) {
-      if (!availableFilenames.some((n) => n.toLowerCase() === a.filename.toLowerCase())) {
+      if (a.filename && !availableFilenames.some((n) => n.toLowerCase() === a.filename.toLowerCase())) {
         availableFilenames.push(a.filename);
+      }
+      if (a.storedFilename && !availableFilenames.some((n) => n.toLowerCase() === a.storedFilename.toLowerCase())) {
+        availableFilenames.push(a.storedFilename);
       }
     }
   }

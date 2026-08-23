@@ -490,9 +490,9 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   });
   const bannerUrl = persisted.bannerUrl?.trim() || undefined;
   const thumbnailUrl = persisted.thumbnailUrl?.trim() || bannerUrl;
-  console.info("[AI Architect] generate banner", {
+  console.info("[AI_COURSE] banner_persisted", {
     hasBanner: Boolean(bannerUrl),
-    storedPath: Boolean(bannerUrl && /\/uploads\/banners\//i.test(bannerUrl)),
+    bannerUrl: bannerUrl ? bannerUrl.slice(0, 100) : null,
     bannerType: interview.banner?.bannerType || null,
     bannerId: interview.banner?.bannerId || null,
     hasSourceUrl: Boolean(interview.banner?.sourceUrl),
@@ -538,10 +538,12 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   const mainTex = buildMainTexFromProject(built.project);
   stage = "write-latex-project";
   await writeLuProjectToDb(project.id, built.project, built.files, mainTex);
+  console.info(`[AI_COURSE] project_files_persisted projectId=${project.id} count=${built.files.length}`);
 
   stage = "sync-media";
   try {
-    await syncArchitectMediaAssets(draft.id, normalizedVideoMappings);
+    const syncedCount = await syncArchitectMediaAssets(draft.id, normalizedVideoMappings);
+    console.info(`[AI_COURSE] video_persisted count=${syncedCount} universeId=${draft.id}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[AI Architect] Media sync error:", {

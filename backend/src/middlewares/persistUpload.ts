@@ -90,7 +90,8 @@ function prefixFromMime(file: Express.Multer.File, explicit?: B2Prefix): B2Prefi
 export async function persistMulterFile(
   file: Express.Multer.File,
   prefix?: B2Prefix,
-  extraPath?: string
+  extraPath?: string,
+  options?: { keepLocal?: boolean }
 ): Promise<string> {
   const chosen = prefixFromMime(file, prefix);
   if (!isB2Configured()) {
@@ -127,7 +128,20 @@ export async function persistMulterFile(
       (confirmed.bytes ?? uploaded.bytes) +
       (confirmed.permissionDenied ? " head=403" : ""),
   );
-  await unlinkQuietly(file.path);
+  if (options?.keepLocal) {
+    try {
+      const destDir = path.join(getUploadRoot(), chosen);
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+      const destFile = path.join(destDir, file.filename);
+      if (file.path !== destFile && fs.existsSync(file.path)) {
+        fs.copyFileSync(file.path, destFile);
+      }
+    } catch {
+      /* ignore copy error on keepLocal */
+    }
+  } else {
+    await unlinkQuietly(file.path);
+  }
   return publicPathFromKey(key);
 }
 

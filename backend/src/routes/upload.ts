@@ -28,7 +28,7 @@ uploadRouter.post("/", authenticate, uploadLimiter, upload.single("file"), async
       storedFilename: req.file.filename,
     });
 
-    const url = await persistMulterFile(req.file);
+    const url = await persistMulterFile(req.file, undefined, undefined, { keepLocal: true });
     console.log("[VIDEO_UPLOAD_BACKEND] STORED", { url, size: req.file.size });
     res.json({ success: true, url });
   } catch (error: any) {
@@ -69,7 +69,7 @@ uploadRouter.post("/image", authenticate, uploadLimiter, upload.single("file"), 
       size: req.file.size,
     });
 
-    const url = await persistMulterFile(req.file, "images");
+    const url = await persistMulterFile(req.file, "images", undefined, { keepLocal: true });
     res.json({ success: true, url });
   } catch (error: any) {
     console.error("Image upload error:", error);

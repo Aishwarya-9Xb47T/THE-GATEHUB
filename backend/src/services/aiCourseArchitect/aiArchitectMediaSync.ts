@@ -244,7 +244,18 @@ export async function syncArchitectMediaAssets(
       continue;
     }
     if (!srcPath) {
-      console.warn(`[AI Architect] Video file not found for asset sync: ${basename}`);
+      console.info(`[AI Architect] Registering pre-uploaded video asset metadata: ${basename}`);
+      const ext = path.extname(basename) || ".mp4";
+      await prisma.learningUniverseAsset.create({
+        data: {
+          filename: basename,
+          storedFilename: basename,
+          mimeType: mimeFromUploadPath(basename, "video/mp4"),
+          size: mapping.size || 0,
+          learningUniverseId: universeId,
+        },
+      });
+      synced++;
       continue;
     }
 
@@ -254,7 +265,7 @@ export async function syncArchitectMediaAssets(
     const size = fs.statSync(srcPath).size;
     fs.copyFileSync(srcPath, destPath);
     const { persistAtPublicRelative } = await import("../../middlewares/persistUpload.js");
-    await persistAtPublicRelative(destPath, `learning-universes/${universeId}/${storedFilename}`);
+    await persistAtPublicRelative(destPath, `learning-universes/${universeId}/${storedFilename}`, undefined, { keepLocal: true });
 
     await prisma.learningUniverseAsset.create({
       data: {
@@ -292,6 +303,7 @@ export async function ensureUniverseMediaFromReferences(
     .map((r) => ({
       type: "upload" as const,
       file: path.basename(r.filename),
+      url: `/uploads/videos/${path.basename(r.filename)}`,
       title: r.lessonTitle,
     }));
 
@@ -322,7 +334,20 @@ export async function ensureUniverseMediaFromReferences(
       (sourceProjectId
         ? await resolveProjectAssetPathFromFiles(sourceProjectId, ref.filename, projectFiles)
         : null);
-    if (!srcPath) continue;
+    if (!srcPath) {
+      console.info(`[AI Architect] Registering pre-uploaded image asset metadata: ${basename}`);
+      const ext = path.extname(basename) || ".png";
+      await prisma.learningUniverseAsset.create({
+        data: {
+          filename: basename,
+          storedFilename: basename,
+          mimeType: mimeFromUploadPath(basename, "image/png"),
+          size: 0,
+          learningUniverseId: universeId,
+        },
+      });
+      continue;
+    }
 
     const ext = path.extname(basename) || path.extname(srcPath) || ".png";
     const storedFilename = `${randomUUID()}${ext}`;
@@ -330,7 +355,7 @@ export async function ensureUniverseMediaFromReferences(
     const size = fs.statSync(srcPath).size;
     fs.copyFileSync(srcPath, destPath);
     const { persistAtPublicRelative } = await import("../../middlewares/persistUpload.js");
-    await persistAtPublicRelative(destPath, `learning-universes/${universeId}/${storedFilename}`);
+    await persistAtPublicRelative(destPath, `learning-universes/${universeId}/${storedFilename}`, undefined, { keepLocal: true });
 
     await prisma.learningUniverseAsset.create({
       data: {

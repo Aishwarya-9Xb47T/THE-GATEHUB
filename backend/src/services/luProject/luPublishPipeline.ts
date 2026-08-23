@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import type { Express } from "express";
 import { parseLearningUniverseLatex } from "../../controllers/learning-universe-parser.js";
 import { publishLearningUniverse } from "../../controllers/learning-universe-controller.js";
@@ -265,50 +267,61 @@ export async function runLuPublishPipeline(
     mergedDsl = colabSanitized.latex;
   }
 
-  // --- Stage 3: Compile PDF — failures are errors that block publish success downstream of stage metadata ---
+  // --- Stage 3: Compile PDF — reuse existing compiled artifact if available ---
   const s3 = Date.now();
   let pdfStageOk = true;
   if (!options.skipPdfCompile && options.projectId) {
     try {
-      if (!mergedForPdf.trim()) {
-        throw new Error("Could not resolve LU compile source for PDF");
-      }
-      const result = await compileLatexLocally(options.projectId, mergedForPdf, {
-        copyReferencedImages: true,
-        enableBibtex: true,
-        compilerFallback: true,
-        maxPasses: 3,
-        preserveProvidedMainTex: true,
-        pdfProjectContext: publishSnapshot
-          ? {
-              project: publishSnapshot.project,
-              files: publishSnapshot.files,
-              parsed: publishSnapshot.parsed,
-            }
-          : undefined,
-      });
-      if (!result.success || !result.pdfPath) {
-        pdfStageOk = false;
-        const errMsg = result.errors[0]?.message || "PDF compilation failed";
-        const issues: LuValidationIssue[] = result.errors.map((e) => ({
-          severity: "error" as const,
-          code: "COMPILE_PDF_FAILED",
-          message: e.message,
-          line: e.line ?? undefined,
-          suggestedFix: e.suggestedFix,
-        }));
-        if (!issues.length) {
-          issues.push({ severity: "error", code: "COMPILE_PDF_FAILED", message: errMsg });
-        }
-        allIssues.push(...issues);
-        stages.push(stageResult("compile_pdf", s3, false, { issues, error: errMsg }));
-      } else {
-        const stored = await storeCompiledPdfFromPath(
-          result.pdfPath,
-          `compiled-${options.projectId}`
-        );
-        pdfUrl = stored.publicUrl;
+      const uploadDir = process.env.UPLOAD_DIR || "uploads";
+      const expectedPdfName = `compiled-${options.projectId}.pdf`;
+      const localPdfPath = path.join(process.cwd(), uploadDir, "latex", "pdfs", expectedPdfName);
+
+      if (fs.existsSync(localPdfPath) && fs.statSync(localPdfPath).size > 1000) {
+        console.info(`[AI_COURSE] compile_reuse_cached projectId=${options.projectId} path=${expectedPdfName}`);
+        pdfUrl = `/uploads/latex/pdfs/${expectedPdfName}`;
         stages.push(stageResult("compile_pdf", s3, true));
+      } else {
+        if (!mergedForPdf.trim()) {
+          throw new Error("Could not resolve LU compile source for PDF");
+        }
+        const result = await compileLatexLocally(options.projectId, mergedForPdf, {
+          copyReferencedImages: true,
+          enableBibtex: true,
+          compilerFallback: true,
+          maxPasses: 3,
+          preserveProvidedMainTex: true,
+          pdfProjectContext: publishSnapshot
+            ? {
+                project: publishSnapshot.project,
+                files: publishSnapshot.files,
+                parsed: publishSnapshot.parsed,
+              }
+            : undefined,
+        });
+        if (!result.success || !result.pdfPath) {
+          pdfStageOk = false;
+          const errMsg = result.errors[0]?.message || "PDF compilation failed";
+          const issues: LuValidationIssue[] = result.errors.map((e) => ({
+            severity: "error" as const,
+            code: "COMPILE_PDF_FAILED",
+            message: e.message,
+            line: e.line ?? undefined,
+            suggestedFix: e.suggestedFix,
+          }));
+          if (!issues.length) {
+            issues.push({ severity: "error", code: "COMPILE_PDF_FAILED", message: errMsg });
+          }
+          allIssues.push(...issues);
+          stages.push(stageResult("compile_pdf", s3, false, { issues, error: errMsg }));
+        } else {
+          const stored = await storeCompiledPdfFromPath(
+            result.pdfPath,
+            `compiled-${options.projectId}`
+          );
+          pdfUrl = stored.publicUrl;
+          console.info(`[AI_COURSE] compile_success projectId=${options.projectId} pdfUrl=${pdfUrl}`);
+          stages.push(stageResult("compile_pdf", s3, true));
+        }
       }
     } catch (err) {
       pdfStageOk = false;
