@@ -81,20 +81,16 @@ async function executeCoursePlanner(
     throw new Error("Course planner requires a configured backend AI provider");
   }
 
-  try {
-    const parsed = await architectCompletionJSON<CoursePlannerOutput>({
-      phase: "blueprint",
-      system: PROFESSOR_SYSTEM_PROMPT,
-      user: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
+  const parsed = await architectCompletionJSON<CoursePlannerOutput>({
+    phase: "blueprint",
+    system: PROFESSOR_SYSTEM_PROMPT,
+    user: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
 ${buildInterviewContext(normalized)}
 ${ANTI_HALLUCINATION_RULES}
 Schema: executiveSummary, learningOutcomes[], careerOutcomes[], skillMap[], prerequisites[], industryApplications[], estimatedHours, recommendedLearningPath[], assessmentStrategy, projectStrategy, labStrategy, certificationGoals[], recommendedModuleCount, recommendedLessonCount`,
-      temperature: 0.45,
-    });
-    if (parsed) return { ...fallback, ...parsed };
-  } catch (err) {
-    console.error("[Agent 1 Course Planner]", err);
-  }
+    temperature: 0.45,
+  });
+  if (parsed) return { ...fallback, ...parsed };
   throw new Error("Course planner AI returned no output. Check the configured backend AI key and retry.");
 }
 

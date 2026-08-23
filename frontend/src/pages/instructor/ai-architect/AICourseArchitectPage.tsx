@@ -414,7 +414,12 @@ export function AICourseArchitectPage() {
       setCurriculumValidation(res.data?.data?.curriculumValidation ?? null);
       setBlueprintApproved(false);
     } catch (e: any) {
-      toast({ title: "Blueprint failed", description: (e as Error).message, variant: "destructive" });
+      const msg = String((e as Error)?.message || "Blueprint failed");
+      toast({
+        title: /gemini/i.test(msg) ? "Gemini blueprint generation failed" : "Blueprint failed",
+        description: msg,
+        variant: "destructive",
+      });
     } finally {
       setLoadingBlueprint(false);
     }

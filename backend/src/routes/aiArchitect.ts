@@ -11,6 +11,7 @@ import {
   architectResearch,
   architectValidateCurriculum,
   architectGetAgents,
+  architectProviderHealth,
 } from "../controllers/aiCourseArchitectController.js";
 
 export const aiArchitectRouter = Router();
@@ -22,6 +23,13 @@ const architectHeavyLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: "Too many AI Architect requests. Please wait and try again." },
 });
+
+aiArchitectRouter.get(
+  "/provider-health",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectProviderHealth
+);
 
 aiArchitectRouter.get(
   "/agents",

@@ -76,6 +76,7 @@ describe("architectAiProviderStatus", () => {
     clearKeys();
     process.env.GEMINI_API_KEY = "test-gemini-key-value";
     expect(getArchitectModelRoute("research").family).toBe("google");
+    expect(getArchitectModelRoute("research").model).toBe("gemini-2.5-flash");
   });
 
   it("startup lines never include secret values", () => {

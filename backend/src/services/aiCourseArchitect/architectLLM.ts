@@ -2,7 +2,8 @@
  * V6 — Unified LLM completion across OpenAI, Anthropic Claude, and Google Gemini.
  */
 import OpenAI from "openai";
-import { getAnthropicApiKey, getGeminiApiKey, getOpenAi, architectAiProviderStatus } from "./openaiClient.js";
+import { getAnthropicApiKey, getOpenAi, architectAiProviderStatus } from "./openaiClient.js";
+import { callGeminiGenerateContent, GeminiRequestError } from "./geminiClient.js";
 import type { ArchitectPhase, ModelFamily } from "./architectModels.js";
 import { getArchitectModelRoute } from "./architectModels.js";
 
@@ -103,27 +104,18 @@ async function callGemini(
   model: string,
   system: string,
   user: string,
+  json: boolean,
   maxTokens: number,
   temperature: number
-): Promise<string | null> {
-  const key = getGeminiApiKey();
-  if (!key) return null;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: { temperature, maxOutputTokens: maxTokens },
-    }),
-    signal: AbortSignal.timeout(120000),
+): Promise<string> {
+  return callGeminiGenerateContent({
+    preferredModel: model,
+    system,
+    user,
+    json,
+    maxTokens,
+    temperature,
   });
-  if (!res.ok) return null;
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
 }
 
 async function completeWithFamily(
@@ -136,7 +128,7 @@ async function completeWithFamily(
   temperature: number
 ): Promise<string | null> {
   if (family === "anthropic") return callAnthropic(model, system, user, maxTokens, temperature);
-  if (family === "google") return callGemini(model, system, user, maxTokens, temperature);
+  if (family === "google") return callGemini(model, system, user, json, maxTokens, temperature);
   return callOpenAI(model, system, user, json, maxTokens, temperature);
 }
 
@@ -153,8 +145,9 @@ export async function architectCompletion(opts: ArchitectCompletionOptions): Pro
   };
   if (status.openai) add("openai", process.env.AI_ARCHITECT_OPENAI_MODEL || "gpt-4o-mini");
   if (status.anthropic) add("anthropic", process.env.AI_ARCHITECT_ANTHROPIC_MODEL || "claude-sonnet-4-20250514");
-  if (status.gemini) add("google", process.env.AI_ARCHITECT_GEMINI_MODEL || "gemini-2.0-flash");
+  if (status.gemini) add("google", process.env.AI_ARCHITECT_GEMINI_MODEL || "gemini-2.5-flash");
 
+  let lastError: unknown;
   for (const candidate of candidates) {
     const configured =
       candidate.family === "openai" ? status.openai : candidate.family === "anthropic" ? status.anthropic : status.gemini;
@@ -178,18 +171,25 @@ export async function architectCompletion(opts: ArchitectCompletionOptions): Pro
         return raw;
       }
     } catch (err) {
-      console.error(`[ArchitectLLM] ${opts.phase} failed (${candidate.family}/${candidate.model}):`, err);
-      if (isQuotaOrAuthError(err)) architectAiDegraded = true;
+      lastError = err;
+      console.error(`[ArchitectLLM] ${opts.phase} failed (${candidate.family}/${candidate.model}):`, {
+        message: err instanceof Error ? err.message : String(err),
+        status: err instanceof GeminiRequestError ? err.status : undefined,
+        code: err instanceof GeminiRequestError ? err.code : undefined,
+      });
+      if (isQuotaOrAuthError(err) || (err instanceof GeminiRequestError && err.status === 429)) {
+        architectAiDegraded = true;
+      }
     }
   }
 
-  console.warn("[ArchitectLLM] no provider produced output", {
-    phase: opts.phase,
-    openai: status.openai,
-    anthropic: status.anthropic,
-    gemini: status.gemini,
-  });
-  return null;
+  if (lastError instanceof GeminiRequestError) throw lastError;
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(
+    `No AI provider produced output for phase ${opts.phase} (openai=${status.openai} anthropic=${status.anthropic} gemini=${status.gemini})`
+  );
 }
 
 export async function architectCompletionJSON<T>(opts: ArchitectCompletionOptions): Promise<T | null> {
@@ -198,7 +198,14 @@ export async function architectCompletionJSON<T>(opts: ArchitectCompletionOption
   try {
     const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
     return JSON.parse(cleaned) as T;
-  } catch {
-    return null;
+  } catch (err) {
+    console.error("[ArchitectLLM] JSON parse failed", {
+      phase: opts.phase,
+      responseLength: raw.length,
+      preview: raw.slice(0, 180),
+    });
+    throw new Error(
+      `Architect LLM JSON parsing failed for phase ${opts.phase}: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }

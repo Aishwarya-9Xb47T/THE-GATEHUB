@@ -3,6 +3,7 @@
  */
 import type { AgentResult, AgentStageId } from "./contracts.js";
 import type { ArchitectQualityReport } from "../types.js";
+import { GeminiRequestError } from "../geminiClient.js";
 
 export type AgentValidator<T> = (output: T) => ArchitectQualityReport;
 
@@ -58,6 +59,12 @@ export async function runAgent<TIn, TOut>(opts: RunAgentOptions<TIn, TOut>): Pro
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Attempt ${attempt}: ${msg}`);
+      if (err instanceof GeminiRequestError && !err.retryable) {
+        throw err;
+      }
+      if (err instanceof GeminiRequestError && attempt === maxAttempts) {
+        throw err;
+      }
     }
   }
 

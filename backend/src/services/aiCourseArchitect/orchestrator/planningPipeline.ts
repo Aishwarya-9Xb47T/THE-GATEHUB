@@ -25,7 +25,9 @@ export async function runPlanningPipeline(input: PlanningPipelineInput): Promise
 
   const coursePlanner = await runCoursePlannerAgent(interview);
   if (!coursePlanner.output) {
-    throw new Error("course-planner produced no output");
+    throw new Error(
+      coursePlanner.errors.filter(Boolean).join("; ") || "course-planner produced no output"
+    );
   }
   manifest.planningStages.push({
     stage: "course-planner",

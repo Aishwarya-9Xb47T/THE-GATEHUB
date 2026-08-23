@@ -57,6 +57,7 @@ Return JSON:
     if (aiResearch) return normalizeResearch(aiResearch, interview);
   } catch (err) {
     console.error("[Curriculum Research] LLM completion failed:", err);
+    throw err;
   }
 
   if (hasArchitectAiProvider()) {

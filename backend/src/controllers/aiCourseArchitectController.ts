@@ -59,6 +59,7 @@ import {
 } from "../services/productRoutingService.js";
 import { architectAiProviderStatus, ARCHITECT_AI_MISSING_KEY_MESSAGE } from "../services/aiCourseArchitect/openaiClient.js";
 import { persistRemoteBannerIfNeeded } from "../services/bannerService.js";
+import { GeminiRequestError, probeGeminiConnectivity } from "../services/aiCourseArchitect/geminiClient.js";
 import { isMissingObjectError } from "../services/b2StorageService.js";
 
 /** Prevents concurrent duplicate generates for the same instructor. */
@@ -87,6 +88,25 @@ function friendlyArchitectError(err: unknown, stage = "generate"): AppError {
   }
   const message = err instanceof Error ? err.message : "Course generation failed";
   const lower = message.toLowerCase();
+  if (err instanceof GeminiRequestError) {
+    return architectError(err.retryable ? 503 : 502, err.message, {
+      code: "AI_PROVIDER_GEMINI",
+      stage,
+      retryable: err.retryable,
+    });
+  }
+  if (
+    lower.includes("gemini blueprint generation failed") ||
+    lower.includes("architect llm json parsing failed") ||
+    lower.includes("gemini")
+  ) {
+    const retryable = lower.includes("429") || lower.includes("503") || lower.includes("unavailable");
+    return architectError(retryable ? 503 : 502, message, {
+      code: "AI_PROVIDER_GEMINI",
+      stage,
+      retryable,
+    });
+  }
   if (isMissingObjectError(err) || /^key not found$/i.test(message.trim())) {
     console.error("[AI Architect] Storage object missing during generate:", {
       stage,
@@ -671,6 +691,25 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   } finally {
     activeGenerations.delete(userId);
   }
+}
+
+export async function architectProviderHealth(_req: AuthRequest, res: Response) {
+  const status = architectAiProviderStatus();
+  const gemini = status.gemini
+    ? await probeGeminiConnectivity()
+    : { configured: false, ok: false, error: "Gemini is not the selected architect provider" };
+  res.json({
+    success: true,
+    data: {
+      provider: {
+        openai: status.openai,
+        anthropic: status.anthropic,
+        gemini: status.gemini,
+        selected: status.selected,
+      },
+      gemini,
+    },
+  });
 }
 
 export async function architectGetAgents(_req: AuthRequest, res: Response) {
