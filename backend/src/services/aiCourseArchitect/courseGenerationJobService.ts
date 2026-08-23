@@ -32,6 +32,7 @@ import type {
   ArchitectQualityReport,
   ArchitectValidationReport,
 } from "./types.js";
+import { normalizeInterview } from "./types.js";
 import { runDeliveryPipeline, runFastDeliveryPipeline } from "./orchestrator/deliveryPipeline.js";
 import { STRICT_QA_BLOCK, SKIP_THUMBNAIL_ON_GENERATE } from "./architectPerformance.js";
 import { isArchitectAiDegraded, isArchitectAiQuotaError, resetArchitectAiDegraded } from "./architectLLM.js";
@@ -197,15 +198,16 @@ export async function executeCourseGenerationJob(jobId: string): Promise<void> {
   const job = jobs.get(jobId);
   if (!job) return;
 
-  const { userId, interview } = job;
+  const userId = job.userId;
+  const interview = normalizeInterview(job.interview);
   resetArchitectAiDegraded();
 
-  console.info(`[COURSE_GEN] job_started jobId=${jobId} userId=${userId} title="${interview.courseInfo.title}"`);
+  console.info(`[COURSE_GEN] job_started jobId=${jobId} userId=${userId} title="${interview.courseInfo?.title ?? ""}"`);
   updateJob(jobId, { status: "RUNNING", stageMessage: "Understanding approved curriculum...", progress: 5 });
 
   try {
     let blueprint = job.blueprint;
-    const normalizedVideoMappings = normalizeVideoMappings(interview.videoStrategy.mappings);
+    const normalizedVideoMappings = normalizeVideoMappings(interview.videoStrategy?.mappings || []);
     const interviewWithVideos: AICourseArchitectInterview = {
       ...interview,
       videoStrategy: { ...interview.videoStrategy, mappings: normalizedVideoMappings },
@@ -520,6 +522,7 @@ export function createCourseGenerationJob(params: {
     return existing;
   }
 
+  const normalizedInterview = normalizeInterview(params.interview);
   const jobId = randomUUID();
   const job: CourseGenerationJobData = {
     id: jobId,
@@ -531,7 +534,7 @@ export function createCourseGenerationJob(params: {
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     retryCount: 0,
-    interview: params.interview,
+    interview: normalizedInterview,
     blueprint: params.blueprint,
     checkpoints: {
       blueprintApproved: Boolean(params.blueprint?.modules?.length),

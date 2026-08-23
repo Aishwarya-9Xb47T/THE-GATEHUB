@@ -56,7 +56,7 @@ export function computeLessonAnalytics(
     practiceCoverage,
     confidenceScore,
     careerMapping,
-    certificationMapping: interview.courseInfo.learningGoals.some((g) => /certif/i.test(g))
+    certificationMapping: Array.isArray(interview.courseInfo?.learningGoals) && interview.courseInfo.learningGoals.some((g) => /certif/i.test(g))
       ? [interview.courseInfo.subject]
       : undefined,
   };

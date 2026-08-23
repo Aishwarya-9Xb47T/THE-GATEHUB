@@ -17,14 +17,18 @@ export function buildHeuristicCoursePlan(interview: AICourseArchitectInterview):
   const plan = computeScalePlan(interview);
   return {
     executiveSummary: `A ${plan.scaleLabel} curriculum in ${c.subject} for ${c.targetAudience}, aligned with ${c.industry} practice and ${interview.teachingStyle.join(", ")} instruction.`,
-    learningOutcomes: c.expectedOutcomes.length ? c.expectedOutcomes : c.learningGoals,
+    learningOutcomes: Array.isArray(c.expectedOutcomes) && c.expectedOutcomes.length
+      ? c.expectedOutcomes
+      : Array.isArray(c.learningGoals) && c.learningGoals.length
+        ? c.learningGoals
+        : [`Master core principles of ${c.subject}`, `Apply ${c.subject} in practical projects`],
     careerOutcomes: [
       `Apply ${c.subject} in ${c.industry} roles`,
       "Build portfolio-ready deliverables",
       "Pass professional assessments and interviews",
     ],
-    skillMap: c.learningGoals.length ? c.learningGoals : [`${c.subject} fundamentals`, "Hands-on implementation", "Professional communication"],
-    prerequisites: c.prerequisites.length ? c.prerequisites : ["Basic computer literacy"],
+    skillMap: Array.isArray(c.learningGoals) && c.learningGoals.length ? c.learningGoals : [`${c.subject} fundamentals`, "Hands-on implementation", "Professional communication"],
+    prerequisites: Array.isArray(c.prerequisites) && c.prerequisites.length ? c.prerequisites : ["Basic computer literacy"],
     industryApplications: [c.industry, `${c.subject} production workflows`, "Certification and interview readiness"],
     estimatedHours: plan.estimatedHours,
     recommendedLearningPath: interview.curriculumStrategy.progression.length

@@ -45,7 +45,10 @@ const SCALE_DEFAULTS: Record<
 function inferProfileMode(interview: AICourseArchitectInterview): LearnerProfileMode {
   const audience = interview.courseInfo.targetAudience.toLowerCase();
   const difficulty = interview.courseInfo.difficulty;
-  const goals = interview.courseInfo.learningGoals.join(" ").toLowerCase();
+  const goals = (Array.isArray(interview.courseInfo?.learningGoals)
+    ? interview.courseInfo.learningGoals.join(" ")
+    : String(interview.courseInfo?.learningGoals ?? "")
+  ).toLowerCase();
 
   if (/interview|hiring|placement/i.test(audience + goals)) return "interview-prep";
   if (/certif|exam prep|aws|azure|google cloud cert/i.test(audience + goals)) return "certification";

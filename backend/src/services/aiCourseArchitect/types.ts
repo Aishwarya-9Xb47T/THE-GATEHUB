@@ -871,19 +871,49 @@ export const DEFAULT_LESSON_STRUCTURE: LessonStructureId[] = [
 ];
 
 export function normalizeInterview(raw: AICourseArchitectInterview): AICourseArchitectInterview {
+  const safeStrArr = (arr: unknown): string[] => {
+    if (Array.isArray(arr)) {
+      return arr.map(String).filter((s) => s.trim().length > 0);
+    }
+    if (typeof arr === "string" && arr.trim()) return [arr.trim()];
+    return [];
+  };
+
+  const rawCi = raw?.courseInfo || ({} as any);
   return {
     ...raw,
-    courseScale: raw.courseScale ?? { id: "standard" },
-    difficultyDistribution: raw.difficultyDistribution ?? { mode: "ai-decides" },
-    learningStyle: raw.learningStyle?.length ? raw.learningStyle : ["balanced"],
-    teachingStyle: raw.teachingStyle?.length ? raw.teachingStyle : ["professional"],
-    lessonStructure: raw.lessonStructure?.length ? raw.lessonStructure : DEFAULT_LESSON_STRUCTURE,
-    practicalComponents: raw.practicalComponents?.length
+    courseInfo: {
+      ...rawCi,
+      title: String(rawCi.title || "").trim(),
+      subject: String(rawCi.subject || "").trim(),
+      targetAudience: String(rawCi.targetAudience || "Professionals and students").trim(),
+      industry: String(rawCi.industry || "Technology").trim(),
+      difficulty: rawCi.difficulty || "intermediate",
+      academicLevel: rawCi.academicLevel || "intermediate",
+      courseType: rawCi.courseType || "professional",
+      estimatedDuration: rawCi.estimatedDuration || "40 hours",
+      language: rawCi.language || "en",
+      certificationEligible: Boolean(rawCi.certificationEligible),
+      learningGoals: safeStrArr(rawCi.learningGoals),
+      expectedOutcomes: safeStrArr(rawCi.expectedOutcomes),
+      prerequisites: safeStrArr(rawCi.prerequisites),
+    },
+    courseScale: raw?.courseScale ?? { id: "standard" },
+    difficultyDistribution: raw?.difficultyDistribution ?? { mode: "ai-decides" },
+    learningStyle: raw?.learningStyle?.length ? raw.learningStyle : ["balanced"],
+    teachingStyle: raw?.teachingStyle?.length ? raw.teachingStyle : ["professional"],
+    lessonStructure: raw?.lessonStructure?.length ? raw.lessonStructure : DEFAULT_LESSON_STRUCTURE,
+    practicalComponents: raw?.practicalComponents?.length
       ? raw.practicalComponents
-      : raw.learningComponents?.filter((c) => /lab|project|colab|notebook|assignment|research|dataset/i.test(c)) ?? [],
-    assessmentStrategy: raw.assessmentStrategy ?? {
+      : raw?.learningComponents?.filter((c) => /lab|project|colab|notebook|assignment|research|dataset/i.test(c)) ?? [],
+    assessmentStrategy: raw?.assessmentStrategy ?? {
       style: "Quiz after every module",
-      methods: raw.assessments?.types ?? ["Quizzes", "Projects"],
+      methods: raw?.assessments?.types ?? ["Quizzes", "Projects"],
+    },
+    learningComponents: Array.isArray(raw?.learningComponents) ? raw.learningComponents : [],
+    videoStrategy: raw?.videoStrategy ?? {
+      method: "add-later",
+      mappings: [],
     },
   };
 }

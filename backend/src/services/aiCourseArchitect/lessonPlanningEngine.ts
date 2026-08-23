@@ -2,7 +2,6 @@
  * V2 — Per-lesson pedagogy planning BEFORE content generation.
  * The AI reasons about prerequisites, misconceptions, and component selection first.
  */
-import OpenAI from "openai";
 import { getOpenAi } from "./openaiClient.js";
 import type {
   AICourseArchitectInterview,
@@ -48,6 +47,57 @@ export function buildLessonOutlineContext(
       moduleTitle,
       lessonTitle,
     })),
+  };
+}
+
+/**
+ * Normalize a raw LessonPedagogyPlan (e.g. from AI JSON parse) to guarantee all
+ * array fields are string[]. AI providers may return null / undefined / a bare string
+ * for any array field; merging { ...heuristic, ...parsed } can overwrite valid arrays
+ * with invalid values, crashing every downstream .join() / .slice() call.
+ */
+export function normalizeLessonPedagogyPlan(raw: Partial<LessonPedagogyPlan> & {
+  learningGoals?: unknown;
+  priorKnowledge?: unknown;
+  misconceptions?: unknown;
+  strugglePoints?: unknown;
+  sectionsToEmphasize?: unknown;
+}, fallback: LessonPedagogyPlan): LessonPedagogyPlan {
+  const safeArr = (val: unknown, fb: string[]): string[] => {
+    if (Array.isArray(val) && val.length > 0) {
+      return val.map(String).filter((s) => s.trim().length > 0);
+    }
+    if (typeof val === "string" && val.trim()) return [val.trim()];
+    return fb;
+  };
+  return {
+    ...fallback,
+    ...(raw as LessonPedagogyPlan),
+    learningGoals: safeArr(raw.learningGoals, fallback.learningGoals),
+    priorKnowledge: safeArr(raw.priorKnowledge, fallback.priorKnowledge),
+    misconceptions: safeArr(raw.misconceptions, fallback.misconceptions),
+    strugglePoints: safeArr(raw.strugglePoints, fallback.strugglePoints),
+    sectionsToEmphasize: safeArr(raw.sectionsToEmphasize, fallback.sectionsToEmphasize),
+    // Preserve boolean fields from raw if present, else fallback
+    useVisuals: typeof raw.useVisuals === "boolean" ? raw.useVisuals : fallback.useVisuals,
+    useCode: typeof raw.useCode === "boolean" ? raw.useCode : fallback.useCode,
+    useMath: typeof raw.useMath === "boolean" ? raw.useMath : fallback.useMath,
+    useAnalogies: typeof raw.useAnalogies === "boolean" ? raw.useAnalogies : fallback.useAnalogies,
+    useDiagrams: typeof raw.useDiagrams === "boolean" ? raw.useDiagrams : fallback.useDiagrams,
+    includeLab: typeof raw.includeLab === "boolean" ? raw.includeLab : fallback.includeLab,
+    includeQuiz: typeof raw.includeQuiz === "boolean" ? raw.includeQuiz : fallback.includeQuiz,
+    simplificationStrategy: typeof raw.simplificationStrategy === "string" && raw.simplificationStrategy.trim()
+      ? raw.simplificationStrategy
+      : fallback.simplificationStrategy,
+    connectionToPrevious: typeof raw.connectionToPrevious === "string" && raw.connectionToPrevious.trim()
+      ? raw.connectionToPrevious
+      : fallback.connectionToPrevious,
+    connectionToNext: typeof raw.connectionToNext === "string" && raw.connectionToNext.trim()
+      ? raw.connectionToNext
+      : fallback.connectionToNext,
+    industryHook: typeof raw.industryHook === "string" && raw.industryHook.trim()
+      ? raw.industryHook
+      : fallback.industryHook,
   };
 }
 
@@ -100,7 +150,10 @@ JSON schema:
     const raw = res.choices[0]?.message?.content;
     if (!raw) return heuristic;
     const parsed = JSON.parse(raw) as Partial<LessonPedagogyPlan>;
-    return { ...heuristic, ...parsed };
+    // Normalize after merging: AI may return null/undefined/string for array fields.
+    // normalizeLessonPedagogyPlan guarantees all arrays are valid string[] using
+    // the heuristic as fallback, preventing crashes in downstream .join()/.slice().
+    return normalizeLessonPedagogyPlan({ ...heuristic, ...parsed }, heuristic);
   } catch (err) {
     console.error("[Lesson Planning] OpenAI failed:", err);
     return heuristic;
@@ -120,7 +173,7 @@ function buildHeuristicPlan(
   return {
     priorKnowledge: prior
       ? [`Concepts from: ${prior}`]
-      : interview.courseInfo.prerequisites.length
+      : interview.courseInfo.prerequisites?.length
         ? interview.courseInfo.prerequisites
         : [`Basic literacy in ${subject}`],
     learningGoals: [
@@ -155,19 +208,22 @@ function buildHeuristicPlan(
 }
 
 export function formatPedagogyForPrompt(plan: LessonPedagogyPlan | LessonBlueprintPlan): string {
+  const safeJoin = (arr: unknown, sep = "; "): string =>
+    Array.isArray(arr) ? arr.join(sep) : String(arr ?? "");
+
   const base = `
 PEDAGOGY PLAN (follow this reasoning):
-Prior knowledge: ${plan.priorKnowledge.join("; ")}
-Learning goals: ${plan.learningGoals.join("; ")}
-Misconceptions to address: ${plan.misconceptions.join("; ")}
-Struggle points: ${plan.strugglePoints.join("; ")}
+Prior knowledge: ${safeJoin(plan.priorKnowledge)}
+Learning goals: ${safeJoin(plan.learningGoals)}
+Misconceptions to address: ${safeJoin(plan.misconceptions)}
+Struggle points: ${safeJoin(plan.strugglePoints)}
 Simplification: ${plan.simplificationStrategy}
 Industry hook: ${plan.industryHook}
 Build on previous: ${plan.connectionToPrevious}
 Bridge to next: ${plan.connectionToNext}
 Use visuals: ${plan.useVisuals} | code: ${plan.useCode} | math: ${plan.useMath} | analogies: ${plan.useAnalogies}
 Include lab: ${plan.includeLab} | quiz: ${plan.includeQuiz}
-Emphasize sections: ${plan.sectionsToEmphasize.join(", ")}
+Emphasize sections: ${safeJoin(plan.sectionsToEmphasize, ", ")}
 `.trim();
 
   if ("microLearningFlow" in plan && plan.microLearningFlow?.length) {

@@ -86,7 +86,7 @@ function normalizeBlueprint(bp: ArchitectBlueprint, interview: AICourseArchitect
       seoTitle: bp.courseTitle,
       seoDescription: bp.description.slice(0, 160),
       tags: [c.subject, c.industry, c.difficulty],
-      highlights: c.learningGoals.slice(0, 5),
+      highlights: Array.isArray(c.learningGoals) ? c.learningGoals.slice(0, 5) : [],
       bannerPrompt: `Professional course banner for ${c.title}, ${c.subject}, modern education, no text`,
       colorTheme: "deep blue and gold",
     };

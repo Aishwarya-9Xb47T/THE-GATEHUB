@@ -545,7 +545,7 @@ export function planCurriculumStructure(
       seoTitle: `${c.title} | THE GATEHUB`,
       seoDescription: `Master ${subject} with ${plan.targetLessons} lessons — ${plan.scaleLabel}.`,
       tags: [subject, c.industry, c.courseType, plan.scaleLabel],
-      highlights: c.learningGoals.slice(0, 6),
+      highlights: Array.isArray(c.learningGoals) ? c.learningGoals.slice(0, 6) : [],
       bannerPrompt: `Professional course banner for ${c.title}, ${subject}, no text`,
       colorTheme: "deep blue and gold",
     },

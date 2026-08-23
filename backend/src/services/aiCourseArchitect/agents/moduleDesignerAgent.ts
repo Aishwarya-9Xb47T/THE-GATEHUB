@@ -19,11 +19,11 @@ function buildHeuristicModuleDesign(
     modules: blueprint.modules.map((mod, mi) => ({
       moduleId: mod.id,
       summary: mod.description || mod.title,
-      learningGoals: mod.learningOutcomes,
-      skills: mod.learningOutcomes.map((o) => o.split(" ").slice(0, 4).join(" ")),
-      estimatedHours: mod.estimatedHours,
-      prerequisites: mod.dependencies ?? (mi > 0 ? [`${blueprint.modules[mi - 1].title}`] : []),
-      expectedOutcomes: mod.learningOutcomes,
+      learningGoals: Array.isArray(mod.learningOutcomes) ? mod.learningOutcomes : [],
+      skills: Array.isArray(mod.learningOutcomes) ? mod.learningOutcomes.map((o) => typeof o === "string" ? o.split(" ").slice(0, 4).join(" ") : String(o)) : [],
+      estimatedHours: mod.estimatedHours || 10,
+      prerequisites: mod.dependencies ?? (mi > 0 ? [`${blueprint.modules[mi - 1]?.title ?? ""}`] : []),
+      expectedOutcomes: Array.isArray(mod.learningOutcomes) ? mod.learningOutcomes : [],
       includesProject: Boolean(mod.project),
       includesLabs: hasLearningComponent(interview, "Coding"),
       includesAssessment: Boolean(mod.moduleQuiz),
@@ -34,12 +34,16 @@ function buildHeuristicModuleDesign(
 }
 
 function validateModuleDesign(output: ModuleDesignerOutput): ArchitectQualityReport {
-  const checks = output.modules.map((m) => ({
-    id: m.moduleId,
-    label: m.summary.slice(0, 40),
-    status: m.learningGoals.length >= 2 && m.summary.length >= 20 ? ("pass" as const) : ("warn" as const),
-    detail: `${m.learningGoals.length} goals · ${m.estimatedHours}h`,
-  }));
+  const checks = (output.modules || []).map((m) => {
+    const goalsCount = Array.isArray(m.learningGoals) ? m.learningGoals.length : 0;
+    const summaryLen = typeof m.summary === "string" ? m.summary.length : 0;
+    return {
+      id: m.moduleId,
+      label: (m.summary || "").slice(0, 40),
+      status: goalsCount >= 2 && summaryLen >= 20 ? ("pass" as const) : ("warn" as const),
+      detail: `${goalsCount} goals · ${m.estimatedHours || 0}h`,
+    };
+  });
   const warn = checks.filter((c) => c.status === "warn").length;
   return {
     score: Math.max(0, 100 - warn * 8),

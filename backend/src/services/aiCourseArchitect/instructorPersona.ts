@@ -356,17 +356,18 @@ export function buildInterviewContext(interview: {
   researchDepth: string;
 }): string {
   const c = interview.courseInfo;
+  const safeJoin = (arr: unknown, sep = "; ") => (Array.isArray(arr) ? arr.join(sep) : String(arr ?? ""));
   return `
-COURSE: ${c.title} (${c.subject})
-Audience: ${c.targetAudience} | Level: ${c.academicLevel} | Industry: ${c.industry}
-Prerequisites: ${c.prerequisites.join("; ") || "None specified"}
-Goals: ${c.learningGoals.join("; ")}
-Outcomes: ${c.expectedOutcomes.join("; ")}
-Duration: ${c.estimatedDuration} | Difficulty: ${c.difficulty}
-Teaching: ${interview.teachingStyle.join(", ")} | Learning: ${interview.learningStyle.join(", ")}
-Components: ${interview.learningComponents.join(", ")}
-Assessments: ${interview.assessmentStrategy.style} — ${interview.assessmentStrategy.methods.join(", ")}
-Lesson sections: ${interview.lessonStructure.join(", ")}
-Research depth: ${interview.researchDepth}
+COURSE: ${c?.title ?? ""} (${c?.subject ?? ""})
+Audience: ${c?.targetAudience ?? ""} | Level: ${c?.academicLevel ?? ""} | Industry: ${c?.industry ?? ""}
+Prerequisites: ${safeJoin(c?.prerequisites) || "None specified"}
+Goals: ${safeJoin(c?.learningGoals)}
+Outcomes: ${safeJoin(c?.expectedOutcomes)}
+Duration: ${c?.estimatedDuration ?? ""} | Difficulty: ${c?.difficulty ?? ""}
+Teaching: ${safeJoin(interview.teachingStyle, ", ")} | Learning: ${safeJoin(interview.learningStyle, ", ")}
+Components: ${safeJoin(interview.learningComponents, ", ")}
+Assessments: ${interview.assessmentStrategy?.style ?? ""} — ${safeJoin(interview.assessmentStrategy?.methods, ", ")}
+Lesson sections: ${safeJoin(interview.lessonStructure, ", ")}
+Research depth: ${interview.researchDepth ?? ""}
 `.trim();
 }

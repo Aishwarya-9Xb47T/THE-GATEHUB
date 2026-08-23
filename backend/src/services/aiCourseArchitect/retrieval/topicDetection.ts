@@ -29,9 +29,9 @@ export function analyzeLessonTopic(
 ): TopicAnalysis {
   const subject = ctx.interview.courseInfo.subject;
   const title = ctx.skeleton.title;
-  const goals = plan.learningGoals.join(" ");
-  const concepts = plan.conceptOrder.join(" ");
-  const corpus = `${subject} ${title} ${goals} ${concepts} ${ctx.interview.courseInfo.industry}`;
+  const goals = Array.isArray(plan.learningGoals) ? plan.learningGoals.join(" ") : "";
+  const concepts = Array.isArray(plan.conceptOrder) ? plan.conceptOrder.join(" ") : "";
+  const corpus = `${subject} ${title} ${goals} ${concepts} ${ctx.interview.courseInfo?.industry ?? ""}`;
   const tokens = tokenize(corpus);
   const freq = new Map<string, number>();
   for (const t of tokens) freq.set(t, (freq.get(t) ?? 0) + 1);

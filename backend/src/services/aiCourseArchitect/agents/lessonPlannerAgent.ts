@@ -15,7 +15,7 @@ function toLessonBlueprintPlan(
   const { skeleton, interview } = ctx;
   return {
     ...pedagogy,
-    lessonObjective: pedagogy.learningGoals[0] ?? `Master concepts in ${skeleton.title}`,
+    lessonObjective: (pedagogy.learningGoals as string[] | undefined)?.[0] ?? `Master concepts in ${skeleton.title}`,
     industryContext: pedagogy.industryHook,
     estimatedReadingMinutes: skeleton.durationMinutes ?? 45,
     estimatedPracticeMinutes: pedagogy.includeLab ? 30 : 15,
@@ -41,7 +41,7 @@ function toLessonBlueprintPlan(
     practiceIntervals: ["After each major concept", "End of lesson recap"],
     revisionSpacing: "Revisit prior module concepts in opening recap",
     difficultyCurve: `Progress from ${skeleton.difficultyTier ?? "intermediate"} foundations to applied practice`,
-    knowledgeCheckpoints: pedagogy.learningGoals.slice(0, 4),
+    knowledgeCheckpoints: (pedagogy.learningGoals as string[] | undefined)?.slice(0, 4) ?? [],
     bloomsLevels: ["Understand", "Apply", "Analyze"],
     adaptiveProfile: ctx.adaptiveProfile,
     retrievalContext: ctx.retrievalBundle,
@@ -51,7 +51,7 @@ function toLessonBlueprintPlan(
 function validateLessonPlan(plan: LessonBlueprintPlan): ArchitectQualityReport {
   const checks = [
     { id: "objective", label: "Lesson objective", status: plan.lessonObjective.length >= 10 ? ("pass" as const) : ("fail" as const), detail: plan.lessonObjective },
-    { id: "goals", label: "Learning goals", status: plan.learningGoals.length >= 2 ? ("pass" as const) : ("fail" as const), detail: `${plan.learningGoals.length} goals` },
+    { id: "goals", label: "Learning goals", status: (plan.learningGoals?.length ?? 0) >= 2 ? ("pass" as const) : ("fail" as const), detail: `${plan.learningGoals?.length ?? 0} goals` },
   ];
   const fail = checks.filter((c) => c.status === "fail").length;
   return { score: 100 - fail * 40, passed: fail === 0, checks, suggestions: [] };

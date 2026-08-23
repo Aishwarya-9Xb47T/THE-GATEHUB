@@ -67,7 +67,7 @@ async function generateQuizWithAI(
 
 ${buildInterviewContext(interview)}
 
-Lesson goals: ${pedagogy.learningGoals.join("; ")}
+Lesson goals: ${Array.isArray(pedagogy.learningGoals) ? pedagogy.learningGoals.join("; ") : ""}
 Prior lessons: ${outline.priorLessons.map((p) => p.lessonTitle).join(" → ") || "course start"}
 Theory snippet: ${theorySnippet}
 

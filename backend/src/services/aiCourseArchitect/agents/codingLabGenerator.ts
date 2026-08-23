@@ -18,11 +18,11 @@ import { AGENT_MAX_ATTEMPTS } from "../architectPerformance.js";
 import { executeCodeSnippet, syntaxLooksValid } from "../codeExecutor.js";
 import { scanForLabPlaceholders, sanitizeCodingLab } from "../pipeline/placeholderGuards.js";
 import { ensureRunnableLabCode } from "../../labCodeRepair.js";
+import { architectCompletionJSON } from "../architectLLM.js";
 
 function computeHash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
-
 
 export async function generateCodingLab(
   lesson: ArchitectLessonBlueprint,
@@ -120,11 +120,12 @@ async function generateLabWithAI(
 ): Promise<ArchitectCodingLab | null> {
   if (!getOpenAi()) return null;
 
+  const goalsStr = Array.isArray(pedagogy.learningGoals) ? pedagogy.learningGoals.join("; ") : "";
   const prompt = `Design a complete coding lab for "${lesson.title}" (${interview.courseInfo.subject}).
 
 ${buildInterviewContext(interview)}
 Module: ${mod.title}
-Goals: ${pedagogy.learningGoals.join("; ")}
+Goals: ${goalsStr}
 
 ${buildCodingLabGuidance(lesson.difficultyTier ?? "intermediate", interview.courseInfo.industry)}
 

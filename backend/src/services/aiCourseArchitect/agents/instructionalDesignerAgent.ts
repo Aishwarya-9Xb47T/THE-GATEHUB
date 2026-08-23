@@ -22,7 +22,7 @@ function toLessonBlueprintPlan(
   const { skeleton, interview } = ctx;
   return {
     ...pedagogy,
-    lessonObjective: pedagogy.learningGoals[0] ?? `Master concepts in ${skeleton.title}`,
+    lessonObjective: (pedagogy.learningGoals as string[] | undefined)?.[0] ?? `Master concepts in ${skeleton.title}`,
     industryContext: pedagogy.industryHook,
     estimatedReadingMinutes: skeleton.durationMinutes ?? 45,
     estimatedPracticeMinutes: pedagogy.includeLab ? 30 : 15,
@@ -48,7 +48,7 @@ function toLessonBlueprintPlan(
     practiceIntervals: design.practiceIntervals ?? ["After each major concept", "End of lesson recap"],
     revisionSpacing: design.revisionSpacing ?? "Revisit prior module concepts in opening recap",
     difficultyCurve: design.difficultyCurve ?? `Progress from ${skeleton.difficultyTier ?? "intermediate"} foundations to applied practice`,
-    knowledgeCheckpoints: design.knowledgeCheckpoints ?? pedagogy.learningGoals.slice(0, 4),
+    knowledgeCheckpoints: design.knowledgeCheckpoints ?? (pedagogy.learningGoals as string[] | undefined)?.slice(0, 4) ?? [],
     bloomsLevels: design.bloomsLevels ?? ["Understand", "Apply", "Analyze"],
     motivation: design.motivation,
     reflectionPrompts: design.reflectionPrompts,
@@ -115,8 +115,8 @@ function validateInstructionalDesign(plan: LessonBlueprintPlan): ArchitectQualit
     {
       id: "goals",
       label: "Learning goals",
-      status: plan.learningGoals.length >= 2 ? ("pass" as const) : ("fail" as const),
-      detail: `${plan.learningGoals.length} goals`,
+      status: (plan.learningGoals?.length ?? 0) >= 2 ? ("pass" as const) : ("fail" as const),
+      detail: `${plan.learningGoals?.length ?? 0} goals`,
     },
     {
       id: "flow",

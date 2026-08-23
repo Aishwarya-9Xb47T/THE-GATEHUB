@@ -93,10 +93,14 @@ async function executeCurriculumArchitect(
       recommendedProgression: ["Foundations", "Core", "Applied", "Advanced"],
       skillDependencyGraph: `Concepts in ${c.subject} build sequentially.`,
       prerequisiteGraph: c.prerequisites.join(" → ") || "Basic skills → Mastery",
-      prerequisites: c.prerequisites.length ? c.prerequisites : ["Basic computer literacy"],
-      learningOutcomes: c.expectedOutcomes.length ? c.expectedOutcomes : c.learningGoals,
+      prerequisites: Array.isArray(c.prerequisites) && c.prerequisites.length ? c.prerequisites : ["Basic computer literacy"],
+      learningOutcomes: Array.isArray(c.expectedOutcomes) && c.expectedOutcomes.length
+        ? c.expectedOutcomes
+        : Array.isArray(c.learningGoals) && c.learningGoals.length
+          ? c.learningGoals
+          : [`Master core principles of ${c.subject}`, `Apply ${c.subject} in practical projects`],
       conceptMap: [],
-      assessmentRecommendations: normalized.assessmentStrategy.methods,
+      assessmentRecommendations: Array.isArray(normalized.assessmentStrategy?.methods) ? normalized.assessmentStrategy.methods : ["Quizzes", "Projects"],
       researchSources: ["University syllabuses", "Industry certifications"],
       researchedAt: new Date().toISOString(),
     };
