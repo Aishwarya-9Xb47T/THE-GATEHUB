@@ -30,6 +30,10 @@ jobs:
           fi
 
       - name: Build Vite frontend
+        env:
+          VITE_API_BASE_URL: https://gatehub-backend-mprr.onrender.com/api
+          VITE_WS_BASE_URL: https://gatehub-backend-mprr.onrender.com
+          VITE_WS_URL: wss://gatehub-backend-mprr.onrender.com/yjs/
         run: npm run build --prefix frontend
 
       - name: Upload built files to Hostinger
