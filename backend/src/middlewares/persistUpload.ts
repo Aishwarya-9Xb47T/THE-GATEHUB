@@ -16,6 +16,7 @@ import {
   unlinkQuietly,
   detectContentType,
   isMissingObjectError,
+  isB2CapExceededError,
   type B2Prefix,
 } from "../services/b2StorageService.js";
 import { getUploadRoot, resolveSafeUploadPath, normalizeUploadRelativePath } from "./uploadAccess.js";
@@ -501,6 +502,9 @@ export async function serveStoredUpload(
         streamed.body.pipe(res);
         return true;
       } catch (err) {
+        if (isB2CapExceededError(err)) {
+          throw err;
+        }
         if (!isMissingObjectError(err) && httpStatusOfGet(err) !== 404) {
           console.warn(
             "[MEDIA_B2] get_fallback_error key=" +

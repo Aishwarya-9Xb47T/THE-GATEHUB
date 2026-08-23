@@ -79,7 +79,7 @@ import {
 } from "./middlewares/uploadAccess.js";
 import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload } from "./middlewares/persistUpload.js";
 import { isVideoUploadPath } from "./utils/uploadMedia.js";
-import { pingB2Storage } from "./services/b2StorageService.js";
+import { pingB2Storage, isB2CapExceededError } from "./services/b2StorageService.js";
 
 registerBuiltinQuestionPlugins();
 import "./services/providers/index.js";
@@ -190,6 +190,7 @@ async function serveCompiledLatexPdf(req: Request, res: Response) {
   }
 
   const filePath = path.join(process.cwd(), uploadDir, "latex", "pdfs", filename);
+  const pdfKey = `latex/pdfs/${filename}`;
 
   if (fs.existsSync(filePath)) {
     const stat = fs.statSync(filePath);
@@ -206,6 +207,13 @@ async function serveCompiledLatexPdf(req: Request, res: Response) {
     applyUploadCorsHeaders(res, typeof req.headers.origin === "string" ? req.headers.origin : undefined);
     res.removeHeader("X-Frame-Options");
 
+    console.info("[PDF_PREVIEW]", {
+      upload_success: true,
+      key: pdfKey,
+      delivery_mode: "local_disk",
+      result: "success",
+    });
+
     if (req.method === "HEAD") {
       return res.status(200).end();
     }
@@ -213,11 +221,47 @@ async function serveCompiledLatexPdf(req: Request, res: Response) {
     return fs.createReadStream(filePath).pipe(res);
   }
 
-  const served = await serveStoredUpload(res, `latex/pdfs/${filename}`, {
-    method: req.method,
-    origin: typeof req.headers.origin === "string" ? req.headers.origin : undefined,
+  // Not on local disk — fetch from B2 storage
+  try {
+    const served = await serveStoredUpload(res, pdfKey, {
+      method: req.method,
+      origin: typeof req.headers.origin === "string" ? req.headers.origin : undefined,
+    });
+    if (served) {
+      console.info("[PDF_PREVIEW]", {
+        upload_success: true,
+        key: pdfKey,
+        delivery_mode: "b2_stream",
+        result: "success",
+      });
+      return;
+    }
+  } catch (err) {
+    const isCap = isB2CapExceededError(err);
+    console.error("[PDF_PREVIEW]", {
+      upload_success: true,
+      key: pdfKey,
+      delivery_mode: "b2",
+      b2_status: isCap ? 403 : 500,
+      result: "failure",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    if (isCap) {
+      return res.status(403).json({
+        success: false,
+        code: "B2_DOWNLOAD_CAP_EXCEEDED",
+        message: "PDF storage upload succeeded, but B2 download/read capacity is temporarily unavailable.",
+      });
+    }
+    return res.status(500).json({ success: false, error: "Failed to retrieve PDF" });
+  }
+
+  console.warn("[PDF_PREVIEW]", {
+    upload_success: false,
+    key: pdfKey,
+    delivery_mode: "none",
+    result: "failure",
   });
-  if (served) return;
   return res.status(404).json({ success: false, error: "PDF not found" });
 }
 

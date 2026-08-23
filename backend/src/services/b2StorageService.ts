@@ -189,6 +189,44 @@ export function isMissingObjectError(err: unknown): boolean {
   return false;
 }
 
+export class B2CapExceededError extends Error {
+  readonly code = "B2_DOWNLOAD_CAP_EXCEEDED";
+  readonly status = 403;
+  constructor(message = "Cannot download file, download bandwidth or transaction (Class B) cap exceeded.") {
+    super(message);
+    this.name = "B2CapExceededError";
+  }
+}
+
+/** Check if an error is due to B2 download bandwidth or Class B transaction cap exhaustion. */
+export function isB2CapExceededError(err: unknown): boolean {
+  if (err instanceof B2CapExceededError) return true;
+  if (!err || typeof err !== "object") return false;
+  const rec = err as {
+    name?: string;
+    Code?: string;
+    code?: string;
+    message?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const status = rec.$metadata?.httpStatusCode;
+  const message = String(rec.message || "").toLowerCase();
+  const name = String(rec.name || rec.Code || rec.code || "").toLowerCase();
+  if (
+    message.includes("cap exceeded") ||
+    message.includes("bandwidth") ||
+    message.includes("class b") ||
+    message.includes("transaction cap") ||
+    name.includes("capexceeded")
+  ) {
+    return true;
+  }
+  if (status === 403 && (message.includes("cap") || message.includes("download") || message.includes("bandwidth"))) {
+    return true;
+  }
+  return false;
+}
+
 /** Persist relative /uploads/... paths in Neon — never localhost or signed URLs. */
 export function toRelativeUploadPath(stored: string): string {
   const key = b2KeyFromPublicPath(stored);
@@ -378,6 +416,9 @@ export async function headObject(key: string): Promise<{ contentType?: string; c
     );
     return { contentType: out.ContentType, contentLength: out.ContentLength, etag: out.ETag };
   } catch (err) {
+    if (isB2CapExceededError(err)) {
+      throw err;
+    }
     const status = httpStatusOf(err);
     const message = err instanceof Error ? err.message : String(err);
     if (status === 404 || isMissingObjectError(err)) {

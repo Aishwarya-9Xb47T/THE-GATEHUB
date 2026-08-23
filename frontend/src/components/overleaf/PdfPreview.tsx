@@ -108,7 +108,18 @@ export function PdfPreview({
     fetch(fetchUrl, { credentials: "same-origin" })
       .then(async (res) => {
         if (!res.ok) {
-          throw new Error(`Preview failed: HTTP ${res.status}`);
+          let message = `Preview failed: HTTP ${res.status}`;
+          try {
+            const json = (await res.json()) as { code?: string; message?: string; error?: string };
+            if (json?.code === "B2_DOWNLOAD_CAP_EXCEEDED" || json?.message) {
+              message = json.message || json.error || message;
+            } else if (json?.error) {
+              message = json.error;
+            }
+          } catch {
+            // Not a JSON response
+          }
+          throw new Error(message);
         }
         const type = res.headers.get("content-type") || "";
         if (!type.includes("pdf")) {

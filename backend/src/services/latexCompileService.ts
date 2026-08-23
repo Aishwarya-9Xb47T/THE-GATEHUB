@@ -1560,7 +1560,8 @@ export async function storeCompiledPdfFromPath(
   const publicUrl = await persistAtPublicRelative(
     targetPath,
     `latex/pdfs/${outputFileName}`,
-    "application/pdf"
+    "application/pdf",
+    { keepLocal: true }
   );
 
   return {
