@@ -57,7 +57,7 @@ import {
   assertProductTypeMatch,
   readStructuredRecord,
 } from "../services/productRoutingService.js";
-import { hasOpenAiKey } from "../services/aiCourseArchitect/openaiClient.js";
+import { hasArchitectAiProvider } from "../services/aiCourseArchitect/openaiClient.js";
 import { isMissingObjectError } from "../services/b2StorageService.js";
 
 /** Prevents concurrent duplicate generates for the same instructor. */
@@ -135,6 +135,15 @@ function friendlyArchitectError(err: unknown, stage = "generate"): AppError {
       stage,
       retryable: true,
     }
+  );
+}
+
+function assertArchitectAiConfigured(stage = "prepare"): void {
+  if (hasArchitectAiProvider()) return;
+  throw architectError(
+    503,
+    "Research & Plan Curriculum requires OPENAI_API_KEY on the backend (Render → gatehub-backend Environment). This is a backend-only secret. Do not add it to the frontend or any VITE_* variable.",
+    { code: "AI_PROVIDER_KEY", stage, retryable: false }
   );
 }
 
@@ -251,6 +260,7 @@ function applyVideoAssignments(
 }
 
 export async function architectResearch(req: AuthRequest, res: Response) {
+  assertArchitectAiConfigured("research");
   const interview = parseInterview(req.body?.interview ?? req.body);
   const { research, blueprint, curriculumValidation } = await researchAndPlanCurriculum(interview);
   res.json({ success: true, data: { research, blueprint, curriculumValidation } });
@@ -267,6 +277,7 @@ export async function architectValidateCurriculum(req: AuthRequest, res: Respons
 export async function architectBlueprint(req: AuthRequest, res: Response) {
   const started = Date.now();
   try {
+    assertArchitectAiConfigured("blueprint");
     const interview = parseInterview(req.body?.interview ?? req.body);
     console.info("[AI Architect] blueprint request", {
       title: interview.courseInfo.title,
@@ -362,9 +373,7 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   };
 
   try {
-  if (!hasOpenAiKey() && !process.env.ANTHROPIC_API_KEY && !process.env.GOOGLE_AI_API_KEY && !process.env.GEMINI_API_KEY) {
-    console.warn("[AI Architect] No AI provider keys configured — generation will use heuristics / degraded mode");
-  }
+  assertArchitectAiConfigured("generate");
 
   stage = "parse-interview";
   const interview = parseInterview(req.body?.interview);

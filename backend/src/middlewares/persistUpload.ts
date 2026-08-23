@@ -10,7 +10,7 @@ import {
   b2KeyFromPublicPath,
   getObjectStream,
   headObject,
-  headObjectWithRetry,
+  confirmUploadedObject,
   deleteObject,
   downloadObjectToFile,
   unlinkQuietly,
@@ -106,17 +106,26 @@ export async function persistMulterFile(
   const key = extraPath
     ? buildObjectKeyWithName(chosen, file.filename, extraPath)
     : `uploads/${chosen}/${file.filename}`;
-  await uploadFile({
+  const uploaded = await uploadFile({
     filePath: file.path,
     key,
     contentType: file.mimetype || detectContentType(file.originalname || file.filename),
   });
-  const verified = await headObjectWithRetry(key);
-  if (!verified.meta) {
+  const confirmed = await confirmUploadedObject(key, uploaded);
+  if (!confirmed.accepted) {
     throw new Error(
-      `B2 upload verification failed: object was uploaded but HEAD returned missing key=${key} status=${verified.status ?? "unknown"} ${verified.error || ""}`.trim(),
+      `B2 upload failed: object is missing after PutObject key=${key} status=${confirmed.status ?? "unknown"} ${confirmed.error || ""}`.trim(),
     );
   }
+  console.log(
+    "[MEDIA_B2] upload_persisted key=" +
+      key +
+      " source=" +
+      confirmed.source +
+      " bytes=" +
+      (confirmed.bytes ?? uploaded.bytes) +
+      (confirmed.permissionDenied ? " head=403" : ""),
+  );
   await unlinkQuietly(file.path);
   return publicPathFromKey(key);
 }
@@ -140,17 +149,26 @@ export async function persistLocalPathToB2(params: {
   const key = params.extraPath
     ? buildObjectKeyWithName(params.prefix, fileName, params.extraPath)
     : buildObjectKeyWithName(params.prefix, fileName);
-  await uploadFile({
+  const uploaded = await uploadFile({
     filePath: params.localPath,
     key,
     contentType: params.contentType || detectContentType(params.originalName || fileName),
   });
-  const verified = await headObjectWithRetry(key);
-  if (!verified.meta) {
+  const confirmed = await confirmUploadedObject(key, uploaded);
+  if (!confirmed.accepted) {
     throw new Error(
-      `B2 upload verification failed: object was uploaded but HEAD returned missing key=${key} status=${verified.status ?? "unknown"} ${verified.error || ""}`.trim(),
+      `B2 upload failed: object is missing after PutObject key=${key} status=${confirmed.status ?? "unknown"} ${confirmed.error || ""}`.trim(),
     );
   }
+  console.log(
+    "[MEDIA_B2] upload_persisted key=" +
+      key +
+      " source=" +
+      confirmed.source +
+      " bytes=" +
+      (confirmed.bytes ?? uploaded.bytes) +
+      (confirmed.permissionDenied ? " head=403" : ""),
+  );
   await unlinkQuietly(params.localPath);
   return publicPathFromKey(key);
 }
@@ -195,30 +213,24 @@ export async function persistAtPublicRelative(
   });
   console.info("[CLASSROOM_B2] stage=upload-complete key=" + key + " uploadedBytes=" + uploaded.bytes + " etag=" + (uploaded.etag || ""));
   console.info("[CLASSROOM_B2] stage=verify-start key=" + key);
-  const verified = await headObjectWithRetry(key);
-  const meta = verified.meta;
+  const confirmed = await confirmUploadedObject(key, uploaded);
   console.info(
     "[CLASSROOM_B2] stage=verify-result key=" +
       key +
-      " exists=" +
-      Boolean(meta) +
-      " contentLength=" +
-      (meta?.contentLength ?? "missing") +
-      " contentType=" +
-      (meta?.contentType || "") +
-      " etag=" +
-      (meta?.etag || ""),
+      " accepted=" +
+      confirmed.accepted +
+      " source=" +
+      confirmed.source +
+      " bytes=" +
+      (confirmed.bytes ?? "missing") +
+      " status=" +
+      (confirmed.status ?? "") +
+      (confirmed.permissionDenied ? " head=403" : ""),
   );
-  const actualBytes = Number(meta?.contentLength);
-  if (
-    !meta
-    || !Number.isFinite(actualBytes)
-    || actualBytes <= 0
-    || (expectedBytes > 0 && actualBytes !== expectedBytes)
-  ) {
-    console.error("[CLASSROOM_B2] stage=verify-failed key=" + key + " expectedBytes=" + expectedBytes + " actualBytes=" + (Number.isFinite(actualBytes) ? actualBytes : "missing") + " expectedMime=" + (contentType || "") + " actualMime=" + (meta?.contentType || "") + " error=" + (verified.error || "HEAD returned missing object"));
+  if (!confirmed.accepted) {
+    console.error("[CLASSROOM_B2] stage=verify-failed key=" + key + " expectedBytes=" + expectedBytes + " actualBytes=" + (confirmed.bytes ?? "missing") + " error=" + (confirmed.error || "object missing after PutObject"));
     throw new Error(
-      `B2 upload verification failed: object was uploaded but verification returned contentLength=${Number.isFinite(actualBytes) ? actualBytes : "missing"} key=${key} expectedBytes=${expectedBytes} status=${verified.status ?? "unknown"} ${verified.error || ""}`.trim(),
+      `B2 upload failed: object is missing after PutObject key=${key} expectedBytes=${expectedBytes} status=${confirmed.status ?? "unknown"} ${confirmed.error || ""}`.trim(),
     );
   }
   if (!options?.keepLocal) {

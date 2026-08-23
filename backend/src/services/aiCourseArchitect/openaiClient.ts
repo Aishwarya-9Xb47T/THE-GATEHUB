@@ -12,3 +12,12 @@ export function getOpenAi(): OpenAI | null {
 export function hasOpenAiKey(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
+
+export function hasArchitectAiProvider(): boolean {
+  return Boolean(
+    process.env.OPENAI_API_KEY?.trim() ||
+      process.env.ANTHROPIC_API_KEY?.trim() ||
+      process.env.GOOGLE_AI_API_KEY?.trim() ||
+      process.env.GEMINI_API_KEY?.trim()
+  );
+}

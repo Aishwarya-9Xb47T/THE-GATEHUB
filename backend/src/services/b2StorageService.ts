@@ -427,6 +427,104 @@ export async function headObjectWithRetry(
   return { meta: null, status: lastStatus, error: lastError };
 }
 
+/**
+ * Decide whether a completed PutObject/Upload should be persisted.
+ * B2 S3 HeadObject often returns 403 when the application key has writeFiles
+ * but not listFiles. Playback already uses GetObject (backend proxy), so HEAD
+ * 403 is a verification-permission issue — not proof the object is missing.
+ */
+export function interpretUploadVerification(input: {
+  putSucceeded: boolean;
+  putBytes: number;
+  headStatus?: number;
+  readableViaGetOrList: boolean;
+}): { accept: boolean; missing: boolean; permissionDenied: boolean } {
+  if (!input.putSucceeded || input.putBytes <= 0) {
+    return { accept: false, missing: true, permissionDenied: false };
+  }
+  if (input.readableViaGetOrList) {
+    return { accept: true, missing: false, permissionDenied: false };
+  }
+  if (input.headStatus === 404) {
+    return { accept: false, missing: true, permissionDenied: false };
+  }
+  if (input.headStatus === 403) {
+    return { accept: true, missing: false, permissionDenied: true };
+  }
+  return { accept: true, missing: false, permissionDenied: false };
+}
+
+/** After PutObject succeeds: HEAD, then list/range-GET. 403 must not fail the upload. */
+export async function confirmUploadedObject(
+  key: string,
+  uploaded: { etag?: string; bytes: number },
+): Promise<{
+  accepted: boolean;
+  missing: boolean;
+  permissionDenied: boolean;
+  source: "head" | "list" | "range" | "put";
+  bytes?: number;
+  status?: number;
+  error?: string;
+}> {
+  const stat = await statObjectBytes(key);
+  const readable = stat.source === "head" || stat.source === "list" || stat.source === "range";
+  const decision = interpretUploadVerification({
+    putSucceeded: uploaded.bytes > 0,
+    putBytes: uploaded.bytes,
+    headStatus: stat.status,
+    readableViaGetOrList: readable && (stat.source !== "head" || (Number(stat.bytes) > 0 || Boolean(stat.etag))),
+  });
+  if (readable && (Number(stat.bytes) > 0 || stat.source === "head")) {
+    return {
+      accepted: true,
+      missing: false,
+      permissionDenied: false,
+      source: stat.source,
+      bytes: stat.bytes ?? uploaded.bytes,
+      status: stat.status,
+    };
+  }
+  if (decision.missing) {
+    return {
+      accepted: false,
+      missing: true,
+      permissionDenied: false,
+      source: "put",
+      status: stat.status,
+      error: stat.error,
+    };
+  }
+  if (decision.permissionDenied) {
+    console.warn(
+      "[MEDIA_B2] verify_permission_denied key=" +
+        key +
+        " status=403 putBytes=" +
+        uploaded.bytes +
+        " — PutObject succeeded; HEAD is not required. Playback uses GetObject.",
+    );
+  } else {
+    console.warn(
+      "[MEDIA_B2] verify_inconclusive key=" +
+        key +
+        " status=" +
+        (stat.status ?? "unknown") +
+        " putBytes=" +
+        uploaded.bytes +
+        " — persisting PutObject result",
+    );
+  }
+  return {
+    accepted: true,
+    missing: false,
+    permissionDenied: decision.permissionDenied,
+    source: "put",
+    bytes: uploaded.bytes,
+    status: stat.status,
+    error: stat.error,
+  };
+}
+
 export function parseContentRangeTotal(contentRange?: string | null): number | undefined {
   if (!contentRange) return undefined;
   const match = String(contentRange).match(/\/(\d+)\s*$/);
