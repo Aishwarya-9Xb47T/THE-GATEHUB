@@ -102,7 +102,18 @@ export async function persistMulterFile(
     if (relative.startsWith(`${chosen}/`)) {
       return `/uploads/${relative}`;
     }
-    return `/uploads/${file.filename}`;
+    // Canonical local layout matches B2: /uploads/videos|<prefix>/<filename>
+    try {
+      const destDir = path.join(getUploadRoot(), chosen);
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+      const destFile = path.join(destDir, file.filename);
+      if (file.path !== destFile && fs.existsSync(file.path)) {
+        fs.copyFileSync(file.path, destFile);
+      }
+    } catch {
+      /* ignore */
+    }
+    return `/uploads/${chosen}/${file.filename}`;
   }
 
   const key = extraPath

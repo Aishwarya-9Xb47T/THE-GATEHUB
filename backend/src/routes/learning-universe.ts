@@ -277,6 +277,26 @@ async function serveLearningUniverseAsset(req: AuthRequest, res: express.Respons
     if (fs.existsSync(assetPath)) {
       return streamLocalUpload(res, assetPath, { range, method: req.method, mimeType: asset.mimeType || undefined });
     }
+    // Canonical pointer: storedFilename is videos/<uuid>.mp4 (or images/...) under /uploads
+    const relative = String(asset.storedFilename || "")
+      .replace(/^\/+/, "")
+      .replace(/^uploads\//, "");
+    if (relative.includes("/") || /^(videos|images|banners|pdfs|projects)\//i.test(relative)) {
+      const hydratedCanonical = await hydrateLocalUpload(`/uploads/${relative}`);
+      if (hydratedCanonical) {
+        return streamLocalUpload(res, hydratedCanonical, {
+          range,
+          method: req.method,
+          mimeType: asset.mimeType || undefined,
+        });
+      }
+      const streamedCanonical = await serveStoredUpload(res, relative, {
+        range,
+        method: req.method,
+        mimeType: asset.mimeType || undefined,
+      });
+      if (streamedCanonical) return;
+    }
     const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
     if (hydrated) {
       return streamLocalUpload(res, hydrated, { range, method: req.method, mimeType: asset.mimeType || undefined });
@@ -295,6 +315,17 @@ async function serveLearningUniverseAsset(req: AuthRequest, res: express.Respons
 
 router.head("/:id/assets/:filename", optionalAuthenticate, serveLearningUniverseAsset);
 router.get("/:id/assets/:filename", optionalAuthenticate, serveLearningUniverseAsset);
+
+router.get("/:id/asset-health", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
+  try {
+    const { checkPublishedCourseAssets } = await import("../services/publishedCourseAssetHealth.js");
+    const report = await checkPublishedCourseAssets(req.params.id);
+    res.json({ success: true, data: report });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: (err as Error).message || "Asset health check failed" });
+  }
+});
 
 // Protected routes (for instructors)
 router.post("/draft", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {

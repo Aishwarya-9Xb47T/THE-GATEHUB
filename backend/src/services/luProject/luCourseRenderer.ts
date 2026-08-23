@@ -70,7 +70,14 @@ export function emitVideosTex(videos: LuCourseVideoJson[]): string {
       const suffix = extras ? `,${extras}` : "";
       lines.push(`\\video{type={youtube},url={${escUrlArg(url)}},title={${esc(v.title)}}${suffix}}`);
     } else {
-      const file = (v.file || "").replace(/^.*\/uploads\//, "").split("/").pop() || v.file || "";
+      // Preserve durable relative key (e.g. videos/<uuid>.mp4) — never strip to basename-only.
+      const raw = (v.file || v.url || "").trim();
+      const relative = raw
+        .replace(/^https?:\/\/[^/]+/i, "")
+        .replace(/^\/uploads\//, "")
+        .replace(/^uploads\//, "")
+        .replace(/^\/+/, "");
+      const file = relative || raw;
       lines.push(`\\video{type={upload},file={${esc(file)}},title={${esc(v.title)}}}`);
     }
   }

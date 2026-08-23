@@ -30,6 +30,13 @@ uploadRouter.post("/", authenticate, uploadLimiter, upload.single("file"), async
 
     const url = await persistMulterFile(req.file, undefined, undefined, { keepLocal: true });
     console.log("[VIDEO_UPLOAD_BACKEND] STORED", { url, size: req.file.size });
+    console.log("[B2_UPLOAD]", {
+      bucket: process.env.B2_BUCKET_NAME || null,
+      key: url.replace(/^\/uploads\//, "uploads/").replace(/^\//, ""),
+      bytes: req.file.size,
+      mimeType: req.file.mimetype,
+      status: "ok",
+    });
     res.json({ success: true, url });
   } catch (error: any) {
     const { isB2Configured } = await import("../services/b2StorageService.js");

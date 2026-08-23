@@ -710,6 +710,94 @@ export async function pingB2Storage(): Promise<"connected" | "unconfigured" | "e
   }
 }
 
+export type StorageProbeCode =
+  | "EXISTS"
+  | "OBJECT_NOT_FOUND"
+  | "STORAGE_AUTHORIZATION_ERROR"
+  | "STORAGE_BANDWIDTH_LIMIT"
+  | "STORAGE_RATE_LIMIT"
+  | "STORAGE_NETWORK_ERROR"
+  | "STORAGE_NOT_CONFIGURED";
+
+/**
+ * Lightweight existence / access probe — never downloads the full object.
+ * Uses Head → List → 1-byte Range (via statObjectBytes).
+ */
+export async function probeStorageObject(key: string): Promise<{
+  code: StorageProbeCode;
+  bytes?: number;
+  contentType?: string;
+  status?: number;
+  error?: string;
+  bucket: string | null;
+  key: string;
+}> {
+  const bucket = process.env.B2_BUCKET_NAME?.trim() || null;
+  const cleaned = key.replace(/^\/+/, "");
+  if (!isB2Configured()) {
+    return { code: "STORAGE_NOT_CONFIGURED", bucket, key: cleaned };
+  }
+  try {
+    const stat = await statObjectBytes(cleaned);
+    if (stat.source === "head" || stat.source === "list" || stat.source === "range") {
+      const hasPayload = Number(stat.bytes) > 0 || Boolean(stat.etag);
+      // HEAD without ContentLength is still proof the key is addressable on B2.
+      if (hasPayload || stat.source === "head") {
+        return {
+          code: "EXISTS",
+          bytes: stat.bytes,
+          contentType: stat.contentType,
+          status: stat.status,
+          error: stat.error,
+          bucket,
+          key: cleaned,
+        };
+      }
+    }
+    const status = stat.status;
+    const errMsg = String(stat.error || "");
+    if (isB2CapExceededError({ message: errMsg, $metadata: { httpStatusCode: status } })) {
+      return { code: "STORAGE_BANDWIDTH_LIMIT", status, error: errMsg, bucket, key: cleaned };
+    }
+    if (status === 403 || /accessdenied|forbidden|unauthorized/i.test(errMsg)) {
+      // B2 app keys without listFiles often HEAD 403 even when the object exists.
+      return { code: "STORAGE_AUTHORIZATION_ERROR", status, error: errMsg, bucket, key: cleaned };
+    }
+    if (status === 429 || /slowdown|throttl|rate.?limit/i.test(errMsg)) {
+      return { code: "STORAGE_RATE_LIMIT", status, error: errMsg, bucket, key: cleaned };
+    }
+    if (status === 404 || /key not found|nosuchkey/i.test(errMsg) || stat.source === "missing") {
+      return { code: "OBJECT_NOT_FOUND", status, error: errMsg, bucket, key: cleaned };
+    }
+    return {
+      code: "STORAGE_NETWORK_ERROR",
+      status,
+      error: errMsg || "inconclusive storage probe",
+      bucket,
+      key: cleaned,
+    };
+  } catch (err) {
+    if (isB2CapExceededError(err)) {
+      return {
+        code: "STORAGE_BANDWIDTH_LIMIT",
+        status: httpStatusOf(err),
+        error: err instanceof Error ? err.message : String(err),
+        bucket,
+        key: cleaned,
+      };
+    }
+    const status = httpStatusOf(err);
+    const message = err instanceof Error ? err.message : String(err);
+    if (status === 403) {
+      return { code: "STORAGE_AUTHORIZATION_ERROR", status, error: message, bucket, key: cleaned };
+    }
+    if (status === 404 || isMissingObjectError(err)) {
+      return { code: "OBJECT_NOT_FOUND", status, error: message, bucket, key: cleaned };
+    }
+    return { code: "STORAGE_NETWORK_ERROR", status, error: message, bucket, key: cleaned };
+  }
+}
+
 export async function unlinkQuietly(filePath: string | undefined | null): Promise<void> {
   if (!filePath) return;
   try {

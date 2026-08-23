@@ -7,7 +7,11 @@ import { randomUUID } from "crypto";
 import type { ParsedLearningUniverse } from "./learning-universe-parser.js";
 import { recordProjectVersion } from "../services/latexVersionService.js";
 import { validateColabUrl, validateColabUrlsInDsl, sanitizeColabUrlsInDsl } from "../services/colabUrlValidator.js";
-import { validateMediaAssets, sanitizeParsedMediaReferences } from "../services/learningUniverseMedia.js";
+import {
+  validateMediaAssets,
+  validateMediaAssetStorageObjects,
+  sanitizeParsedMediaReferences,
+} from "../services/learningUniverseMedia.js";
 import { ensureUniverseMediaFromReferences } from "../services/aiCourseArchitect/aiArchitectMediaSync.js";
 import { loadProjectFiles, getProjectJsonFromFiles } from "../services/luProject/luProjectFiles.js";
 import {
@@ -194,11 +198,31 @@ async function assertPublishValidation(
     console.warn("[LU Publish] Parser warnings:", parsed.warnings.join("; "));
   }
 
+  let architectMappings: ReturnType<typeof readArchitectVideoMappings> = [];
   if (universeId) {
-    await ensureUniverseMediaFromReferences(universeId, parsed, sourceProjectId);
+    const meta = await prisma.learningUniverse.findUnique({
+      where: { id: universeId },
+      select: { structuredData: true },
+    });
+    architectMappings = readArchitectVideoMappings(meta?.structuredData);
+  } else if (sourceProjectId) {
+    const linked = await prisma.learningUniverse.findFirst({
+      where: { sourceProjectId },
+      select: { structuredData: true },
+    });
+    architectMappings = readArchitectVideoMappings(linked?.structuredData);
+  }
+
+  if (universeId) {
+    await ensureUniverseMediaFromReferences(
+      universeId,
+      parsed,
+      sourceProjectId,
+      architectMappings
+    );
     const syncedAssets = await prisma.learningUniverseAsset.findMany({
       where: { learningUniverseId: universeId },
-      select: { filename: true, storedFilename: true },
+      select: { id: true, filename: true, storedFilename: true, mimeType: true, size: true },
     });
     for (const a of syncedAssets) {
       if (a.filename && !availableFilenames.some((n) => n.toLowerCase() === a.filename.toLowerCase())) {
@@ -223,15 +247,33 @@ async function assertPublishValidation(
     projectId: sourceProjectId,
   });
   if (mediaIssues.length > 0) {
-    const detail = mediaIssues
-      .map((i) => i.message)
-      .join("; ");
+    const detail = mediaIssues.map((i) => i.message).join("; ");
     const err = new Error(detail);
     (err as Error & { code?: string; stage?: string }).code =
       mediaIssues[0]?.code || "ASSET_VALIDATION_FAILED";
     (err as Error & { code?: string; stage?: string }).stage =
       mediaIssues[0]?.stage || "ASSET_VALIDATION";
     throw err;
+  }
+
+  if (universeId) {
+    const assets = await prisma.learningUniverseAsset.findMany({
+      where: { learningUniverseId: universeId },
+      select: { id: true, filename: true, storedFilename: true, mimeType: true, size: true },
+    });
+    const storageIssues = await validateMediaAssetStorageObjects(parsed, assets, {
+      courseId: universeId,
+      projectId: sourceProjectId,
+    });
+    if (storageIssues.length > 0) {
+      const detail = storageIssues.map((i) => i.message).join("; ");
+      const err = new Error(detail);
+      (err as Error & { code?: string; stage?: string }).code =
+        storageIssues[0]?.code || "ASSET_VALIDATION_FAILED";
+      (err as Error & { code?: string; stage?: string }).stage =
+        storageIssues[0]?.stage || "ASSET_VALIDATION";
+      throw err;
+    }
   }
 }
 
@@ -504,7 +546,12 @@ export async function publishLearningUniverse(
 
     await syncUniverseAssets(universe.id, files);
     if (options.projectId) {
-      await ensureUniverseMediaFromReferences(universe.id, parsed, options.projectId);
+      await ensureUniverseMediaFromReferences(
+        universe.id,
+        parsed,
+        options.projectId,
+        readArchitectVideoMappings(structuredData)
+      );
     }
     await recordPublishVersion(universe.id, latexContent, structuredData);
     await syncCatalogOnPublish(universe.id);
@@ -546,7 +593,12 @@ export async function publishLearningUniverse(
 
   await syncUniverseAssets(universe.id, files);
   if (options.projectId) {
-    await ensureUniverseMediaFromReferences(universe.id, parsed, options.projectId);
+    await ensureUniverseMediaFromReferences(
+      universe.id,
+      parsed,
+      options.projectId,
+      readArchitectVideoMappings(structuredData)
+    );
   }
   await recordPublishVersion(universe.id, latexContent, structuredData);
   await syncCatalogOnPublish(universe.id);

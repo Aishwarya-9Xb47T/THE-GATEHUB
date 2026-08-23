@@ -293,6 +293,106 @@ export function validateMediaAssets(
   return issues;
 }
 
+export type AssetStorageRow = {
+  id: string;
+  filename: string;
+  storedFilename: string;
+  mimeType: string;
+  size: number;
+};
+
+/**
+ * After DB filename match: probe the canonical storage object (no full download).
+ * Distinguishes OBJECT_NOT_FOUND from auth / bandwidth / rate-limit failures.
+ */
+export async function validateMediaAssetStorageObjects(
+  parsed: ParsedLearningUniverse,
+  assets: AssetStorageRow[],
+  context?: { courseId?: string; projectId?: string }
+): Promise<MediaValidationIssue[]> {
+  const { isB2Configured, probeStorageObject, b2KeyFromPublicPath } = await import(
+    "./b2StorageService.js"
+  );
+  const issues: MediaValidationIssue[] = [];
+  if (!isB2Configured()) return issues;
+
+  const byBase = new Map<string, AssetStorageRow>();
+  for (const a of assets) {
+    byBase.set(a.filename.toLowerCase(), a);
+    byBase.set(refBasename(a.storedFilename).toLowerCase(), a);
+  }
+
+  const seen = new Set<string>();
+  for (const ref of collectMediaReferences(parsed)) {
+    if (!isPublishableMediaAssetRef(ref.filename)) continue;
+    if (ref.blockType !== "video" && ref.blockType !== "image") continue;
+    const base = refBasename(ref.filename).toLowerCase();
+    if (seen.has(`${ref.blockType}:${base}`)) continue;
+    seen.add(`${ref.blockType}:${base}`);
+
+    const asset = byBase.get(base) || byBase.get(ref.filename.toLowerCase());
+    if (!asset) continue; // filename-level validateMediaAssets already reported
+
+    const relative = asset.storedFilename.replace(/^\/+/, "").replace(/^uploads\//, "");
+    const candidates = new Set<string>([
+      b2KeyFromPublicPath(`/uploads/${relative}`) || `uploads/${relative}`,
+    ]);
+    if (!relative.includes("/")) {
+      candidates.add(`uploads/videos/${relative}`);
+      candidates.add(`uploads/images/${relative}`);
+      if (context?.courseId) {
+        candidates.add(`uploads/learning-universes/${context.courseId}/${relative}`);
+      }
+    }
+
+    console.info(
+      `[PUBLISH VIDEO DEBUG] courseId=${context?.courseId ?? ""} projectId=${context?.projectId ?? ""} assetId=${asset.id} type=${ref.blockType.toUpperCase()} originalName=${asset.filename} mimeType=${asset.mimeType} size=${asset.size} storageKey=${relative} publicUrl=/uploads/${relative}`
+    );
+
+    let bestCode = "OBJECT_NOT_FOUND";
+    let bestKey = [...candidates][0];
+    let ok = false;
+    let hardFail: string | null = null;
+    for (const key of candidates) {
+      const probe = await probeStorageObject(key);
+      console.info(
+        `[PUBLISH VIDEO DEBUG] storage_probe assetId=${asset.id} key=${probe.key} bucket=${probe.bucket ?? ""} code=${probe.code} bytes=${probe.bytes ?? 0}`
+      );
+      bestCode = probe.code;
+      bestKey = probe.key;
+      if (probe.code === "EXISTS" || probe.code === "STORAGE_AUTHORIZATION_ERROR") {
+        ok = true;
+        break;
+      }
+      if (
+        probe.code === "STORAGE_BANDWIDTH_LIMIT" ||
+        probe.code === "STORAGE_RATE_LIMIT" ||
+        probe.code === "STORAGE_NETWORK_ERROR"
+      ) {
+        hardFail = probe.code;
+        break;
+      }
+    }
+
+    if (ok) continue;
+
+    const reason = hardFail || (bestCode === "OBJECT_NOT_FOUND" || bestCode === "STORAGE_NOT_CONFIGURED"
+      ? "STORAGE_OBJECT_NOT_FOUND"
+      : bestCode);
+
+    issues.push({
+      filename: relative,
+      blockType: ref.blockType,
+      lessonTitle: ref.lessonTitle,
+      code: reason,
+      stage: "ASSET_VALIDATION",
+      message: `Asset validation failed: type=${ref.blockType.toUpperCase()} assetId=${asset.id} storageKey=${relative} probedKey=${bestKey} reason=${reason}`,
+    });
+  }
+
+  return issues;
+}
+
 export function findAssetFilename(
   ref: string,
   assets: Array<{ filename: string }>

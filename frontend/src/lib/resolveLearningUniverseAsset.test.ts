@@ -30,6 +30,14 @@ describe("resolveLearningUniverseAsset", () => {
     expect(resolved.resolvedUrl).not.toContain("/uploads/projects/");
   });
 
+  it("resolves canonical videos/ storage pointers without inventing learning-universes path", () => {
+    const pointerAssets = [{ filename: "lecture.mp4", storedFilename: "videos/abc-uuid.mp4" }];
+    const resolved = resolveLearningUniverseAsset("lecture.mp4", "uni-1", pointerAssets);
+    expect(resolved.status).toBe("found");
+    expect(resolved.resolvedUrl).toContain("/uploads/videos/abc-uuid.mp4");
+    expect(resolved.resolvedUrl).not.toContain("/learning-universes/");
+  });
+
   it("rewrites localhost upload hosts", () => {
     const resolved = resolveLearningUniverseAsset(
       "http://localhost:5000/uploads/projects/proj1/diagram.png",
