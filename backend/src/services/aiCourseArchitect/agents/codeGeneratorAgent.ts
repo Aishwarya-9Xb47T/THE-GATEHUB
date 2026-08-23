@@ -101,13 +101,21 @@ function buildHeuristicCode(title: string, lang: string, subject: string): CodeG
 }
 
 function validateCode(output: CodeGeneratorOutput): ArchitectQualityReport {
-  const stub = /your (code|solution|implementation) here|TODO|FIXME/i.test(output.codeExample);
+  if (!output || typeof output !== "object") {
+    return {
+      score: 0,
+      passed: false,
+      checks: [{ id: "code-present", label: "Code output", status: "fail", detail: "undefined" }],
+      suggestions: ["Code generator returned no output"],
+    };
+  }
+  const stub = /your (code|solution|implementation) here|TODO|FIXME/i.test(output.codeExample || "");
   const checks = [
     {
       id: "code-length",
       label: "Code present",
-      status: output.codeExample.length >= 40 && !stub ? ("pass" as const) : ("fail" as const),
-      detail: `${output.codeExample.length} chars`,
+      status: (output.codeExample?.length ?? 0) >= 40 && !stub ? ("pass" as const) : ("fail" as const),
+      detail: `${output.codeExample?.length ?? 0} chars`,
     },
     {
       id: "steps",
@@ -142,12 +150,16 @@ export async function runCodeGeneratorAgent(
 
 export function applyCodeToLesson(
   lesson: ArchitectLessonBlueprint,
-  output: CodeGeneratorOutput
+  output: CodeGeneratorOutput | null | undefined
 ): ArchitectLessonBlueprint {
+  if (!output || typeof output !== "object") {
+    return lesson;
+  }
   return {
     ...lesson,
-    codeExample: output.codeExample,
-    executionSteps: output.executionSteps,
-    examples: lesson.examples?.length ? lesson.examples : output.examples,
+    codeExample: typeof output.codeExample === "string" ? output.codeExample : lesson.codeExample,
+    executionSteps:
+      typeof output.executionSteps === "string" ? output.executionSteps : lesson.executionSteps,
+    examples: lesson.examples?.length ? lesson.examples : output.examples || lesson.examples,
   };
 }

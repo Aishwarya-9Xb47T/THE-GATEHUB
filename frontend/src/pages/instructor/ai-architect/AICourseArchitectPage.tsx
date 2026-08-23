@@ -794,6 +794,46 @@ export function AICourseArchitectPage() {
     }
   };
 
+  const handleRetryFailedStage = async () => {
+    if (!activeJobId) {
+      handleGenerate();
+      return;
+    }
+    setGenerating(true);
+    setJobError(null);
+    setJobStageMessage("Retrying failed stage...");
+    try {
+      const res = await api<{ data: any }>(`/ai-architect/jobs/${activeJobId}/retry-stage`, { method: "POST" });
+      if (res.error) throw new Error(res.error);
+      setTimeout(() => pollJobStatus(activeJobId), 1000);
+    } catch (e: any) {
+      setGenerating(false);
+      const msg = String((e as Error)?.message || "Failed to retry stage");
+      setJobError(msg);
+      toast({ title: "Retry stage failed", description: msg, variant: "destructive" });
+    }
+  };
+
+  const handleRetryEverything = async () => {
+    if (!activeJobId) {
+      handleGenerate();
+      return;
+    }
+    setGenerating(true);
+    setJobError(null);
+    setJobStageMessage("Retrying entire generation...");
+    try {
+      const res = await api<{ data: any }>(`/ai-architect/jobs/${activeJobId}/retry-everything`, { method: "POST" });
+      if (res.error) throw new Error(res.error);
+      setTimeout(() => pollJobStatus(activeJobId), 1000);
+    } catch (e: any) {
+      setGenerating(false);
+      const msg = String((e as Error)?.message || "Failed to restart generation");
+      setJobError(msg);
+      toast({ title: "Retry everything failed", description: msg, variant: "destructive" });
+    }
+  };
+
   const handleRegenerateModule = async (moduleId: string) => {
     if (!blueprint) return;
     setLoadingBlueprint(true);
@@ -1894,7 +1934,7 @@ export function AICourseArchitectPage() {
                           size="sm"
                           variant="outline"
                           className="text-xs"
-                          onClick={handleResumeJob}
+                          onClick={handleRetryFailedStage}
                         >
                           Retry Failed Stage
                         </Button>
@@ -1903,7 +1943,7 @@ export function AICourseArchitectPage() {
                           size="sm"
                           variant="ghost"
                           className="text-xs"
-                          onClick={handleGenerate}
+                          onClick={handleRetryEverything}
                         >
                           Retry Everything
                         </Button>

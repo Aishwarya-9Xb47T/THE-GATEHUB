@@ -65,8 +65,10 @@ import {
   createCourseGenerationJob,
   getJob,
   getUserActiveJob,
-  executeCourseGenerationJob,
   cancelJob,
+  resumeCourseGenerationJob,
+  retryFailedStageJob,
+  retryEverythingJob,
 } from "../services/aiCourseArchitect/courseGenerationJobService.js";
 
 /** Prevents concurrent duplicate generates for the same instructor. */
@@ -849,23 +851,20 @@ export async function architectGetActiveJob(req: AuthRequest, res: Response) {
 
 export async function architectResumeJob(req: AuthRequest, res: Response) {
   const jobId = req.params.jobId;
-  const job = getJob(jobId);
-  if (!job) throw new AppError(404, "Course generation job not found");
-  if (job.userId !== req.user!.id) throw new AppError(403, "Unauthorized access to job");
+  const updated = resumeCourseGenerationJob(jobId, req.user!.id);
+  res.json({ success: true, data: updated });
+}
 
-  if (job.status === "RUNNING") {
-    return res.json({ success: true, data: job });
-  }
+export async function architectRetryFailedStage(req: AuthRequest, res: Response) {
+  const jobId = req.params.jobId;
+  const updated = retryFailedStageJob(jobId, req.user!.id);
+  res.json({ success: true, data: updated });
+}
 
-  job.status = "RETRYING";
-  job.retryCount += 1;
-  job.stageMessage = "Resuming generation from checkpoint...";
-  void executeCourseGenerationJob(jobId);
-
-  res.json({
-    success: true,
-    data: job,
-  });
+export async function architectRetryEverything(req: AuthRequest, res: Response) {
+  const jobId = req.params.jobId;
+  const updated = retryEverythingJob(jobId, req.user!.id);
+  res.json({ success: true, data: updated });
 }
 
 export async function architectCancelJob(req: AuthRequest, res: Response) {

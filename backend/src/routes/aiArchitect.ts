@@ -16,6 +16,8 @@ import {
   architectGetJob,
   architectGetActiveJob,
   architectResumeJob,
+  architectRetryFailedStage,
+  architectRetryEverything,
   architectCancelJob,
 } from "../controllers/aiCourseArchitectController.js";
 
@@ -70,6 +72,20 @@ aiArchitectRouter.post(
   authenticate,
   requireRole("instructor", "admin" as Role),
   architectResumeJob
+);
+
+aiArchitectRouter.post(
+  "/jobs/:jobId/retry-stage",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectRetryFailedStage
+);
+
+aiArchitectRouter.post(
+  "/jobs/:jobId/retry-everything",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectRetryEverything
 );
 
 aiArchitectRouter.post(

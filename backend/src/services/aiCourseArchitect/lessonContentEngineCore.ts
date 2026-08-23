@@ -32,6 +32,7 @@ import { formatAdaptiveProfileForPrompt } from "./adaptiveProfile.js";
 import { formatPart4PromptContext } from "./engines/part4Orchestrator.js";
 import { sanitizeWriterOutput } from "./agentOwnership.js";
 import { buildPremiumLessonReading } from "../lessonContentRepair.js";
+import { normalizeLessonContent } from "./lessonContentNormalizer.js";
 
 
 export async function generateLessonContent(
@@ -195,7 +196,7 @@ function mergeLesson(
     }
   }
 
-  return sanitizeWriterOutput(merged);
+  return normalizeLessonContent(sanitizeWriterOutput(merged), skeleton, { interview });
 }
 
 function buildProfessorQualityMock(

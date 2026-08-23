@@ -83,9 +83,11 @@ export async function validateAndFixLessonCode(
     if (attempt < AGENT_MAX_ATTEMPTS) {
       const regen = await runCodeGeneratorAgent(ctx, plan, {
         ...current,
-        theory: `${current.theory}\n\n[CODE FIX REQUIRED: ${exec.stderr || "invalid syntax"}]`,
+        theory: `${current?.theory ?? ""}\n\n[CODE FIX REQUIRED: ${exec.stderr || "invalid syntax"}]`,
       });
-      current = applyCodeToLesson(current, regen.output);
+      if (regen.output) {
+        current = applyCodeToLesson(current, regen.output);
+      }
       regenerated = true;
       continue;
     }

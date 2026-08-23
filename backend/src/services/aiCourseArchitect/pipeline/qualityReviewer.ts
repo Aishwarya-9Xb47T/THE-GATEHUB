@@ -14,9 +14,17 @@ import { isLikelyFakeUrl } from "../externalResearchApis.js";
 import { isGenericLessonContent } from "../../lessonContentRepair.js";
 
 export function reviewLessonContent(
-  lesson: ArchitectLessonBlueprint,
+  lesson: ArchitectLessonBlueprint | null | undefined,
   interview: AICourseArchitectInterview
 ): ArchitectQualityReport {
+  if (!lesson || typeof lesson !== "object") {
+    return {
+      score: 0,
+      passed: false,
+      checks: [{ id: "lesson-present", label: "Lesson object", status: "fail", detail: "undefined lesson" }],
+      suggestions: ["Lesson content missing — regenerate or normalize from skeleton"],
+    };
+  }
   const checks: ArchitectQualityReport["checks"] = [];
   const suggestions: string[] = [];
 

@@ -85,6 +85,14 @@ function continuityMentions(text: string): number {
 }
 
 function validateLessonWriter(output: ArchitectLessonBlueprint): ArchitectQualityReport {
+  if (!output || typeof output !== "object") {
+    return {
+      score: 0,
+      passed: false,
+      checks: [{ id: "lesson-present", label: "Lesson output", status: "fail", detail: "undefined" }],
+      suggestions: ["Lesson writer returned no output — normalize from skeleton"],
+    };
+  }
   const theoryWords = (output.theory || "").split(/\s+/).filter(Boolean).length;
   const theoryGeneric = isGenericLessonContent(output.theory || "");
   const bloom = bloomVerbCoverage(output.objectives || []);

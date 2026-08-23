@@ -555,6 +555,107 @@ export async function executeCourseGenerationJob(jobId: string): Promise<void> {
   }
 }
 
+/** Resume from last successful checkpoint (re-enter execute; completed lessons skipped). */
+export function resumeCourseGenerationJob(jobId: string, userId: string): CourseGenerationJobData {
+  const job = jobs.get(jobId);
+  if (!job) throw new Error(`Job ${jobId} not found`);
+  if (job.userId !== userId) throw new Error("Unauthorized");
+  if (job.status === "RUNNING" || job.status === "QUEUED" || job.status === "RETRYING") {
+    return job;
+  }
+  userActiveJobs.set(userId, jobId);
+  updateJob(jobId, {
+    status: "RETRYING",
+    retryCount: job.retryCount + 1,
+    errorCode: undefined,
+    errorMessage: undefined,
+    stageMessage: `Resuming from checkpoint (${job.currentStage})...`,
+  });
+  void executeCourseGenerationJob(jobId);
+  return getJob(jobId)!;
+}
+
+/**
+ * Retry only the failed stage — do not clear successful lesson content.
+ * Clears error state and re-enters the job at the persisted currentStage.
+ */
+export function retryFailedStageJob(jobId: string, userId: string): CourseGenerationJobData {
+  const job = jobs.get(jobId);
+  if (!job) throw new Error(`Job ${jobId} not found`);
+  if (job.userId !== userId) throw new Error("Unauthorized");
+  if (job.status === "RUNNING" || job.status === "QUEUED" || job.status === "RETRYING") {
+    return job;
+  }
+  userActiveJobs.set(userId, jobId);
+  updateJob(jobId, {
+    status: "RETRYING",
+    retryCount: job.retryCount + 1,
+    errorCode: undefined,
+    errorMessage: undefined,
+    stageMessage: `Retrying failed stage: ${job.currentStage}...`,
+  });
+  void executeCourseGenerationJob(jobId);
+  return getJob(jobId)!;
+}
+
+/**
+ * Intentional full regenerate — clears lesson content checkpoints but keeps blueprint + interview.
+ */
+export function retryEverythingJob(jobId: string, userId: string): CourseGenerationJobData {
+  const job = jobs.get(jobId);
+  if (!job) throw new Error(`Job ${jobId} not found`);
+  if (job.userId !== userId) throw new Error("Unauthorized");
+
+  const clearedBlueprint = job.blueprint
+    ? {
+        ...job.blueprint,
+        phase: "planned" as const,
+        modules: (job.blueprint.modules ?? []).map((mod) => ({
+          ...mod,
+          lessons: (mod.lessons ?? []).map((lesson) => ({
+            ...lesson,
+            theory: "",
+            introduction: "",
+            examples: "",
+            summary: "",
+            revision: "",
+            contentStatus: "planned" as const,
+            quizQuestions: undefined,
+            codingLab: undefined,
+          })),
+        })),
+      }
+    : undefined;
+
+  userActiveJobs.set(userId, jobId);
+  updateJob(jobId, {
+    status: "QUEUED",
+    retryCount: job.retryCount + 1,
+    blueprint: clearedBlueprint,
+    progress: 0,
+    completedLessons: 0,
+    currentLesson: 0,
+    errorCode: undefined,
+    errorMessage: undefined,
+    currentStage: "LESSON_CONTENT",
+    stageMessage: "Retry everything — regenerating lesson content from approved blueprint...",
+    checkpoints: {
+      ...job.checkpoints,
+      blueprintApproved: Boolean(clearedBlueprint?.modules?.length),
+      lessonsCompleted: [],
+      mediaSynced: false,
+      latexBuilt: false,
+      draftCreated: job.checkpoints.draftCreated,
+      qualityChecked: false,
+      published: false,
+    },
+    universeId: job.universeId,
+    projectId: job.projectId,
+  });
+  void executeCourseGenerationJob(jobId);
+  return getJob(jobId)!;
+}
+
 /** Create and start a persistent course generation job */
 export function createCourseGenerationJob(params: {
   userId: string;

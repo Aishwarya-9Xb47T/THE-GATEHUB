@@ -48,6 +48,7 @@ import { detectFailedComponents, regenerateFailedComponents } from "./componentR
 import { hasLearningComponent } from "../types.js";
 import type { ArchitectLessonBlueprint, ArchitectQualityReport } from "../types.js";
 import { ensureLessonBlueprintPlan } from "../lessonPlanningEngine.js";
+import { ensureLessonContent } from "../lessonContentNormalizer.js";
 import {
   LESSON_CONCURRENCY,
   MAX_COMPONENT_RETRIES,
@@ -122,8 +123,13 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
 
   // Agent 3 — Lesson Writer (prose only; grounded in retrieval)
   const writerResult = await runLessonWriterAgent(pipelineCtx, plan);
-  let lesson = writerResult.output;
   pushStage(stages, "lesson-writer", writerResult.confidence, writerResult.success);
+  // CRITICAL: AgentRunner may return undefined output — never read lesson.theory on undefined.
+  let lesson = ensureLessonContent(writerResult.output, pipelineCtx.skeleton, {
+    mod: pipelineCtx.mod,
+    interview: pipelineCtx.interview,
+    stage: "lesson-writer",
+  });
 
   const factChecks = auditLessonFacts(lesson, retrievalBundle);
   if (factChecks.some((c) => c.verdict === "unsupported")) {
@@ -133,11 +139,19 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
   // Agent 4 — Code Generator + Agent 5 — Code Validation
   if (plan.requiredCode || hasLearningComponent(pipelineCtx.interview, "Coding")) {
     const codeResult = await runCodeGeneratorAgent(pipelineCtx, plan, lesson);
-    lesson = applyCodeToLesson(lesson, codeResult.output);
+    lesson = ensureLessonContent(
+      applyCodeToLesson(lesson, codeResult.output),
+      pipelineCtx.skeleton,
+      { mod: pipelineCtx.mod, interview: pipelineCtx.interview, stage: "code-generator" }
+    );
     pushStage(stages, "code-generator", codeResult.confidence, codeResult.success);
 
     const validationResult = await runCodeValidationAgent(pipelineCtx, plan, lesson);
-    lesson = validationResult.output.lesson;
+    lesson = ensureLessonContent(validationResult.output?.lesson ?? lesson, pipelineCtx.skeleton, {
+      mod: pipelineCtx.mod,
+      interview: pipelineCtx.interview,
+      stage: "code-validation",
+    });
     pushStage(stages, "code-validation", validationResult.confidence, validationResult.success);
   }
 
@@ -151,7 +165,7 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
       : Promise.resolve(null),
     runYoutubeRecommendationAgent(pipelineCtx, plan, lesson),
   ]);
-  if (diagramSettled) {
+  if (diagramSettled?.output) {
     const rawDiagrams = [
       ...(diagramSettled.output.diagrams ?? []),
       ...(diagramSettled.output.flowchart
@@ -166,7 +180,7 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
     lesson = applyDiagramsToLesson(lesson, { ...diagramSettled.output, diagrams });
     pushStage(stages, "diagram", invalid.length ? 75 : diagramSettled.confidence, valid.length > 0);
   }
-  if (visualSettled) {
+  if (visualSettled?.output != null) {
     const visuals = Array.isArray(visualSettled.output)
       ? visualSettled.output
       : (visualSettled.output as { visuals?: ArchitectLessonBlueprint["visualContent"] }).visuals ?? visualSettled.output;
@@ -175,9 +189,9 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
   }
   lesson = {
     ...lesson,
-    videos: rankYouTubeCandidates(videoSettled.output, lesson.title, lesson.objectives),
+    videos: rankYouTubeCandidates(videoSettled?.output ?? [], lesson.title, lesson.objectives),
   };
-  pushStage(stages, "video-recommendation", videoSettled.confidence, videoSettled.success);
+  pushStage(stages, "video-recommendation", videoSettled?.confidence ?? 0, videoSettled?.success ?? false);
 
   // Parallel: Research + Reference + Glossary
   const [researchSettled, glossarySettled, refSettled] = await Promise.all([
@@ -187,20 +201,22 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
       ? runReferenceAgent(pipelineCtx, plan, lesson)
       : Promise.resolve(null),
   ]);
-  lesson = { ...lesson, researchPapers: researchSettled.output };
-  pushStage(stages, "research-paper", researchSettled.confidence, researchSettled.success);
+  lesson = { ...lesson, researchPapers: researchSettled?.output ?? lesson.researchPapers };
+  pushStage(stages, "research-paper", researchSettled?.confidence ?? 0, researchSettled?.success ?? false);
   lesson = {
     ...lesson,
-    glossary: glossarySettled.output.map((t) => ({
-      term: t.term,
-      definition: t.definition,
-      category: t.category,
-      relatedTerms: t.relatedTerms,
-      difficulty: t.difficulty,
-    })),
+    glossary: Array.isArray(glossarySettled?.output)
+      ? glossarySettled.output.map((t) => ({
+          term: t.term,
+          definition: t.definition,
+          category: t.category,
+          relatedTerms: t.relatedTerms,
+          difficulty: t.difficulty,
+        }))
+      : lesson.glossary,
   };
-  pushStage(stages, "glossary", glossarySettled.confidence, glossarySettled.success);
-  if (refSettled) {
+  pushStage(stages, "glossary", glossarySettled?.confidence ?? 0, glossarySettled?.success ?? false);
+  if (refSettled?.output) {
     lesson = { ...lesson, lessonReferences: refSettled.output };
     pushStage(stages, "reference", refSettled.confidence, refSettled.success);
   }
@@ -307,10 +323,19 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
     attempt++;
     const failed = detectFailedComponents(qualityReport, pipelineCtx.interview);
     const retryHint = qualityReport.suggestions.join("; ") || "Improve depth and remove placeholders";
-    lesson = await regenerateFailedComponents(pipelineCtx, plan, lesson, failed.length ? failed : ["theory"], retryHint);
+    lesson = ensureLessonContent(
+      await regenerateFailedComponents(pipelineCtx, plan, lesson, failed.length ? failed : ["theory"], retryHint),
+      pipelineCtx.skeleton,
+      { mod: pipelineCtx.mod, interview: pipelineCtx.interview, stage: "self-heal" }
+    );
     qualityReport = reviewLessonContent(lesson, pipelineCtx.interview);
   }
 
+  lesson = ensureLessonContent(lesson, pipelineCtx.skeleton, {
+    mod: pipelineCtx.mod,
+    interview: pipelineCtx.interview,
+    stage: "lesson-finalize",
+  });
   lesson.contentStatus = qualityReport.passed ? "validated" : "generated";
   lesson.learningAnalytics = computeLessonAnalytics(lesson, pipelineCtx.interview);
   lesson.qualityDimensions = computeLessonQualityDimensions(lesson, pipelineCtx.interview);
@@ -325,6 +350,13 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
     totalLessons,
     retrievalBundle.overallConfidence
   );
+
+  // Final canonical contract before returning to content pipeline / LaTeX / publish
+  lesson = ensureLessonContent(lesson, pipelineCtx.skeleton, {
+    mod: pipelineCtx.mod,
+    interview: pipelineCtx.interview,
+    stage: "lesson-pipeline-exit",
+  });
 
   return {
     lesson,
@@ -370,7 +402,31 @@ export async function runContentPipeline(input: ContentPipelineInput): Promise<C
 
   await runWithConcurrency(tasks, LESSON_CONCURRENCY, async ({ modIndex, lessonIndex }) => {
     const mod = blueprint.modules[modIndex];
-    const skeleton = mod.lessons[lessonIndex];
+    if (!mod?.lessons?.[lessonIndex]) {
+      console.error(`[LESSON_GENERATE] missing skeleton modIndex=${modIndex} lessonIndex=${lessonIndex}`);
+      throw new Error(
+        `Blueprint validation failed: modules[${modIndex}].lessons[${lessonIndex}] — lesson skeleton is missing`
+      );
+    }
+    const skeleton = ensureLessonContent(mod.lessons[lessonIndex], mod.lessons[lessonIndex], {
+      mod,
+      interview: input.interview,
+      stage: "content-pipeline-skeleton",
+    });
+    // Idempotency: do not regenerate lessons that already have substantive content
+    if (
+      skeleton.contentStatus === "validated" &&
+      typeof skeleton.theory === "string" &&
+      skeleton.theory.trim().length >= 120
+    ) {
+      done++;
+      input.onProgress?.(
+        `Skipping completed lesson ${skeleton.title} (${done}/${total})`,
+        Math.round((done / total) * 85)
+      );
+      return;
+    }
+
     input.onProgress?.(
       `Module ${modIndex + 1}/${blueprint.modules.length}: ${skeleton.title} (${done}/${total})`,
       Math.round((done / total) * 85)
@@ -388,7 +444,11 @@ export async function runContentPipeline(input: ContentPipelineInput): Promise<C
     };
 
     const result = await runLessonPipeline(ctx);
-    blueprint.modules[modIndex].lessons[lessonIndex] = result.lesson;
+    blueprint.modules[modIndex].lessons[lessonIndex] = ensureLessonContent(
+      result.lesson,
+      skeleton,
+      { mod, interview: input.interview, stage: "content-pipeline-save" }
+    );
 
     for (const s of result.stages) {
       manifest.contentStages.push({ ...s, lessonId: skeleton.id });

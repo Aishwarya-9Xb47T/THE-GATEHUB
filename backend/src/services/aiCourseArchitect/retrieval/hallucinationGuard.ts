@@ -40,9 +40,10 @@ export function checkFactualClaim(claim: string, bundle?: LessonRetrievalBundle)
 }
 
 export function auditLessonFacts(
-  lesson: { theory?: string; summary?: string; codeExample?: string },
+  lesson: { theory?: string; summary?: string; codeExample?: string } | null | undefined,
   bundle?: LessonRetrievalBundle
 ): FactCheck[] {
+  if (!lesson || typeof lesson !== "object") return [];
   const sentences = `${lesson.theory ?? ""} ${lesson.summary ?? ""}`
     .split(/[.!?]\s+/)
     .map((s) => s.trim())
