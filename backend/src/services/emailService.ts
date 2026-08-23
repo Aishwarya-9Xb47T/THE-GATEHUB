@@ -74,7 +74,9 @@ async function resolveMailConfig() {
 async function getTransporter() {
   const cfg = await resolveMailConfig();
   if (!cfg.user || !cfg.pass) {
-    throw new Error("Email is not configured. Set SMTP_* or EMAIL_USER/EMAIL_PASS.");
+    throw new Error(
+      "Email is not configured. Please configure SMTP settings in Admin Settings or set EMAIL_USER/EMAIL_PASS (or SMTP_USER/SMTP_PASSWORD) in environment variables."
+    );
   }
 
   const key = `${cfg.host}|${cfg.port}|${cfg.user}`;
@@ -86,10 +88,16 @@ async function getTransporter() {
         port: cfg.port,
         secure: cfg.port === 465,
         auth: { user: cfg.user, pass: cfg.pass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       })
     : nodemailer.createTransport({
         service: "gmail",
         auth: { user: cfg.user, pass: cfg.pass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
 
   cachedTransporter = transporter;
@@ -106,7 +114,6 @@ async function sendMail(payload: MailPayload) {
     html: payload.html,
     text: payload.text,
   });
-  // Intentionally do not log recipient content, tokens, or full message info.
   console.log("[EMAIL] Sent:", payload.subject, "→", payload.to.replace(/(^.).*(@.*)$/, "$1***$2"));
 }
 

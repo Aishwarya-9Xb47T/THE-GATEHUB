@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { pickCourseBannerSrc, placeholderHueFromSeed } from "@/lib/courseBanner";
+import { resolveCourseBannerUrl, pickCourseBannerSrc, placeholderHueFromSeed } from "@/lib/courseBanner";
 
 export interface CourseCardBannerProps {
   src?: string | null;
@@ -47,16 +47,27 @@ export function CourseCardBanner({
   zoomOnHover = false,
   children,
 }: CourseCardBannerProps) {
-  const [failed, setFailed] = useState(false);
-
-  const resolvedSrc = pickCourseBannerSrc({
-    bannerUrl: bannerUrl ?? src,
+  const candidates = [
+    bannerUrl ?? src,
     thumbnailUrl,
-    thumbnail: src,
-  });
+    thumbnailUrl !== src ? src : null,
+  ]
+    .map((c) => (c ? resolveCourseBannerUrl(c) : null))
+    .filter((c): c is string => Boolean(c));
 
-  const showImage = Boolean(resolvedSrc) && !failed;
+  const [candidateIndex, setCandidateIndex] = useState(0);
+
+  const currentSrc = candidates[candidateIndex] || null;
+  const showImage = Boolean(currentSrc);
   const seed = placeholderSeed || alt || "course";
+
+  const handleImageError = () => {
+    if (candidateIndex + 1 < candidates.length) {
+      setCandidateIndex((prev) => prev + 1);
+    } else {
+      setCandidateIndex(candidates.length);
+    }
+  };
 
   return (
     <div
@@ -64,12 +75,13 @@ export function CourseCardBanner({
     >
       {showImage ? (
         <img
-          src={resolvedSrc!}
+          key={currentSrc!}
+          src={currentSrc!}
           alt={alt}
           className={cn("course-card__image", imageClassName)}
           loading="lazy"
           decoding="async"
-          onError={() => setFailed(true)}
+          onError={handleImageError}
         />
       ) : (
         <CourseCardBannerPlaceholder seed={seed} />

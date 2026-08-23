@@ -95,6 +95,8 @@ export function isPublicUploadPath(relativePath: string): boolean {
     normalized === "public" ||
     normalized.startsWith("banners/") ||
     normalized === "banners" ||
+    normalized.startsWith("images/") ||
+    normalized === "images" ||
     normalized.startsWith("learning-universes/") ||
     normalized === "learning-universes" ||
     normalized.startsWith("resources/") ||

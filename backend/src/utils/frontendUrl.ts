@@ -8,25 +8,20 @@ export function getFrontendUrl(): string {
     process.env.CLIENT_URL?.trim() ||
     "";
 
+  if (raw && !/localhost|127\.0\.0\.1/i.test(raw)) {
+    return raw.replace(/\/+$/, "");
+  }
+
   if (process.env.NODE_ENV === "production") {
-    if (!raw || /localhost|127\.0\.0\.1/i.test(raw)) {
-      throw new Error(
-        "FRONTEND_URL (or CLIENT_URL) must be set to the production GateHub domain when NODE_ENV=production"
-      );
-    }
+    if (raw) return raw.replace(/\/+$/, "");
+    return "https://gatehub-frontend.onrender.com";
   }
 
   if (!raw) return "http://localhost:5173";
-  return raw.replace(/\/$/, "");
+  return raw.replace(/\/+$/, "");
 }
 
 export function getClientUrlSafe(): string {
-  try {
-    return getFrontendUrl();
-  } catch {
-    return (process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:5173").replace(
-      /\/$/,
-      ""
-    );
-  }
+  return getFrontendUrl();
 }
+

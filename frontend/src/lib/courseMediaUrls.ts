@@ -93,7 +93,7 @@ export function withUploadAuth(url: string): string {
       /\/api\/classroom-studio\/presentations\/[^/]+\/assets\//i.test(absolute.pathname) ||
       /\/api\/learning-universes\/[^/]+\/assets\//i.test(absolute.pathname) ||
       (absolute.pathname.startsWith("/uploads/") &&
-        !/^\/uploads\/(learning-universes|banners|public|resources|music)\//i.test(
+        !/^\/uploads\/(learning-universes|banners|images|public|resources|music)\//i.test(
           absolute.pathname
         ));
     if (!needsAuth) return url;
@@ -114,7 +114,7 @@ export function withUploadAuth(url: string): string {
  */
 export function rewritePersistedMediaHost(url: string): string {
   if (!url?.trim()) return url;
-  url = url.replace(/[\r\n]+/g, "").trim();
+  url = url.replace(/[\r\n]+/g, "").trim().replace(/\\/g, "/");
   if (/^(data:|blob:)/i.test(url)) return url;
   try {
     if (!/^https?:\/\//i.test(url)) return url;
@@ -145,7 +145,7 @@ export function rewritePersistedMediaHost(url: string): string {
 
 export function resolveCourseMediaUrl(src?: string | null): string | null {
   if (!src?.trim()) return null;
-  const trimmed = rewritePersistedMediaHost(src.trim());
+  let trimmed = rewritePersistedMediaHost(src.trim().replace(/\\/g, "/"));
 
   if (/^https?:\/\//i.test(trimmed)) {
     try {
@@ -161,13 +161,26 @@ export function resolveCourseMediaUrl(src?: string | null): string | null {
   }
 
   if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return trimmed;
-  if (trimmed.startsWith("//")) return `${window.location.protocol}${trimmed}`;
+  if (trimmed.startsWith("//")) {
+    const proto = typeof window !== "undefined" ? window.location.protocol : "https:";
+    return `${proto}${trimmed}`;
+  }
+
+  // Normalize path prefixes safely without double-encoding or double-prefixing
+  if (trimmed.startsWith("uploads/")) {
+    trimmed = `/${trimmed}`;
+  } else if (!trimmed.startsWith("/") && !trimmed.startsWith("api/")) {
+    trimmed = `/uploads/${trimmed}`;
+  } else if (trimmed.startsWith("api/")) {
+    trimmed = `/${trimmed}`;
+  }
+
   if (trimmed.startsWith("/")) {
     const resolved = trimmed.startsWith("/api/") ? apiUrl(trimmed) : `${getBackendOrigin()}${trimmed}`;
     return withUploadAuth(resolved);
   }
 
-  return withUploadAuth(`${getBackendOrigin()}/uploads/${encodeURIComponent(trimmed)}`);
+  return withUploadAuth(`${getBackendOrigin()}/${trimmed}`);
 }
 
 export function resolveLectureVideoUrl(

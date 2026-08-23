@@ -508,21 +508,27 @@ export function AICourseArchitectPage() {
     });
   };
 
+  const uploadSingleVideoFile = async (file: File): Promise<VideoMapping> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await apiFormData<{ url: string }>("/upload", fd);
+    if (res.error || !res.data?.url) throw new Error(res.error || `Upload failed for ${file.name}`);
+    const rawUrl = res.data.url;
+    const cleanFile = rawUrl.replace(/^.*\/uploads\//, "").replace(/^uploads\//, "");
+    return {
+      type: "upload",
+      file: cleanFile,
+      url: rawUrl.startsWith("/") ? rawUrl : `/uploads/${cleanFile}`,
+      title: file.name.replace(/\.[^.]+$/, ""),
+      mimeType: file.type || "video/mp4",
+      size: file.size,
+    };
+  };
+
   const handleVideoUpload = async (file: File) => {
     setUploadingVideo(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await apiFormData<{ url: string }>("/upload", fd);
-      if (res.error || !res.data?.url) throw new Error(res.error || "Upload failed");
-      const mapping: VideoMapping = {
-        type: "upload",
-        file: res.data.url.replace(/^.*\/uploads\//, ""),
-        url: res.data.url,
-        title: file.name.replace(/\.[^.]+$/, ""),
-        mimeType: file.type,
-        size: file.size,
-      };
+      const mapping = await uploadSingleVideoFile(file);
       setInterview((prev) => ({
         ...prev,
         learningComponents: prev.learningComponents.includes("Video Lessons")
@@ -531,13 +537,16 @@ export function AICourseArchitectPage() {
         videoStrategy: {
           ...prev.videoStrategy,
           includeVideos: true,
-          method: prev.videoStrategy.method === "add-later" || prev.videoStrategy.method === "youtube-urls"
-            ? "local-uploads"
-            : prev.videoStrategy.method === "local-uploads" ? "local-uploads" : "both",
+          method:
+            prev.videoStrategy.method === "add-later" || prev.videoStrategy.method === "youtube-urls"
+              ? "local-uploads"
+              : prev.videoStrategy.method === "local-uploads"
+                ? "local-uploads"
+                : "both",
           mappings: [...prev.videoStrategy.mappings, { ...mapping, order: prev.videoStrategy.mappings.length }],
         },
       }));
-      toast({ title: "Video uploaded", variant: "success" });
+      toast({ title: "Video uploaded", description: mapping.title, variant: "success" });
     } catch (e: any) {
       toast({ title: "Upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
@@ -547,9 +556,58 @@ export function AICourseArchitectPage() {
 
   const handleVideoUploadMultiple = async (fileList: FileList | null) => {
     if (!fileList?.length) return;
-    for (const file of Array.from(fileList)) {
-      await handleVideoUpload(file);
+    const files = Array.from(fileList);
+    setUploadingVideo(true);
+    const uploadedMappings: VideoMapping[] = [];
+    const failedFiles: string[] = [];
+
+    for (const file of files) {
+      try {
+        const mapping = await uploadSingleVideoFile(file);
+        uploadedMappings.push(mapping);
+      } catch (err: any) {
+        failedFiles.push(file.name);
+      }
     }
+
+    if (uploadedMappings.length > 0) {
+      setInterview((prev) => {
+        const currentCount = prev.videoStrategy.mappings.length;
+        const newMappings = uploadedMappings.map((m, idx) => ({ ...m, order: currentCount + idx }));
+        return {
+          ...prev,
+          learningComponents: prev.learningComponents.includes("Video Lessons")
+            ? prev.learningComponents
+            : [...prev.learningComponents, "Video Lessons"],
+          videoStrategy: {
+            ...prev.videoStrategy,
+            includeVideos: true,
+            method:
+              prev.videoStrategy.method === "add-later" || prev.videoStrategy.method === "youtube-urls"
+                ? "local-uploads"
+                : prev.videoStrategy.method === "local-uploads"
+                  ? "local-uploads"
+                  : "both",
+            mappings: [...prev.videoStrategy.mappings, ...newMappings],
+          },
+        };
+      });
+
+      toast({
+        title: `${uploadedMappings.length} video${uploadedMappings.length > 1 ? "s" : ""} uploaded`,
+        variant: "success",
+      });
+    }
+
+    if (failedFiles.length > 0) {
+      toast({
+        title: "Some uploads failed",
+        description: `Failed to upload: ${failedFiles.join(", ")}`,
+        variant: "destructive",
+      });
+    }
+
+    setUploadingVideo(false);
   };
 
   const handleGenerate = async () => {
