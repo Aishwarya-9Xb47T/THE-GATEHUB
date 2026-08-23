@@ -17,6 +17,8 @@ export interface BannerSelection {
   bannerId?: string;
   selectedTemplateId?: string;
   selectedSourceId?: string;
+  sourceUrl?: string;
+  provider?: string;
 }
 
 interface BannerStudioProps {
@@ -26,6 +28,8 @@ interface BannerStudioProps {
   bannerId?: string;
   selectedTemplateId?: string;
   selectedSourceId?: string;
+  sourceUrl?: string;
+  provider?: string;
   onChange: (selection: BannerSelection) => void;
   title?: string;
   subtitle?: string;
@@ -42,6 +46,8 @@ export function BannerStudio({
   bannerId,
   selectedTemplateId,
   selectedSourceId,
+  sourceUrl,
+  provider,
   onChange,
   title,
   subtitle,
@@ -66,7 +72,7 @@ export function BannerStudio({
     url: string,
     thumb: string,
     type: BannerType,
-    meta?: { bannerId?: string; templateId?: string; sourceId?: string }
+    meta?: { bannerId?: string; templateId?: string; sourceId?: string; sourceUrl?: string; provider?: string }
   ) => {
     onChange({
       bannerUrl: url,
@@ -75,6 +81,8 @@ export function BannerStudio({
       bannerId: meta?.bannerId,
       selectedTemplateId: meta?.templateId,
       selectedSourceId: meta?.sourceId,
+      sourceUrl: meta?.sourceUrl,
+      provider: meta?.provider,
     });
   };
 
@@ -87,6 +95,8 @@ export function BannerStudio({
       bannerId,
       selectedTemplateId,
       selectedSourceId,
+      sourceUrl,
+      provider,
     });
   };
 

@@ -141,6 +141,11 @@ export async function importBanner(req: AuthRequest, res: Response) {
   const { url, source, category } = importSchema.parse(req.body);
   try {
     const stored = await importBannerFromUrl(url, { source: source || "import", category });
+    console.info("[BANNER IMPORT]", {
+      source: source || "import",
+      persistent: stored.bannerUrl.startsWith("/uploads"),
+      hasBannerId: Boolean(stored.bannerId),
+    });
     res.json({ success: true, data: { ...formatBannerResponse(stored), bannerType: source || "search" } });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to import image";

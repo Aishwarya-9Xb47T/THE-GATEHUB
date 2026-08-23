@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, Loader2, RefreshCw, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { importBanner, preloadBannerImage, resolveBannerSrc, searchBanners, getBannerConfig } from "@/lib/courseBranding/bannerApi";
+import { importBanner, preloadBannerImage, resolveBannerSrc, searchBanners, getBannerConfig, bannerUrlHost } from "@/lib/courseBranding/bannerApi";
 import { suggestBannerKeywords } from "@/lib/courseBranding/suggestKeywords";
 import { SUGGESTED_SEARCHES } from "@/lib/courseBranding/types";
 import { BannerImage, BannerSkeletonGrid } from "./BannerImage";
@@ -13,7 +13,11 @@ interface BannerSearchTabProps {
   categoryName?: string;
   selectedUrl?: string;
   selectedSourceId?: string;
-  onSelect: (bannerUrl: string, thumbnailUrl: string, meta?: { bannerId?: string; sourceId?: string }) => void;
+  onSelect: (
+    bannerUrl: string,
+    thumbnailUrl: string,
+    meta?: { bannerId?: string; sourceId?: string; sourceUrl?: string; provider?: string }
+  ) => void;
 }
 
 export function BannerSearchTab({
@@ -114,21 +118,44 @@ export function BannerSearchTab({
     return () => observer.disconnect();
   }, [hasMore, loading, loadingMore, page, runSearch]);
 
-  const selectImage = async (imageUrl: string, sourceId: string) => {
+  const selectImage = async (imageUrl: string, thumbUrl: string, sourceId: string, provider?: string) => {
+    const previewThumb = thumbUrl || imageUrl;
+    console.info("[BANNER_SELECT] click", {
+      sourceId,
+      host: bannerUrlHost(imageUrl),
+      hasUrl: Boolean(imageUrl),
+    });
+    // Show the working search result immediately. Import to persistent storage is async.
+    onSelect(imageUrl, previewThumb, { sourceId, sourceUrl: imageUrl, provider });
     setImporting(sourceId);
     setError(null);
     const res = await importBanner(imageUrl, "search");
     setImporting(null);
     if (res.error) {
-      setError(res.error);
+      console.warn("[BANNER_SELECT] import_failed_keep_preview", {
+        sourceId,
+        host: bannerUrlHost(imageUrl),
+        error: res.error,
+      });
+      setError(
+        `${res.error} The selected image is still used for preview and will be stored when the course is created.`
+      );
       return;
     }
     const data = res.data?.data;
     if (data?.bannerUrl) {
       preloadBannerImage(data.bannerUrl);
-      onSelect(data.bannerUrl, data.thumbnailUrl || data.bannerUrl, {
+      console.info("[BANNER_SELECT] imported", {
+        sourceId,
+        persistent: data.bannerUrl.startsWith("/uploads"),
+        host: bannerUrlHost(data.bannerUrl),
+        hasBannerId: Boolean(data.bannerId),
+      });
+      onSelect(data.bannerUrl, previewThumb || data.thumbnailUrl || data.bannerUrl, {
         bannerId: data.bannerId,
         sourceId,
+        sourceUrl: imageUrl,
+        provider,
       });
     }
   };
@@ -209,7 +236,7 @@ export function BannerSearchTab({
                 key={item.id}
                 type="button"
                 disabled={!!importing}
-                onClick={() => selectImage(item.url, item.id)}
+                onClick={() => selectImage(item.url, item.thumbnailUrl, item.id, item.source)}
                 className={cn(
                   "relative rounded-lg overflow-hidden border-2 aspect-video group text-left transition-all duration-200",
                   selected

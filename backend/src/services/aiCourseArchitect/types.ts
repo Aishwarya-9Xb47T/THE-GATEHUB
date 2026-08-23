@@ -154,6 +154,9 @@ export interface BannerConfig {
   bannerType: string;
   bannerId?: string;
   colorTheme?: string;
+  sourceId?: string;
+  sourceUrl?: string;
+  provider?: string;
 }
 
 export interface CourseScaleConfig {

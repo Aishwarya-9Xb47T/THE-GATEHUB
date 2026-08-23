@@ -227,6 +227,21 @@ export function AICourseArchitectPage() {
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [bannerType, setBannerType] = useState<BannerType>("upload");
   const [bannerId, setBannerId] = useState<string | undefined>(undefined);
+  const [bannerSourceId, setBannerSourceId] = useState<string | undefined>(undefined);
+  const [bannerSourceUrl, setBannerSourceUrl] = useState<string | undefined>(undefined);
+  const [bannerProvider, setBannerProvider] = useState<string | undefined>(undefined);
+
+  const architectBanner = bannerUrl
+    ? {
+        bannerUrl,
+        thumbnailUrl: thumbnailUrl || bannerUrl,
+        bannerType,
+        bannerId,
+        sourceId: bannerSourceId,
+        sourceUrl: bannerSourceUrl,
+        provider: bannerProvider || (bannerType === "search" ? "pexels" : bannerType),
+      }
+    : undefined;
 
   useEffect(() => {
     api<{ categories: typeof categories }>("/categories").then((res) => {
@@ -372,10 +387,14 @@ export function AICourseArchitectPage() {
     const payload = {
       ...activeInterview,
       productType,
-      banner: bannerUrl
-        ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType, bannerId }
-        : undefined,
+      banner: architectBanner,
     };
+    console.info("[AI Architect] blueprint request", {
+      hasBanner: Boolean(architectBanner?.bannerUrl),
+      bannerType: architectBanner?.bannerType || null,
+      hasSourceUrl: Boolean(architectBanner?.sourceUrl),
+      hasBannerId: Boolean(architectBanner?.bannerId),
+    });
     try {
       const res = await api<{
         data: {
@@ -399,7 +418,7 @@ export function AICourseArchitectPage() {
     } finally {
       setLoadingBlueprint(false);
     }
-  }, [applyPendingYouTubeDraft, bannerUrl, thumbnailUrl, bannerType, bannerId, toast, productType]);
+  }, [applyPendingYouTubeDraft, architectBanner, toast, productType]);
 
   const handleNext = async () => {
     if (!validateStep()) return;
@@ -407,9 +426,7 @@ export function AICourseArchitectPage() {
       applyPendingYouTubeDraft();
       setInterview((prev) => ({
         ...prev,
-        banner: bannerUrl
-          ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType, bannerId }
-          : undefined,
+        banner: architectBanner,
       }));
       setStep(9);
       await fetchBlueprint();
@@ -643,10 +660,15 @@ export function AICourseArchitectPage() {
     const payload = {
       ...activeInterview,
       productType,
-      banner: bannerUrl
-        ? { bannerUrl, thumbnailUrl: thumbnailUrl || bannerUrl, bannerType, bannerId }
-        : undefined,
+      banner: architectBanner,
     };
+
+    console.info("[AI Architect] generate request", {
+      hasBanner: Boolean(architectBanner?.bannerUrl),
+      bannerType: architectBanner?.bannerType || null,
+      hasSourceUrl: Boolean(architectBanner?.sourceUrl),
+      hasBannerId: Boolean(architectBanner?.bannerId),
+    });
 
     try {
       const res = await api<{
@@ -1499,11 +1521,18 @@ export function AICourseArchitectPage() {
                   bannerUrl={bannerUrl}
                   thumbnailUrl={thumbnailUrl || bannerUrl}
                   bannerType={bannerType}
+                  bannerId={bannerId}
+                  selectedSourceId={bannerSourceId}
+                  sourceUrl={bannerSourceUrl}
+                  provider={bannerProvider}
                   onChange={(sel) => {
                     setBannerUrl(sel.bannerUrl);
                     setThumbnailUrl(sel.thumbnailUrl);
                     setBannerType(sel.bannerType);
                     setBannerId(sel.bannerId);
+                    setBannerSourceId(sel.selectedSourceId);
+                    setBannerSourceUrl(sel.sourceUrl);
+                    setBannerProvider(sel.provider);
                   }}
                   title={interview.courseInfo.title}
                   subtitle={interview.courseInfo.subtitle}

@@ -14,10 +14,19 @@ export function hasOpenAiKey(): boolean {
 }
 
 export function hasArchitectAiProvider(): boolean {
-  return Boolean(
-    process.env.OPENAI_API_KEY?.trim() ||
-      process.env.ANTHROPIC_API_KEY?.trim() ||
-      process.env.GOOGLE_AI_API_KEY?.trim() ||
-      process.env.GEMINI_API_KEY?.trim()
+  return architectAiProviderStatus().configured;
+}
+
+export function architectAiProviderStatus(): {
+  openai: boolean;
+  anthropic: boolean;
+  gemini: boolean;
+  configured: boolean;
+} {
+  const openai = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const anthropic = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  const gemini = Boolean(
+    process.env.GOOGLE_AI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()
   );
+  return { openai, anthropic, gemini, configured: openai || anthropic || gemini };
 }

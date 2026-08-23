@@ -951,6 +951,7 @@ export async function createLearningUniverseDraft(userId: string, input: Learnin
       subtitle: input.subtitle,
       description: input.description || input.subtitle || "",
       thumbnail,
+      bannerUrl: input.bannerUrl || thumbnail,
       categoryId: input.categoryId,
       difficulty: input.difficulty,
       price: input.price,

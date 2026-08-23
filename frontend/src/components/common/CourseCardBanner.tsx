@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { resolveCourseBannerUrl, pickCourseBannerSrc, placeholderHueFromSeed } from "@/lib/courseBanner";
+import { resolveCourseBannerUrl, placeholderHueFromSeed } from "@/lib/courseBanner";
 
 export interface CourseCardBannerProps {
   src?: string | null;
@@ -47,36 +47,49 @@ export function CourseCardBanner({
   zoomOnHover = false,
   children,
 }: CourseCardBannerProps) {
-  const candidates = [
-    bannerUrl ?? src,
-    thumbnailUrl,
-    thumbnailUrl !== src ? src : null,
-  ]
-    .map((c) => (c ? resolveCourseBannerUrl(c) : null))
-    .filter((c): c is string => Boolean(c));
+  const sourceKey = `${bannerUrl ?? ""}|${thumbnailUrl ?? ""}|${src ?? ""}`;
+  const candidates = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const candidate of [bannerUrl ?? src, thumbnailUrl, src]) {
+      if (!candidate) continue;
+      const resolved = resolveCourseBannerUrl(candidate);
+      if (resolved && !seen.has(resolved)) {
+        seen.add(resolved);
+        out.push(resolved);
+      }
+    }
+    return out;
+  }, [bannerUrl, thumbnailUrl, src]);
 
   const [candidateIndex, setCandidateIndex] = useState(0);
+  const [gaveUp, setGaveUp] = useState(false);
 
-  const currentSrc = candidates[candidateIndex] || null;
-  const showImage = Boolean(currentSrc);
+  useEffect(() => {
+    setCandidateIndex(0);
+    setGaveUp(false);
+  }, [sourceKey]);
+
+  const currentSrc = candidates[Math.min(candidateIndex, Math.max(0, candidates.length - 1))] || null;
   const seed = placeholderSeed || alt || "course";
 
   const handleImageError = () => {
+    if (gaveUp) return;
     if (candidateIndex + 1 < candidates.length) {
       setCandidateIndex((prev) => prev + 1);
-    } else {
-      setCandidateIndex(candidates.length);
+      return;
     }
+    setGaveUp(true);
   };
 
   return (
     <div
       className={cn("course-card__banner", zoomOnHover && "course-card__banner--zoom", className)}
     >
-      {showImage ? (
+      {currentSrc ? (
         <img
-          key={currentSrc!}
-          src={currentSrc!}
+          key={currentSrc}
+          src={currentSrc}
           alt={alt}
           className={cn("course-card__image", imageClassName)}
           loading="lazy"

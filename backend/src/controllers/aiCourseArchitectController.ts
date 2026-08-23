@@ -57,7 +57,8 @@ import {
   assertProductTypeMatch,
   readStructuredRecord,
 } from "../services/productRoutingService.js";
-import { hasArchitectAiProvider } from "../services/aiCourseArchitect/openaiClient.js";
+import { architectAiProviderStatus } from "../services/aiCourseArchitect/openaiClient.js";
+import { persistRemoteBannerIfNeeded } from "../services/bannerService.js";
 import { isMissingObjectError } from "../services/b2StorageService.js";
 
 /** Prevents concurrent duplicate generates for the same instructor. */
@@ -139,10 +140,12 @@ function friendlyArchitectError(err: unknown, stage = "generate"): AppError {
 }
 
 function assertArchitectAiConfigured(stage = "prepare"): void {
-  if (hasArchitectAiProvider()) return;
+  const status = architectAiProviderStatus();
+  console.info("[AI Architect] AI provider status", status);
+  if (status.configured) return;
   throw architectError(
     503,
-    "Research & Plan Curriculum requires OPENAI_API_KEY on the backend (Render → gatehub-backend Environment). This is a backend-only secret. Do not add it to the frontend or any VITE_* variable.",
+    "Research & Plan Curriculum requires a backend AI key. Set OPENAI_API_KEY on the Render gatehub-backend Environment (ANTHROPIC_API_KEY or GOOGLE_AI_API_KEY/GEMINI_API_KEY are also supported). This is a backend-only secret. Do not add it to the frontend or any VITE_* variable.",
     { code: "AI_PROVIDER_KEY", stage, retryable: false }
   );
 }
@@ -458,12 +461,21 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     console.warn(`[AI Architect] Draft generation continuing despite QA gate: ${qaWarning}`);
   }
 
-  const bannerUrl = interview.banner?.bannerUrl?.trim() || undefined;
-  const thumbnailUrl = interview.banner?.thumbnailUrl?.trim() || bannerUrl;
+  const persisted = await persistRemoteBannerIfNeeded({
+    bannerUrl: interview.banner?.bannerUrl,
+    thumbnailUrl: interview.banner?.thumbnailUrl,
+    sourceUrl: interview.banner?.sourceUrl,
+    bannerType: interview.banner?.bannerType,
+  });
+  const bannerUrl = persisted.bannerUrl?.trim() || undefined;
+  const thumbnailUrl = persisted.thumbnailUrl?.trim() || bannerUrl;
   console.info("[AI Architect] generate banner", {
     hasBanner: Boolean(bannerUrl),
+    storedPath: Boolean(bannerUrl && /\/uploads\/banners\//i.test(bannerUrl)),
     bannerType: interview.banner?.bannerType || null,
     bannerId: interview.banner?.bannerId || null,
+    hasSourceUrl: Boolean(interview.banner?.sourceUrl),
+    provider: interview.banner?.provider || null,
   });
 
   stage = "create-draft";

@@ -34,7 +34,7 @@ export function BannerLivePreviews({
   }
 
   return (
-    <BannerErrorBoundary>
+    <BannerErrorBoundary key={bannerUrl || "empty"}>
       <div className="space-y-4 sticky top-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-primary uppercase tracking-wider">Live Preview</p>
@@ -44,6 +44,7 @@ export function BannerLivePreviews({
         <PreviewPanel icon={LayoutGrid} label="Course Card">
           <div className="rounded-lg overflow-hidden border border-border bg-card max-w-[240px] shadow-md transition-transform hover:scale-[1.02] duration-200">
             <CourseCardBanner
+              key={src}
               bannerUrl={bannerUrl}
               thumbnailUrl={thumbnailUrl}
               alt={title}
@@ -64,6 +65,7 @@ export function BannerLivePreviews({
         <PreviewPanel icon={GraduationCap} label="Student Dashboard">
           <div className="rounded-lg border border-border bg-card p-2.5 flex gap-2.5 items-center shadow-sm transition-transform hover:scale-[1.01] duration-200">
             <CourseBannerThumb
+              key={`thumb-${src}`}
               bannerUrl={bannerUrl}
               thumbnailUrl={thumbnailUrl}
               alt={title}
@@ -82,7 +84,7 @@ export function BannerLivePreviews({
         <PreviewPanel icon={Route} label="Learning Path">
           <div className="rounded-xl overflow-hidden border border-border bg-gradient-to-br from-card to-muted/40 shadow-sm">
             <div className="aspect-[21/9] relative">
-              <BannerImage src={src} alt="" className="w-full h-full object-cover opacity-90" />
+              <BannerImage src={src} fallbackSrc={thumb} alt="" className="w-full h-full object-cover opacity-90" />
               <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/50 to-transparent" />
               <div className="absolute inset-y-0 left-0 flex flex-col justify-center p-4 max-w-[75%]">
                 <p className="text-[10px] text-primary font-bold uppercase tracking-widest">{categoryName}</p>
@@ -101,7 +103,7 @@ export function BannerLivePreviews({
         <PreviewPanel icon={Globe} label="Landing Page">
           <div className="rounded-lg overflow-hidden border border-border bg-card shadow-md transition-transform hover:scale-[1.01] duration-200">
             <div className="aspect-[16/9] relative">
-              <BannerImage src={src} alt="" className="w-full h-full object-cover" />
+              <BannerImage src={src} fallbackSrc={thumb} alt="" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-3">
                 <p className="text-[10px] font-bold text-primary uppercase tracking-wider">{categoryName}</p>
@@ -118,7 +120,7 @@ export function BannerLivePreviews({
               <div className="w-8 h-1 rounded-full bg-border" />
             </div>
             <div className="aspect-[9/14] relative">
-              <BannerImage src={thumb} alt="" className="w-full h-24 object-cover" />
+              <BannerImage src={thumb} fallbackSrc={src} alt="" className="w-full h-24 object-cover" />
               <div className="p-2 space-y-1">
                 <p className="text-[8px] font-bold text-primary uppercase">{categoryName}</p>
                 <p className="text-[10px] font-bold line-clamp-2 leading-tight">{title || "Course"}</p>

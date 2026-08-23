@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { isFirebaseConfigured, uploadBannerToFirebase, type BannerStorageRecord } from "./firebaseStorageService.js";
 import { isB2Configured } from "./b2StorageService.js";
 import { persistGeneratedFile } from "../middlewares/persistUpload.js";
+import { isStoredBannerPath } from "./bannerUrl.js";
 import {
   formatBannerProviderStartupLines,
   getBannerFallbackChain,
@@ -17,6 +18,7 @@ import {
   type BannerProviderMode,
 } from "./bannerProviderConfig.js";
 
+export { isStoredBannerPath } from "./bannerUrl.js";
 export { getSelectedBannerProvider, type BannerProviderMode };
 
 const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
@@ -491,6 +493,68 @@ export async function importBannerFromUrl(
 ): Promise<StoredBanner> {
   const { buffer, ext } = await downloadImageBuffer(imageUrl);
   return persistBanner(buffer, { source: meta?.source || "import", category: meta?.category, ext });
+}
+
+function bannerLogHost(url: string): string {
+  if (!url) return "empty";
+  if (/^(blob:|data:)/i.test(url)) return url.slice(0, 4);
+  if (url.startsWith("/uploads/")) return "uploads";
+  try {
+    if (/^https?:\/\//i.test(url)) return new URL(url).hostname;
+  } catch {
+    /* ignore */
+  }
+  return "relative";
+}
+
+/** Persist a selected search/upload banner into B2 `/uploads/banners` when the URL is still remote. */
+export async function persistRemoteBannerIfNeeded(input: {
+  bannerUrl?: string;
+  thumbnailUrl?: string;
+  sourceUrl?: string;
+  bannerType?: string;
+}): Promise<{ bannerUrl?: string; thumbnailUrl?: string }> {
+  const primary = input.bannerUrl?.trim() || undefined;
+  const thumb = input.thumbnailUrl?.trim() || primary;
+  const source = input.sourceUrl?.trim() || undefined;
+
+  if (primary && /^(blob:|data:)/i.test(primary)) {
+    console.warn("[BANNER PERSIST] rejected ephemeral URL", { host: bannerLogHost(primary) });
+    const fallback = source && !/^(blob:|data:)/i.test(source) ? source : undefined;
+    if (!fallback) return { bannerUrl: undefined, thumbnailUrl: undefined };
+    return persistRemoteBannerIfNeeded({ ...input, bannerUrl: fallback, sourceUrl: undefined });
+  }
+
+  if (primary && isStoredBannerPath(primary)) {
+    return { bannerUrl: primary, thumbnailUrl: thumb };
+  }
+
+  const remote =
+    (primary && /^https?:\/\//i.test(primary) ? primary : undefined) ||
+    (source && /^https?:\/\//i.test(source) ? source : undefined);
+
+  if (!remote) {
+    return { bannerUrl: primary, thumbnailUrl: thumb };
+  }
+
+  try {
+    const stored = await importBannerFromUrl(remote, { source: input.bannerType || "search" });
+    console.info("[BANNER PERSIST] imported remote image", {
+      host: bannerLogHost(remote),
+      persistent: isStoredBannerPath(stored.bannerUrl),
+      hasBannerId: Boolean(stored.bannerId),
+    });
+    return {
+      bannerUrl: stored.bannerUrl,
+      thumbnailUrl: thumb || stored.thumbnailUrl || stored.bannerUrl,
+    };
+  } catch (err) {
+    console.error("[BANNER PERSIST] import failed; keeping selected remote URL", {
+      host: bannerLogHost(remote),
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { bannerUrl: primary || remote, thumbnailUrl: thumb || remote };
+  }
 }
 
 function resolveTopicPrompt(topic: string, style: string): string {

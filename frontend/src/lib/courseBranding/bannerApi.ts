@@ -117,6 +117,19 @@ export async function uploadBannerFiles(banner: Blob, thumbnail?: Blob) {
   return apiFormData<{ success: boolean; data: BannerAsset & { bannerType: BannerType } }>("/banners/upload", form);
 }
 
+export function bannerUrlHost(url: string): string {
+  if (!url) return "empty";
+  if (url.startsWith("blob:")) return "blob";
+  if (url.startsWith("data:")) return "data";
+  if (url.startsWith("/uploads/")) return "uploads";
+  try {
+    if (/^https?:\/\//i.test(url)) return new URL(url).hostname;
+  } catch {
+    /* ignore */
+  }
+  return "relative";
+}
+
 export function resolveBannerSrc(url: string): string {
   if (!url) return "";
   if (url.startsWith("blob:")) return url;
