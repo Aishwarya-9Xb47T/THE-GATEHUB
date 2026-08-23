@@ -55,14 +55,16 @@ Return JSON:
       temperature: 0.5,
     });
     if (aiResearch) return normalizeResearch(aiResearch, interview);
+    console.warn("[CURRICULUM_RESEARCH] LLM returned empty response — using heuristic fallback");
   } catch (err) {
-    console.error("[Curriculum Research] LLM completion failed:", err);
-    throw err;
+    // FIXED: Do NOT re-throw. When the AI fails (429, 503, timeout, quota), fall through
+    // to the heuristic research builder below. Re-throwing previously made buildIntelligentResearch
+    // unreachable when a provider key existed but was over-quota or unavailable.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[CURRICULUM_RESEARCH] LLM completion failed (${msg}) — using heuristic fallback`);
   }
 
-  if (hasArchitectAiProvider()) {
-    throw new Error("Curriculum research AI returned no output. Check the configured backend AI key and retry.");
-  }
+  // Heuristic fallback: always reachable when LLM is absent OR fails
   return buildIntelligentResearch(interview, plan);
 }
 

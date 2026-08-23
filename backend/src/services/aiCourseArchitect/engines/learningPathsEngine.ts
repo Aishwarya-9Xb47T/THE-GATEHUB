@@ -22,7 +22,14 @@ export interface LearningPath {
 }
 
 export function detectLearningPaths(interview: AICourseArchitectInterview): LearningPathId[] {
-  const text = `${interview.learningStyle.join(" ")} ${interview.courseInfo.learningGoals.join(" ")} ${interview.assessmentStrategy}`.toLowerCase();
+  const styles = Array.isArray(interview.learningStyle)
+    ? interview.learningStyle.join(" ")
+    : String(interview.learningStyle ?? "");
+  const goals = Array.isArray(interview.courseInfo?.learningGoals)
+    ? interview.courseInfo.learningGoals.join(" ")
+    : String(interview.courseInfo?.learningGoals ?? "");
+  const assessment = String(interview.assessmentStrategy ?? "");
+  const text = `${styles} ${goals} ${assessment}`.toLowerCase();
   const paths: LearningPathId[] = ["standard"];
 
   if (/revision|review|recap|quick/i.test(text)) paths.push("quick-revision");

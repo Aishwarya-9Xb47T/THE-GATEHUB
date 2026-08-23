@@ -60,7 +60,7 @@ export function detectFailedComponents(
     if (check.id.includes("interview")) failed.push("interview");
   }
   if (
-    (hasLearningComponent(interview, "Quiz") || interview.lessonStructure.includes("mini-quiz")) &&
+    (hasLearningComponent(interview, "Quiz") || (interview.lessonStructure ?? []).includes("mini-quiz")) &&
     !failed.includes("quiz") &&
     qualityReport.checks.some((c) => c.id.includes("quiz") && c.status === "warn")
   ) {

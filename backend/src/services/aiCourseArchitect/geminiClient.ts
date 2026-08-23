@@ -6,17 +6,14 @@
 import { getGeminiApiKey } from "./openaiClient.js";
 
 /**
- * Current supported Gemini models (2026-08).
- * PRIMARY  : gemini-3.5-flash-lite  — fast, low-cost, free-tier JSON output
- * FALLBACK : gemini-3.5-flash       — used only if primary fails
- *
- * REMOVED (obsolete/unavailable):
- *   - gemini-flash-latest  : 503 high-demand, not reliable
- *   - gemini-2.5-flash-lite: 404 no longer available to new users (Google deprecated)
- *   - gemini-2.5-flash     : replaced by 3.5 generation
- *   - gemini-3.1-flash-lite: intermediate version, superseded
+ * Supported Gemini models with automatic fallback.
+ * Can be overridden via GEMINI_MODEL, AI_ARCHITECT_GEMINI_MODEL, or GOOGLE_GEMINI_MODEL.
  */
 export const GEMINI_FREE_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-2.5-pro",
   "gemini-3.5-flash-lite",
   "gemini-3.5-flash",
 ] as const;
@@ -52,7 +49,10 @@ export class GeminiRequestError extends Error {
 }
 
 export function architectGeminiModels(preferred?: string): string[] {
-  const envModel = process.env.AI_ARCHITECT_GEMINI_MODEL?.trim();
+  const envModel =
+    process.env.GEMINI_MODEL?.trim() ||
+    process.env.AI_ARCHITECT_GEMINI_MODEL?.trim() ||
+    process.env.GOOGLE_GEMINI_MODEL?.trim();
   const ordered = [preferred, envModel, ...GEMINI_FREE_MODELS].filter(
     (m): m is string => Boolean(m)
   );

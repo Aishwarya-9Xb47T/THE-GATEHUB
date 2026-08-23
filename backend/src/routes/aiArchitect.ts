@@ -12,6 +12,11 @@ import {
   architectValidateCurriculum,
   architectGetAgents,
   architectProviderHealth,
+  architectCreateJob,
+  architectGetJob,
+  architectGetActiveJob,
+  architectResumeJob,
+  architectCancelJob,
 } from "../controllers/aiCourseArchitectController.js";
 
 export const aiArchitectRouter = Router();
@@ -36,6 +41,42 @@ aiArchitectRouter.get(
   authenticate,
   requireRole("instructor", "admin" as Role),
   architectGetAgents
+);
+
+aiArchitectRouter.get(
+  "/jobs/active/me",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectGetActiveJob
+);
+
+aiArchitectRouter.get(
+  "/jobs/:jobId",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectGetJob
+);
+
+aiArchitectRouter.post(
+  "/jobs",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectHeavyLimiter,
+  architectCreateJob
+);
+
+aiArchitectRouter.post(
+  "/jobs/:jobId/resume",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectResumeJob
+);
+
+aiArchitectRouter.post(
+  "/jobs/:jobId/cancel",
+  authenticate,
+  requireRole("instructor", "admin" as Role),
+  architectCancelJob
 );
 
 aiArchitectRouter.post(
@@ -91,3 +132,4 @@ aiArchitectRouter.post(
   requireRole("instructor", "admin" as Role),
   architectBannerSuggestions
 );
+

@@ -78,20 +78,31 @@ async function executeCoursePlanner(
   const normalized = normalizeInterview(interview);
   const fallback = buildHeuristicCoursePlan(normalized);
   if (!hasArchitectAiProvider()) {
-    throw new Error("Course planner requires a configured backend AI provider");
+    // No provider configured at all — use heuristic immediately
+    console.info("[COURSE_PLANNER] No AI provider configured — using heuristic plan");
+    return fallback;
   }
 
-  const parsed = await architectCompletionJSON<CoursePlannerOutput>({
-    phase: "blueprint",
-    system: PROFESSOR_SYSTEM_PROMPT,
-    user: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
+  try {
+    const parsed = await architectCompletionJSON<CoursePlannerOutput>({
+      phase: "blueprint",
+      system: PROFESSOR_SYSTEM_PROMPT,
+      user: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
 ${buildInterviewContext(normalized)}
 ${ANTI_HALLUCINATION_RULES}
 Schema: executiveSummary, learningOutcomes[], careerOutcomes[], skillMap[], prerequisites[], industryApplications[], estimatedHours, recommendedLearningPath[], assessmentStrategy, projectStrategy, labStrategy, certificationGoals[], recommendedModuleCount, recommendedLessonCount`,
-    temperature: 0.45,
-  });
-  if (parsed) return { ...fallback, ...parsed };
-  throw new Error("Course planner AI returned no output. Check the configured backend AI key and retry.");
+      temperature: 0.45,
+    });
+    if (parsed) return { ...fallback, ...parsed };
+    console.warn("[COURSE_PLANNER] LLM returned empty — using heuristic plan");
+    return fallback;
+  } catch (err) {
+    // FIXED: Use heuristic fallback instead of throwing when AI fails.
+    // Throwing here previously propagated 429/503 errors all the way to the user.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[COURSE_PLANNER] AI failed (${msg}) — using heuristic plan`);
+    return fallback;
+  }
 }
 
 export async function runCoursePlannerAgent(interview: AICourseArchitectInterview) {

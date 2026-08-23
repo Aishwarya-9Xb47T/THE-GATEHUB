@@ -1,5 +1,10 @@
 /**
  * V4 — Generic agent runner: validate → retry failed stage only → confidence score.
+ *
+ * SAFETY: `lastOutput` is initialized to `undefined` (not with `!`).
+ * If ALL execute() calls throw, `lastOutput` will genuinely be `undefined`.
+ * Callers MUST guard `result.output` before accessing its properties.
+ * `result.success === false` is the signal that output may be undefined.
  */
 import type { AgentResult, AgentStageId } from "./contracts.js";
 import type { ArchitectQualityReport } from "../types.js";
@@ -26,7 +31,9 @@ export async function runAgent<TIn, TOut>(opts: RunAgentOptions<TIn, TOut>): Pro
   const maxAttempts = opts.maxAttempts ?? 3;
   const minConfidence = opts.minConfidence ?? 85;
   const errors: string[] = [];
-  let lastOutput!: TOut;
+  // SAFETY: Do NOT use `!` here — if all attempts throw, this stays undefined.
+  // The return path below handles this correctly without accessing undefined.
+  let lastOutput: TOut | undefined = undefined;
   let lastValidation: ArchitectQualityReport = {
     score: 0,
     passed: false,
@@ -59,20 +66,26 @@ export async function runAgent<TIn, TOut>(opts: RunAgentOptions<TIn, TOut>): Pro
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Attempt ${attempt}: ${msg}`);
+      console.warn(`[AgentRunner] stage=${opts.stage} attempt=${attempt}/${maxAttempts} error: ${msg}`);
       if (err instanceof GeminiRequestError && !err.retryable) {
-        throw err;
+        // Non-retryable (e.g. 404 model-not-found): do not retry further.
+        break;
       }
       if (err instanceof GeminiRequestError && attempt === maxAttempts) {
-        throw err;
+        // Last attempt and still failing: propagate so delivery pipeline can fall back.
+        break;
       }
     }
   }
 
+  // All attempts exhausted or broke early.
+  // Return a failure result. `output` may be undefined if every attempt threw.
+  // Callers MUST check `result.success` or `result.output != null` before accessing output.
   return {
     stage: opts.stage,
-    success: lastValidation.passed,
-    output: lastOutput,
-    confidence: confidenceFromReport(lastValidation),
+    success: false,
+    output: lastOutput as TOut, // May be undefined — callers must guard
+    confidence: lastOutput !== undefined ? confidenceFromReport(lastValidation) : 0,
     validation: lastValidation,
     attempts: maxAttempts,
     errors,

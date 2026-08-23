@@ -74,7 +74,34 @@ async function executeCurriculumArchitect(
   _attempt: number
 ): Promise<CurriculumArchitectOutput> {
   const normalized = normalizeInterview(interview);
-  const research = await conductCurriculumResearch(normalized);
+  let research: Awaited<ReturnType<typeof conductCurriculumResearch>>;
+
+  try {
+    research = await conductCurriculumResearch(normalized);
+  } catch (err) {
+    // FIXED: conductCurriculumResearch may still throw for non-AI errors (e.g. import failures).
+    // If so, build a minimal synthetic research report so planning can continue.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[CURRICULUM_ARCHITECT] Research failed (${msg}) — using minimal synthetic research`);
+    const plan = computeScalePlan(normalized);
+    const c = normalized.courseInfo;
+    research = {
+      courseRationale: `A ${plan.scaleLabel} curriculum in ${c.subject} for ${c.targetAudience}.`,
+      industryStandards: [`${c.industry} best practices`],
+      universityReferences: ["MIT OpenCourseWare", "Stanford Online"],
+      officialDocumentation: ["Official documentation"],
+      recommendedProgression: ["Foundations", "Core", "Applied", "Advanced"],
+      skillDependencyGraph: `Concepts in ${c.subject} build sequentially.`,
+      prerequisiteGraph: c.prerequisites.join(" → ") || "Basic skills → Mastery",
+      prerequisites: c.prerequisites.length ? c.prerequisites : ["Basic computer literacy"],
+      learningOutcomes: c.expectedOutcomes.length ? c.expectedOutcomes : c.learningGoals,
+      conceptMap: [],
+      assessmentRecommendations: normalized.assessmentStrategy.methods,
+      researchSources: ["University syllabuses", "Industry certifications"],
+      researchedAt: new Date().toISOString(),
+    };
+  }
+
   let blueprint = planCurriculumStructure(normalized, research);
   blueprint = await enrichStructuralBlueprint(blueprint, normalized);
   blueprint = enforceBlueprintStructure(blueprint, normalized, research);

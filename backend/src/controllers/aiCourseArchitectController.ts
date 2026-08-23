@@ -26,7 +26,7 @@ import type {
 } from "../services/aiCourseArchitect/types.js";
 import { LEARNING_COMPONENT_IDS, normalizeInterview, DEFAULT_LESSON_STRUCTURE } from "../services/aiCourseArchitect/types.js";
 import { validateCurriculumBlueprint } from "../services/aiCourseArchitect/curriculumValidator.js";
-import { runDeliveryPipeline } from "../services/aiCourseArchitect/orchestrator/deliveryPipeline.js";
+import { runDeliveryPipeline, runFastDeliveryPipeline } from "../services/aiCourseArchitect/orchestrator/deliveryPipeline.js";
 import { STRICT_QA_BLOCK, SKIP_THUMBNAIL_ON_GENERATE } from "../services/aiCourseArchitect/architectPerformance.js";
 import {
   isArchitectAiDegraded,
@@ -61,6 +61,13 @@ import { architectAiProviderStatus, ARCHITECT_AI_MISSING_KEY_MESSAGE } from "../
 import { persistRemoteBannerIfNeeded } from "../services/bannerService.js";
 import { GeminiRequestError, probeGeminiConnectivity } from "../services/aiCourseArchitect/geminiClient.js";
 import { isMissingObjectError } from "../services/b2StorageService.js";
+import {
+  createCourseGenerationJob,
+  getJob,
+  getUserActiveJob,
+  executeCourseGenerationJob,
+  cancelJob,
+} from "../services/aiCourseArchitect/courseGenerationJobService.js";
 
 /** Prevents concurrent duplicate generates for the same instructor. */
 const activeGenerations = new Map<string, number>();
@@ -472,7 +479,37 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
   blueprint = applyVideoAssignments(blueprint, interviewWithVideos);
 
   stage = "delivery-pipeline";
-  const delivery = await runDeliveryPipeline({ interview: interviewWithVideos, blueprint });
+  let delivery: Awaited<ReturnType<typeof runDeliveryPipeline>>;
+  try {
+    console.info("[COURSE_GEN] stage=delivery-pipeline start", {
+      modules: blueprint.modules.length,
+      lessons: blueprint.modules.reduce((n, m) => n + m.lessons.length, 0),
+      hasVideos: normalizedVideoMappings.length > 0,
+    });
+    delivery = await runDeliveryPipeline({ interview: interviewWithVideos, blueprint });
+    console.info("[COURSE_GEN] stage=delivery-pipeline complete", {
+      stages: delivery.stages?.length,
+      publishReady: delivery.publisher?.ready,
+      qaScore: delivery.qualityAssurance?.score,
+    });
+  } catch (deliveryErr) {
+    const msg = deliveryErr instanceof Error ? deliveryErr.message : String(deliveryErr);
+    console.error("[COURSE_GEN] stage=delivery-pipeline failed — falling back to fast delivery:", {
+      error: msg,
+      stack: deliveryErr instanceof Error ? deliveryErr.stack?.split("\n").slice(0, 5).join(" | ") : undefined,
+    });
+    try {
+      delivery = runFastDeliveryPipeline({ interview: interviewWithVideos, blueprint });
+      console.info("[COURSE_GEN] stage=delivery-pipeline fast-fallback succeeded");
+    } catch (fastErr) {
+      const fastMsg = fastErr instanceof Error ? fastErr.message : String(fastErr);
+      throw architectError(500, `Course generation delivery failed: ${fastMsg}`, {
+        code: "DELIVERY_PIPELINE_FAILED",
+        stage: "delivery-pipeline",
+        retryable: true,
+      });
+    }
+  }
   blueprint = delivery.blueprint;
   const qaWarning =
     !delivery.publisher.ready && STRICT_QA_BLOCK
@@ -759,3 +796,85 @@ export async function architectBannerSuggestions(req: AuthRequest, res: Response
     },
   });
 }
+
+export async function architectCreateJob(req: AuthRequest, res: Response) {
+  assertArchitectAiConfigured("job-create");
+  const userId = req.user!.id;
+  const interview = parseInterview(req.body?.interview);
+  const blueprint = req.body?.blueprint as ArchitectBlueprint | undefined;
+
+  const job = createCourseGenerationJob({
+    userId,
+    interview,
+    blueprint,
+  });
+
+  res.status(202).json({
+    success: true,
+    data: {
+      jobId: job.id,
+      status: job.status,
+      currentStage: job.currentStage,
+      progress: job.progress,
+      stageMessage: job.stageMessage,
+      startedAt: job.startedAt,
+    },
+  });
+}
+
+export async function architectGetJob(req: AuthRequest, res: Response) {
+  const jobId = req.params.jobId;
+  const job = getJob(jobId);
+  if (!job) {
+    throw new AppError(404, "Course generation job not found");
+  }
+  if (job.userId !== req.user!.id) {
+    throw new AppError(403, "Unauthorized access to job");
+  }
+
+  res.json({
+    success: true,
+    data: job,
+  });
+}
+
+export async function architectGetActiveJob(req: AuthRequest, res: Response) {
+  const userId = req.user!.id;
+  const job = getUserActiveJob(userId);
+  res.json({
+    success: true,
+    data: job || null,
+  });
+}
+
+export async function architectResumeJob(req: AuthRequest, res: Response) {
+  const jobId = req.params.jobId;
+  const job = getJob(jobId);
+  if (!job) throw new AppError(404, "Course generation job not found");
+  if (job.userId !== req.user!.id) throw new AppError(403, "Unauthorized access to job");
+
+  if (job.status === "RUNNING") {
+    return res.json({ success: true, data: job });
+  }
+
+  job.status = "RETRYING";
+  job.retryCount += 1;
+  job.stageMessage = "Resuming generation from checkpoint...";
+  void executeCourseGenerationJob(jobId);
+
+  res.json({
+    success: true,
+    data: job,
+  });
+}
+
+export async function architectCancelJob(req: AuthRequest, res: Response) {
+  const jobId = req.params.jobId;
+  const userId = req.user!.id;
+  const updated = cancelJob(jobId, userId);
+  res.json({
+    success: true,
+    data: updated,
+  });
+}
+

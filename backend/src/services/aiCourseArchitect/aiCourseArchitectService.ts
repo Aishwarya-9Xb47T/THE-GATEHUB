@@ -330,19 +330,20 @@ export function performQualityReview(
     detail: blueprint.difficultyProgression || "Add explicit progression notes",
   });
 
+  const outcomesCount = (blueprint.learningOutcomes ?? []).length;
   checks.push({
     id: "outcomes",
     label: "Learning outcomes",
-    status: blueprint.learningOutcomes.length >= 5 ? "pass" : "warn",
-    detail: `${blueprint.learningOutcomes.length} learning outcomes defined`,
+    status: outcomesCount >= 5 ? "pass" : "warn",
+    detail: `${outcomesCount} learning outcomes defined`,
   });
-  if (blueprint.learningOutcomes.length < 5) score -= 5;
+  if (outcomesCount < 5) score -= 5;
 
   checks.push({
     id: "duration",
     label: "Estimated completion time",
-    status: blueprint.estimatedHours > 0 ? "pass" : "warn",
-    detail: `${blueprint.estimatedHours} hours estimated`,
+    status: (blueprint.estimatedHours ?? 0) > 0 ? "pass" : "warn",
+    detail: `${blueprint.estimatedHours ?? 0} hours estimated`,
   });
 
   checks.push({
@@ -354,23 +355,26 @@ export function performQualityReview(
 
   if (blueprint.academicBlueprint) {
     const ab = blueprint.academicBlueprint;
+    const bloomsCount = (ab.bloomsTaxonomyMapping ?? []).length;
+    const careerCount = (ab.careerOutcomes ?? []).length;
+    const skillsCount = (ab.skillsCovered ?? []).length;
     checks.push({
       id: "academic-blueprint",
       label: "Academic course blueprint",
-      status: ab.bloomsTaxonomyMapping.length >= 4 ? "pass" : "warn",
-      detail: `${ab.lessonCount} lessons · ${ab.projectCount} projects · ${ab.quizCount} quizzes · Bloom's mapped`,
+      status: bloomsCount >= 4 ? "pass" : "warn",
+      detail: `${ab.lessonCount ?? 0} lessons · ${ab.projectCount ?? 0} projects · ${ab.quizCount ?? 0} quizzes · Bloom's mapped`,
     });
     checks.push({
       id: "career-outcomes",
       label: "Career outcomes defined",
-      status: ab.careerOutcomes.length >= 3 ? "pass" : "warn",
-      detail: `${ab.careerOutcomes.length} career outcomes`,
+      status: careerCount >= 3 ? "pass" : "warn",
+      detail: `${careerCount} career outcomes`,
     });
     checks.push({
       id: "skills-matrix",
       label: "Skills coverage",
-      status: ab.skillsCovered.length >= 5 ? "pass" : "warn",
-      detail: `${ab.skillsCovered.length} skills mapped`,
+      status: skillsCount >= 5 ? "pass" : "warn",
+      detail: `${skillsCount} skills mapped`,
     });
   } else {
     checks.push({

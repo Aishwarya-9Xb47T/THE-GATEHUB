@@ -326,7 +326,7 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
 }
 
 function hasLessonStructureReferences(ctx: LessonPipelineContext): boolean {
-  return ctx.interview.lessonStructure.includes("references");
+  return (ctx.interview.lessonStructure ?? []).includes("references");
 }
 
 export async function runContentPipeline(input: ContentPipelineInput): Promise<ContentPipelineOutput> {

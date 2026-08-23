@@ -218,6 +218,10 @@ export function AICourseArchitectPage() {
   const [loadingBlueprint, setLoadingBlueprint] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generationStage, setGenerationStage] = useState(0);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobStageMessage, setJobStageMessage] = useState<string>("");
+  const [jobProgress, setJobProgress] = useState<number>(0);
+  const [jobError, setJobError] = useState<string | null>(null);
   const [youtubeDraft, setYoutubeDraft] = useState("");
   const [youtubePreview, setYoutubePreview] = useState<YouTubeOEmbed | null>(null);
   const [youtubePreviewLoading, setYoutubePreviewLoading] = useState(false);
@@ -247,6 +251,17 @@ export function AICourseArchitectPage() {
     api<{ categories: typeof categories }>("/categories").then((res) => {
       if (res.data?.categories) setCategories(res.data.categories);
     });
+
+    api<{ data: any }>("/ai-architect/jobs/active/me").then((res) => {
+      const activeJob = res.data?.data;
+      if (activeJob && (activeJob.status === "RUNNING" || activeJob.status === "QUEUED" || activeJob.status === "RETRYING")) {
+        setActiveJobId(activeJob.id);
+        setGenerating(true);
+        setJobStageMessage(activeJob.stageMessage || "Generation in progress...");
+        setJobProgress(activeJob.progress || 10);
+        setStep(11);
+      }
+    }).catch(() => {});
   }, []);
 
   const backPath =
@@ -639,6 +654,76 @@ export function AICourseArchitectPage() {
     setUploadingVideo(false);
   };
 
+  const pollJobStatus = useCallback(async (jobId: string) => {
+    try {
+      const res = await api<{ data: any }>(`/ai-architect/jobs/${jobId}`);
+      if (res.error) throw new Error(res.error);
+      const job = res.data?.data;
+      if (!job) return;
+
+      if (job.stageMessage) setJobStageMessage(job.stageMessage);
+      if (typeof job.progress === "number") setJobProgress(job.progress);
+
+      // Map progress to generation stage UI index
+      const stageIdx = Math.min(
+        GENERATION_STAGES.length - 1,
+        Math.floor((job.progress / 100) * GENERATION_STAGES.length)
+      );
+      setGenerationStage(stageIdx);
+
+      if (job.status === "COMPLETED" && job.resultData?.universeId) {
+        setGenerating(false);
+        setGenerationStage(GENERATION_STAGES.length - 1);
+        const data = job.resultData;
+
+        setValidationReport(data.validationReport ?? null);
+        saveBrandingSession({
+          title: interview.courseInfo.title,
+          subtitle: interview.courseInfo.subtitle || "",
+          description: blueprint?.description || "",
+          categoryId: interview.courseInfo.categoryId || "",
+          categoryName: interview.courseInfo.categoryName,
+          difficulty: interview.courseInfo.difficulty,
+          price: productType === PRODUCT_TYPES.PREMIUM_COURSE ? interview.courseInfo.price ?? 0 : undefined,
+          bannerUrl: bannerUrl || "",
+          thumbnailUrl: thumbnailUrl || bannerUrl || "",
+          bannerType,
+          universeId: data.universeId,
+          productType,
+        });
+
+        toast({
+          title: "Course generated successfully",
+          description: `${data.moduleCount || 1} modules, ${data.lessonCount || 1} lessons — opening Academic Studio.`,
+          variant: "success",
+        });
+
+        await new Promise((r) => setTimeout(r, 600));
+        navigate(getAcademicStudioPath(data.universeId, productType));
+        return;
+      }
+
+      if (job.status === "FAILED") {
+        setGenerating(false);
+        const errMsg = job.errorMessage || "Course generation failed. Please resume or retry.";
+        setJobError(errMsg);
+        toast({
+          title: "Generation failed",
+          description: errMsg,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (job.status === "RUNNING" || job.status === "QUEUED" || job.status === "RETRYING") {
+        setTimeout(() => pollJobStatus(jobId), 1000);
+      }
+    } catch (err: any) {
+      console.warn("[AI Architect] job poll error:", err);
+      setTimeout(() => pollJobStatus(jobId), 2000);
+    }
+  }, [bannerType, bannerUrl, blueprint, interview, navigate, productType, thumbnailUrl, toast]);
+
   const handleGenerate = async () => {
     if (!blueprint) return;
     if (generating) {
@@ -650,16 +735,10 @@ export function AICourseArchitectPage() {
       return;
     }
     setGenerating(true);
+    setJobError(null);
     setGenerationStage(0);
-
-    const lessonCount = blueprint.modules.reduce((n, m) => n + m.lessons.length, 0);
-    const progressCap = GENERATION_STAGES.length - 2;
-    // Estimated UI stages while the single backend /generate request runs.
-    // Final stage advances only when the server responds successfully.
-    const msPerStage = Math.min(3500, Math.max(1400, Math.round((lessonCount * 1800) / Math.max(1, progressCap))));
-    const stageInterval = setInterval(() => {
-      setGenerationStage((s) => Math.min(s + 1, progressCap));
-    }, msPerStage);
+    setJobProgress(5);
+    setJobStageMessage("Starting generation job...");
 
     const activeInterview = applyPendingYouTubeDraft();
     const payload = {
@@ -668,81 +747,50 @@ export function AICourseArchitectPage() {
       banner: architectBanner,
     };
 
-    console.info("[AI Architect] generate request", {
-      hasBanner: Boolean(architectBanner?.bannerUrl),
-      bannerType: architectBanner?.bannerType || null,
-      hasSourceUrl: Boolean(architectBanner?.sourceUrl),
-      hasBannerId: Boolean(architectBanner?.bannerId),
-    });
-
     try {
       const res = await api<{
         data: {
-          universeId: string;
-          productType: string;
-          listingEntityId: string;
-          listingTable: string;
-          lessonCount: number;
-          moduleCount: number;
-          qualityReport: ArchitectQualityReport;
-          validationReport: ArchitectValidationReport;
+          jobId: string;
+          status: string;
+          stageMessage?: string;
         };
-      }>("/ai-architect/generate", {
+      }>("/ai-architect/jobs", {
         method: "POST",
         body: { interview: payload, blueprint, approved: blueprintApproved, expectedProductType: productType },
       });
 
-      clearInterval(stageInterval);
       if (res.error) throw new Error(res.error);
-      const data = res.data?.data;
-      if (!data?.universeId) throw new Error("Generation failed — no course was created. Please try again.");
+      const jobId = res.data?.data?.jobId;
+      if (!jobId) throw new Error("No job ID received from server");
 
-      setGenerationStage(GENERATION_STAGES.length - 1);
-
-      if (data.productType && data.productType !== productType) {
-        throw new Error(`Product type mismatch: expected ${productType}, got ${data.productType}`);
-      }
-
-      setValidationReport(data.validationReport ?? null);
-      saveBrandingSession({
-        title: interview.courseInfo.title,
-        subtitle: interview.courseInfo.subtitle || "",
-        description: blueprint?.description || "",
-        categoryId: interview.courseInfo.categoryId || "",
-        categoryName: interview.courseInfo.categoryName,
-        difficulty: interview.courseInfo.difficulty,
-        price: productType === PRODUCT_TYPES.PREMIUM_COURSE ? interview.courseInfo.price ?? 0 : undefined,
-        bannerUrl: bannerUrl || "",
-        thumbnailUrl: thumbnailUrl || bannerUrl || "",
-        bannerType,
-        universeId: data.universeId,
-        productType,
-      });
-      const qaNote =
-        typeof (data as unknown as { qaWarning?: string }).qaWarning === "string"
-          ? (data as unknown as { qaWarning: string }).qaWarning
-          : undefined;
-      const aiDegraded = Boolean((data as { aiDegraded?: boolean }).aiDegraded);
-      toast({
-        title: "Draft course generated",
-        description: aiDegraded
-          ? `${data.moduleCount} modules, ${data.lessonCount} lessons — created with offline AI fallbacks (check OPENAI_API_KEY / billing for full quality).`
-          : qaNote
-            ? `${data.moduleCount} modules, ${data.lessonCount} lessons — ${qaNote}`
-            : `${data.moduleCount} modules, ${data.lessonCount} lessons — review in Academic Studio before publishing.`,
-        variant: "success",
-      });
-      await new Promise((r) => setTimeout(r, 600));
-      navigate(getAcademicStudioPath(data.universeId, productType));
+      setActiveJobId(jobId);
+      setJobStageMessage(res.data?.data?.stageMessage || "Generation job created...");
+      setTimeout(() => pollJobStatus(jobId), 1000);
     } catch (e: any) {
-      clearInterval(stageInterval);
-      const raw = String((e as Error)?.message || "Generation failed");
-      const friendly = /axios|unexpected token|network error|failed to fetch/i.test(raw)
-        ? "Course generation was interrupted. Please retry — no incomplete course was published."
-        : raw;
-      toast({ title: "Generation failed", description: friendly, variant: "destructive" });
-    } finally {
+      const raw = String((e as Error)?.message || "Generation failed to start");
       setGenerating(false);
+      setJobError(raw);
+      toast({ title: "Generation failed", description: raw, variant: "destructive" });
+    }
+  };
+
+  const handleResumeJob = async () => {
+    if (!activeJobId) {
+      handleGenerate();
+      return;
+    }
+    setGenerating(true);
+    setJobError(null);
+    setJobStageMessage("Resuming generation from checkpoint...");
+    try {
+      const res = await api<{ data: any }>(`/ai-architect/jobs/${activeJobId}/resume`, { method: "POST" });
+      if (res.error) throw new Error(res.error);
+      setTimeout(() => pollJobStatus(activeJobId), 1000);
+    } catch (e: any) {
+      setGenerating(false);
+      const msg = String((e as Error)?.message || "Failed to resume job");
+      setJobError(msg);
+      toast({ title: "Resume failed", description: msg, variant: "destructive" });
     }
   };
 
@@ -1774,18 +1822,30 @@ export function AICourseArchitectPage() {
               {generating ? (
                 <div className="space-y-4">
                   <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-                    <p className="font-medium text-foreground">
-                      Generating {blueprint?.modules.reduce((n, m) => n + m.lessons.length, 0) ?? 0} lessons…
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Stages below are approximate while the server runs. Status only advances to complete when generation finishes.
-                      Large courses may take 1–3 minutes. Keep this tab open.
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-foreground">
+                        Generating {blueprint?.modules.reduce((n, m) => n + m.lessons.length, 0) ?? 0} lessons…
+                      </p>
+                      <Badge variant="outline" className="text-xs font-semibold">
+                        {jobProgress}%
+                      </Badge>
+                    </div>
+                    {/* Real Progress Bar */}
+                    <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-primary to-violet-600 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.max(5, Math.min(100, jobProgress))}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0" />
+                      {jobStageMessage || "Writing course content and building academic project..."}
                     </p>
                   </div>
                   <div className="space-y-3">
                   {GENERATION_STAGES.map((stage, i) => (
                     <div key={stage} className={`text-sm flex items-center gap-2 ${i <= generationStage ? "text-foreground" : "text-muted-foreground/40"}`}>
-                      {i < generationStage ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" /> : i === generationStage ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <div className="w-4 h-4 rounded-full border shrink-0" />}
+                      {i < generationStage ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" /> : i === generationStage ? <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" /> : <div className="w-4 h-4 rounded-full border shrink-0" />}
                       {stage}
                       {i === generationStage && i === GENERATION_STAGES.length - 1 && (
                         <span className="text-xs text-muted-foreground ml-1">— opening Academic Studio…</span>
@@ -1803,6 +1863,37 @@ export function AICourseArchitectPage() {
                     Approved blueprint: <strong>{blueprint?.courseTitle}</strong> — {blueprint?.modules.length} modules,{" "}
                     {blueprint?.modules.reduce((n, m) => n + m.lessons.length, 0)} lessons. Content will be written to Academic Studio LaTeX project.
                   </p>
+                  {jobError && (
+                    <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 space-y-3">
+                      <div className="flex items-start gap-2 text-sm text-destructive">
+                        <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-semibold">Generation interrupted</p>
+                          <p className="text-xs mt-0.5 text-muted-foreground">{jobError}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="default"
+                          className="bg-primary hover:bg-primary/90 text-xs"
+                          onClick={handleResumeJob}
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Resume From Last Checkpoint
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-xs"
+                          onClick={handleGenerate}
+                        >
+                          Retry Everything
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {!blueprintApproved && (
                     <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-sm">
                       Go back to the blueprint step and approve the curriculum before generating.

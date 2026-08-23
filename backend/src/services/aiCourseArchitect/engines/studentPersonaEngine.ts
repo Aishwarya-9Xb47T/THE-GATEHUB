@@ -50,7 +50,14 @@ const PERSONA_DEFAULTS: Record<StudentPersona, StudentPersonaProfile> = {
 };
 
 export function inferStudentPersona(interview: AICourseArchitectInterview): StudentPersona {
-  const text = `${interview.courseInfo.targetAudience} ${interview.courseInfo.learningGoals.join(" ")} ${interview.learningStyle.join(" ")}`.toLowerCase();
+  const audience = String(interview.courseInfo?.targetAudience ?? "");
+  const goals = Array.isArray(interview.courseInfo?.learningGoals)
+    ? interview.courseInfo.learningGoals.join(" ")
+    : String(interview.courseInfo?.learningGoals ?? "");
+  const styles = Array.isArray(interview.learningStyle)
+    ? interview.learningStyle.join(" ")
+    : String(interview.learningStyle ?? "");
+  const text = `${audience} ${goals} ${styles}`.toLowerCase();
 
   if (/medical|nursing|clinical|healthcare/i.test(text)) return "medical-student";
   if (/interview|faang|hiring|placement/i.test(text)) return "interview-candidate";

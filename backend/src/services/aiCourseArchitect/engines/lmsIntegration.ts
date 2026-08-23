@@ -29,7 +29,7 @@ export function buildLmsIntegrationMeta(
       { id: "docebo", label: "Docebo", exportFormat: "xAPI / SCORM", ready: true },
       { id: "successfactors", label: "SAP SuccessFactors", exportFormat: "SCORM / AICC", ready: false },
     ],
-    courseIdentifier: `gatehub-${interview.courseInfo.subject.replace(/\s+/g, "-").toLowerCase()}-${Date.now()}`,
+    courseIdentifier: `gatehub-${String(interview.courseInfo?.subject || interview.courseInfo?.title || "course").replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase()}-${Date.now()}`,
     moduleCount: blueprint.modules.length,
     lessonCount: lessons.length,
     assessmentCount: quizCount,

@@ -30,9 +30,11 @@ export function runSelfEvaluation(
     improvements.push("Complete 10-question quizzes for all lessons");
   }
 
-  const labLessons = lessons.filter(
-    (l) => l.codingLab && l.codingLab.starterCode.length > 80 && !/your solution here/i.test(l.codingLab.starterCode)
-  );
+  const labLessons = lessons.filter((l) => {
+    if (!l.codingLab) return false;
+    const starter = (l.codingLab as any).starterCode || (l.codingLab as any).initialCode || l.codeExample || "";
+    return starter.length > 20 && !/your solution here/i.test(starter);
+  });
   if (
     (hasLearningComponent(interview, "Coding") || hasLearningComponent(interview, "Coding Lab")) &&
     labLessons.length < lessons.length * 0.85

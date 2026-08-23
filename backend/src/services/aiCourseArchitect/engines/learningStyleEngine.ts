@@ -16,8 +16,12 @@ export interface LearningStyleProfile {
 }
 
 export function buildLearningStyleProfile(interview: AICourseArchitectInterview): LearningStyleProfile {
-  const styles = interview.learningStyle.join(" ").toLowerCase();
-  const teaching = interview.teachingStyle.join(" ").toLowerCase();
+  const styles = (Array.isArray(interview.learningStyle)
+    ? interview.learningStyle.join(" ")
+    : String(interview.learningStyle ?? "")).toLowerCase();
+  const teaching = (Array.isArray(interview.teachingStyle)
+    ? interview.teachingStyle.join(" ")
+    : String(interview.teachingStyle ?? "")).toLowerCase();
   const text = `${styles} ${teaching}`;
 
   let visual = 0.25;

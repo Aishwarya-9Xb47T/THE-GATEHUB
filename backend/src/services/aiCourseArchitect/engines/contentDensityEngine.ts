@@ -27,8 +27,13 @@ const DENSITY_CONFIGS: Record<ContentDensityProfile, ContentDensityConfig> = {
 };
 
 export function resolveContentDensity(interview: AICourseArchitectInterview): ContentDensityConfig {
-  const scale = interview.courseScale?.id ?? "standard";
-  const text = `${interview.learningStyle.join(" ")} ${interview.courseInfo.learningGoals.join(" ")}`.toLowerCase();
+  const styles = (Array.isArray(interview.learningStyle)
+    ? interview.learningStyle.join(" ")
+    : String(interview.learningStyle ?? "")).toLowerCase();
+  const goals = (Array.isArray(interview.courseInfo?.learningGoals)
+    ? interview.courseInfo.learningGoals.join(" ")
+    : String(interview.courseInfo?.learningGoals ?? "")).toLowerCase();
+  const text = `${styles} ${goals}`;
 
   if (/crash|micro|quick|bite/i.test(text)) return DENSITY_CONFIGS.micro;
   if (/masterclass|deep|comprehensive|semester/i.test(text)) return DENSITY_CONFIGS["deep-dive"];

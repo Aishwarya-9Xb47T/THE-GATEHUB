@@ -833,13 +833,19 @@ export const LEARNING_COMPONENT_IDS = [
 
 export function hasLearningComponent(interview: AICourseArchitectInterview, name: string): boolean {
   const lc = [...(interview.learningComponents ?? []), ...(interview.practicalComponents ?? [])];
-  const legacy = [
-    ...(interview.practicalLearning?.enabled ?? []),
-    ...(interview.assessments?.types ?? []),
-    ...(interview.resources?.types ?? []),
-  ];
+  const enabledVal = interview.practicalLearning?.enabled;
+  const enabledArr = Array.isArray(enabledVal) ? enabledVal : [];
+  const assessmentTypes = Array.isArray(interview.assessments?.types) ? interview.assessments!.types : [];
+  const resourceTypes = Array.isArray(interview.resources?.types) ? interview.resources!.types : [];
+  const legacy = [...enabledArr, ...assessmentTypes, ...resourceTypes];
   const all = [...lc, ...legacy];
-  return all.some((c) => c.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(c.toLowerCase()));
+  const target = String(name ?? "").toLowerCase();
+  return all.some((c) => {
+    if (!c) return false;
+    const str = typeof c === "string" ? c : String((c as any).name || (c as any).id || (c as any).label || "");
+    const low = str.toLowerCase();
+    return low.includes(target) || target.includes(low);
+  });
 }
 
 export function hasLessonStructure(interview: AICourseArchitectInterview, id: LessonStructureId): boolean {

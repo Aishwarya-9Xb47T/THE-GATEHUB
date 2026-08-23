@@ -56,27 +56,37 @@ async function executeModuleDesigner(
   const { blueprint, interview, coursePlan } = input;
   const heuristic = buildHeuristicModuleDesign(blueprint, interview);
   if (!hasArchitectAiProvider()) {
-    throw new Error("Module designer requires a configured backend AI provider");
+    // No provider configured at all — use heuristic immediately
+    console.info("[MODULE_DESIGNER] No AI provider configured — using heuristic module design");
+    return heuristic;
   }
 
-  const parsed = await architectCompletionJSON<{ modules?: ModuleDesignSpec[] }>({
-    phase: "structure",
-    system: PROFESSOR_SYSTEM_PROMPT,
-    user: `Agent 3 — Module Designer. Return { "modules": ModuleDesignSpec[] } for each module.
+  try {
+    const parsed = await architectCompletionJSON<{ modules?: ModuleDesignSpec[] }>({
+      phase: "structure",
+      system: PROFESSOR_SYSTEM_PROMPT,
+      user: `Agent 3 — Module Designer. Return { "modules": ModuleDesignSpec[] } for each module.
 ${ANTI_HALLUCINATION_RULES}
 Course plan: ${coursePlan.executiveSummary.slice(0, 300)}
 Modules: ${JSON.stringify(blueprint.modules.map((m) => ({ id: m.id, title: m.title, lessons: m.lessons.length })))}`,
-    temperature: 0.45,
-  });
-  if (parsed?.modules?.length) {
-    return {
-      modules: heuristic.modules.map((h) => {
-        const enriched = parsed.modules!.find((m) => m.moduleId === h.moduleId);
-        return enriched ? { ...h, ...enriched } : h;
-      }),
-    };
+      temperature: 0.45,
+    });
+    if (parsed?.modules?.length) {
+      return {
+        modules: heuristic.modules.map((h) => {
+          const enriched = parsed.modules!.find((m) => m.moduleId === h.moduleId);
+          return enriched ? { ...h, ...enriched } : h;
+        }),
+      };
+    }
+    console.warn("[MODULE_DESIGNER] LLM returned empty — using heuristic module design");
+    return heuristic;
+  } catch (err) {
+    // FIXED: Use heuristic fallback instead of throwing when AI fails.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[MODULE_DESIGNER] AI failed (${msg}) — using heuristic module design`);
+    return heuristic;
   }
-  throw new Error("Module designer AI returned no output. Check the configured backend AI key and retry.");
 }
 
 export async function runModuleDesignerAgent(

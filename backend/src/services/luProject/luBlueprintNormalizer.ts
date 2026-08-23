@@ -116,42 +116,43 @@ function shouldOmitLearnerTopic(id: string, title: string, body: string): boolea
   return false;
 }
 
-function mapQuizQuestions(questions: ArchitectLessonBlueprint["quizQuestions"]): LuCourseQuizQuestionJson[] {
+function mapQuizQuestions(questions: any[]): LuCourseQuizQuestionJson[] {
   return (questions ?? []).map((q) => {
-    let options: string[];
-    let correctAnswer: string;
+    let options: string[] = Array.isArray(q.options) ? q.options : ["True", "False"];
+    let correctAnswer: string = "";
 
     if (q.type === "true-false") {
       options = ["True", "False"];
-      correctAnswer = String(q.correctAnswer);
+      correctAnswer = String(q.correctAnswer ?? "True");
     } else if (q.type === "fill-blank") {
-      options = [q.correctAnswer.join(", ")];
-      correctAnswer = q.correctAnswer.join(", ");
-    } else if (q.type === "match-following") {
-      options = q.leftColumn.map((left, i) => `${left} → ${q.rightColumn[i]}`);
-      correctAnswer = Object.entries(q.correctMatches)
+      const blanks = Array.isArray(q.correctAnswer) ? q.correctAnswer : [String(q.correctAnswer ?? "")];
+      options = [blanks.join(", ")];
+      correctAnswer = blanks.join(", ");
+    } else if (q.type === "match-following" && Array.isArray(q.leftColumn)) {
+      options = q.leftColumn.map((left: string, i: number) => `${left} → ${q.rightColumn?.[i] || ""}`);
+      correctAnswer = Object.entries(q.correctMatches || {})
         .map(([left, right]) => `${left} → ${right}`)
         .join(", ");
-    } else if (q.type === "scenario") {
-      options = [q.correctAnswer];
-      correctAnswer = q.correctAnswer;
+    } else if (typeof q.correctIndex === "number" && options[q.correctIndex]) {
+      correctAnswer = options[q.correctIndex];
     } else {
-      // MCQ
-      options = q.options;
-      correctAnswer = q.correctAnswer;
+      correctAnswer = String(q.correctAnswer ?? options[0] ?? "Option A");
     }
 
-    const text = q.type === "scenario" ? `${q.scenario}\n\n${q.text}` : q.text;
+    const text =
+      q.type === "scenario"
+        ? `${q.scenario || ""}\n\n${q.text || q.question || ""}`.trim()
+        : (q.text || q.question || "Knowledge Check Question");
 
     return {
-      text,
-      options,
-      correctAnswer,
-      explanation: q.explanation,
-      difficulty: q.difficulty,
+      text: text || "Knowledge Check Question",
+      options: options.length ? options : ["Option A", "Option B"],
+      correctAnswer: correctAnswer || options[0] || "Option A",
+      explanation: q.explanation || "Review the lesson material for more details.",
+      difficulty: q.difficulty || "medium",
       topic: q.topic,
       bloomLevel: q.bloomLevel,
-      timeEstimateSeconds: q.timeEstimateSeconds,
+      timeEstimateSeconds: q.timeEstimateSeconds || 60,
       hints: q.hints,
     };
   });
@@ -294,14 +295,14 @@ function lessonToJson(
     };
   }
 
-  if ((hasLearningComponent(interview, "Coding Lab") || hasLearningComponent(interview, "Coding")) && lesson.codingLab) {
+  if ((hasLearningComponent(interview, "Coding Lab") || hasLearningComponent(interview, "Coding") || hasLearningComponent(interview, "Lab")) && lesson.codingLab) {
     result.codingLab = {
-      title: lesson.codingLab.title,
-      language: lesson.codingLab.language,
-      starterCode: lesson.codingLab.starterCode,
-      expectedOutput: lesson.codingLab.expectedOutput,
-      problemStatement: lesson.codingLab.problemStatement,
-      colabUrl: lesson.codingLab.colabUrl,
+      title: lesson.codingLab.title || `${lesson.title} Lab`,
+      language: (lesson.codingLab as any).language || lesson.codeLanguage || "python",
+      starterCode: (lesson.codingLab as any).starterCode || (lesson.codingLab as any).initialCode || lesson.codeExample || `// Starter code for ${lesson.title}`,
+      expectedOutput: (lesson.codingLab as any).expectedOutput || (lesson.codingLab as any).solutionCode || "Output verification passed",
+      problemStatement: (lesson.codingLab as any).problemStatement || (lesson.codingLab as any).instructions || `Implement solution for ${lesson.title}`,
+      colabUrl: (lesson.codingLab as any).colabUrl,
       enableColab: true,
     };
   } else if (hasLearningComponent(interview, "Colab")) {
@@ -461,7 +462,7 @@ export function blueprintToCourseDocument(
       description: sanitizedBlueprint.description,
       difficulty: sanitizedBlueprint.difficulty,
       estimatedHours: sanitizedBlueprint.estimatedHours,
-      skills: sanitizedBlueprint.marketing.tags.slice(0, 10),
+      skills: sanitizedBlueprint.marketing?.tags?.slice(0, 10) ?? [],
       category: sanitizedBlueprint.category,
       modules,
     },

@@ -107,7 +107,7 @@ export function reviewLessonContent(
     detail: `${continuityMarkers} continuity markers`,
   });
 
-  if (hasLearningComponent(interview, "Quiz") || interview.lessonStructure.includes("mini-quiz")) {
+  if (hasLearningComponent(interview, "Quiz") || (interview.lessonStructure ?? []).includes("mini-quiz")) {
     const qCount = lesson.quizQuestions?.length ?? 0;
     const badQuiz = lesson.quizQuestions?.some(
       (q) => !isSubstantiveText(q.text, 6) || (q.type === "mcq" && q.options.length < 4) || !q.explanation
