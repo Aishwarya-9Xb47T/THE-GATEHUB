@@ -33,6 +33,10 @@ import type {
   ArchitectValidationReport,
 } from "./types.js";
 import { normalizeInterview } from "./types.js";
+import {
+  BlueprintValidationError,
+  normalizeAndValidateApprovedBlueprint,
+} from "./blueprintNormalizer.js";
 import { runDeliveryPipeline, runFastDeliveryPipeline } from "./orchestrator/deliveryPipeline.js";
 import { STRICT_QA_BLOCK, SKIP_THUMBNAIL_ON_GENERATE } from "./architectPerformance.js";
 import { isArchitectAiDegraded, isArchitectAiQuotaError, resetArchitectAiDegraded } from "./architectLLM.js";
@@ -212,6 +216,40 @@ export async function executeCourseGenerationJob(jobId: string): Promise<void> {
       ...interview,
       videoStrategy: { ...interview.videoStrategy, mappings: normalizedVideoMappings },
     };
+
+    // ── STAGE 0: NORMALIZE + VALIDATE APPROVED BLUEPRINT ───────────────────
+    if (blueprint?.modules?.length) {
+      try {
+        blueprint = normalizeAndValidateApprovedBlueprint(blueprint, interviewWithVideos);
+        job.blueprint = blueprint;
+        updateJob(jobId, {
+          blueprint,
+          currentStage: "BLUEPRINT",
+          stageMessage: "Blueprint normalized and validated...",
+          progress: 8,
+          checkpoints: { blueprintApproved: true },
+        });
+      } catch (validationErr) {
+        const field =
+          validationErr instanceof BlueprintValidationError
+            ? validationErr.field
+            : "blueprint";
+        const message =
+          validationErr instanceof Error
+            ? validationErr.message
+            : "Blueprint validation failed";
+        updateJob(jobId, {
+          status: "FAILED",
+          currentStage: "BLUEPRINT",
+          errorCode: "BLUEPRINT_SCHEMA_INVALID",
+          errorMessage: message,
+          stageMessage: `Blueprint validation failed: ${field}`,
+        });
+        userActiveJobs.delete(userId);
+        console.error(`[BLUEPRINT] validation failed jobId=${jobId} field=${field}:`, validationErr);
+        return;
+      }
+    }
 
     // ── STAGE 1: BLUEPRINT CHECKPOINT ──────────────────────────────────────
     if (!blueprint?.modules?.length || !job.checkpoints.blueprintApproved) {
@@ -500,11 +538,17 @@ export async function executeCourseGenerationJob(jobId: string): Promise<void> {
     console.info(`[COURSE_GEN] job_completed jobId=${jobId} universeId=${draftId} projectId=${projectId}`);
   } catch (err: any) {
     const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorCode =
+      err instanceof BlueprintValidationError
+        ? "BLUEPRINT_SCHEMA_INVALID"
+        : /learningGoals/i.test(errorMsg)
+          ? "BLUEPRINT_SCHEMA_INVALID"
+          : "COURSE_GENERATION_FAILED";
     console.error(`[COURSE_GEN] job_failed jobId=${jobId}:`, err);
     userActiveJobs.delete(userId);
     updateJob(jobId, {
       status: "FAILED",
-      errorCode: "COURSE_GENERATION_FAILED",
+      errorCode,
       errorMessage: errorMsg,
       stageMessage: `Generation failed: ${errorMsg}`,
     });
@@ -523,6 +567,35 @@ export function createCourseGenerationJob(params: {
   }
 
   const normalizedInterview = normalizeInterview(params.interview);
+  let normalizedBlueprint = params.blueprint;
+  if (params.blueprint?.modules?.length) {
+    try {
+      normalizedBlueprint = normalizeAndValidateApprovedBlueprint(params.blueprint, normalizedInterview);
+    } catch (err) {
+      // Still create the job so the UI can show BLUEPRINT_SCHEMA_INVALID with the exact field.
+      const message = err instanceof Error ? err.message : "Blueprint validation failed";
+      const jobId = randomUUID();
+      const failedJob: CourseGenerationJobData = {
+        id: jobId,
+        userId: params.userId,
+        status: "FAILED",
+        currentStage: "BLUEPRINT",
+        progress: 0,
+        stageMessage: message,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        retryCount: 0,
+        interview: normalizedInterview,
+        blueprint: params.blueprint,
+        checkpoints: {},
+        errorCode: "BLUEPRINT_SCHEMA_INVALID",
+        errorMessage: message,
+      };
+      jobs.set(jobId, failedJob);
+      return failedJob;
+    }
+  }
+
   const jobId = randomUUID();
   const job: CourseGenerationJobData = {
     id: jobId,
@@ -535,9 +608,9 @@ export function createCourseGenerationJob(params: {
     updatedAt: new Date().toISOString(),
     retryCount: 0,
     interview: normalizedInterview,
-    blueprint: params.blueprint,
+    blueprint: normalizedBlueprint,
     checkpoints: {
-      blueprintApproved: Boolean(params.blueprint?.modules?.length),
+      blueprintApproved: Boolean(normalizedBlueprint?.modules?.length),
     },
   };
 

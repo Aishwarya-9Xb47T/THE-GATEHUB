@@ -14,6 +14,10 @@ import { PROFESSOR_SYSTEM_PROMPT } from "./instructorPersona.js";
 import { getArchitectModel } from "./architectModels.js";
 import { computeScalePlan, planCurriculumStructure, enforceBlueprintStructure } from "./curriculumPlanner.js";
 import { validateCurriculumBlueprint } from "./curriculumValidator.js";
+import {
+  BlueprintValidationError,
+  normalizeAndValidateApprovedBlueprint,
+} from "./blueprintNormalizer.js";
 
 
 /** Phase 2–4: V4 orchestrated planning (Agents 1 → 2 → 3). */
@@ -43,11 +47,30 @@ export async function generateApprovedCourseContent(
   onProgress?: (msg: string, pct: number) => void
 ): Promise<{ blueprint: ArchitectBlueprint; qualityReport: ArchitectQualityReport }> {
   const normalized = normalizeInterview(interview);
+  // Canonicalize AI/client blueprint shape BEFORE any agent touches learningGoals / objectives.
+  let approved: ArchitectBlueprint;
+  try {
+    approved = normalizeAndValidateApprovedBlueprint(
+      { ...skeleton, phase: "approved" as const },
+      normalized
+    );
+  } catch (err) {
+    if (err instanceof BlueprintValidationError) {
+      throw err;
+    }
+    throw new BlueprintValidationError([
+      {
+        code: "BLUEPRINT_SCHEMA_INVALID",
+        field: "blueprint",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    ]);
+  }
   // Re-assert instructor structural constraints before writing content
   const enforced = enforceBlueprintStructure(
-    { ...skeleton, phase: "approved" as const },
+    approved,
     normalized,
-    skeleton.researchReport,
+    approved.researchReport ?? skeleton.researchReport,
   );
   const structureCheck = validateCurriculumBlueprint(enforced, normalized);
   if (!structureCheck.passed) {

@@ -25,12 +25,12 @@ function tokenize(text: string): string[] {
 
 export function analyzeLessonTopic(
   ctx: LessonPipelineContext,
-  plan: LessonBlueprintPlan
+  plan: LessonBlueprintPlan | null | undefined
 ): TopicAnalysis {
-  const subject = ctx.interview.courseInfo.subject;
-  const title = ctx.skeleton.title;
-  const goals = Array.isArray(plan.learningGoals) ? plan.learningGoals.join(" ") : "";
-  const concepts = Array.isArray(plan.conceptOrder) ? plan.conceptOrder.join(" ") : "";
+  const subject = ctx.interview.courseInfo?.subject ?? "";
+  const title = ctx.skeleton?.title ?? "lesson";
+  const goals = Array.isArray(plan?.learningGoals) ? plan!.learningGoals.join(" ") : "";
+  const concepts = Array.isArray(plan?.conceptOrder) ? plan!.conceptOrder.join(" ") : "";
   const corpus = `${subject} ${title} ${goals} ${concepts} ${ctx.interview.courseInfo?.industry ?? ""}`;
   const tokens = tokenize(corpus);
   const freq = new Map<string, number>();
@@ -41,7 +41,7 @@ export function analyzeLessonTopic(
     .map(([k]) => k);
 
   const primaryTopic = title.split("—")[0]?.trim() || title;
-  const subtopics = plan.conceptOrder.length ? plan.conceptOrder : keywords.slice(0, 5);
+  const subtopics = plan?.conceptOrder?.length ? plan.conceptOrder : keywords.slice(0, 5);
   const stack = ctx.interview.practicalComponents ?? [];
 
   return {

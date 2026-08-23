@@ -41,7 +41,7 @@ export async function retrieveForLesson(
 ): Promise<LessonRetrievalBundle> {
   const subject = ctx.interview.courseInfo.subject;
   const topicAnalysis = analyzeLessonTopic(ctx, plan);
-  const goalsStr = Array.isArray(plan.learningGoals) ? plan.learningGoals.slice(0, 2).join("; ") : "";
+  const goalsStr = Array.isArray(plan?.learningGoals) ? plan.learningGoals.slice(0, 2).join("; ") : "";
   const query = `${subject} ${topicAnalysis.primaryTopic} ${goalsStr}`.trim();
   const cacheKey = buildRetrievalCacheKey(subject, ctx.skeleton.title, query);
   const cached = getCachedRetrieval(cacheKey);

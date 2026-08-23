@@ -47,6 +47,7 @@ import { runSelfEvaluation } from "./selfEvaluator.js";
 import { detectFailedComponents, regenerateFailedComponents } from "./componentRegenerator.js";
 import { hasLearningComponent } from "../types.js";
 import type { ArchitectLessonBlueprint, ArchitectQualityReport } from "../types.js";
+import { ensureLessonBlueprintPlan } from "../lessonPlanningEngine.js";
 import {
   LESSON_CONCURRENCY,
   MAX_COMPONENT_RETRIES,
@@ -92,11 +93,21 @@ export async function runLessonPipeline(ctx: LessonPipelineContext): Promise<Les
   // Lesson Planner → Instructional Designer (shared Lesson Blueprint bus)
   const plannerResult = await runLessonPlannerAgent(pipelineCtx);
   pushStage(stages, "lesson-planner", plannerResult.confidence, plannerResult.success);
-  pipelineCtx = { ...pipelineCtx, baseLessonPlan: plannerResult.output };
+  // AgentRunner may return undefined output when every attempt throws — never propagate that.
+  const safePlannerPlan = ensureLessonBlueprintPlan(
+    plannerResult.output,
+    pipelineCtx.skeleton,
+    pipelineCtx.interview
+  );
+  pipelineCtx = { ...pipelineCtx, baseLessonPlan: safePlannerPlan };
 
   const planResult = await runInstructionalDesignerAgent(pipelineCtx);
   pushStage(stages, "instructional-designer", planResult.confidence, planResult.success);
-  let plan = planResult.output;
+  let plan = ensureLessonBlueprintPlan(
+    planResult.output ?? safePlannerPlan,
+    pipelineCtx.skeleton,
+    pipelineCtx.interview
+  );
 
   // V6 RAG — retrieve before knowledge-producing agents
   const retrievalBundle = await retrieveForLesson(pipelineCtx, plan);
@@ -344,9 +355,14 @@ export async function runContentPipeline(input: ContentPipelineInput): Promise<C
   };
 
   const tasks: Array<{ modIndex: number; lessonIndex: number }> = [];
-  blueprint.modules.forEach((mod, mi) => {
+  (blueprint.modules ?? []).forEach((mod, mi) => {
+    if (!mod || !Array.isArray(mod.lessons)) return;
     mod.lessons.forEach((_, li) => tasks.push({ modIndex: mi, lessonIndex: li }));
   });
+
+  if (tasks.length === 0) {
+    throw new Error("Blueprint validation failed: modules[].lessons — no lessons to generate");
+  }
 
   const total = tasks.length;
   let done = 0;

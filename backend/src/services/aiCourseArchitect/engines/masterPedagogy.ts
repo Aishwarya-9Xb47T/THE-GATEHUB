@@ -74,22 +74,22 @@ export function applyMasterPedagogyToPlan(
   return {
     ...plan,
     microLearningFlow: flow,
-    knowledgeCheckpoints: plan.knowledgeCheckpoints.length
+    knowledgeCheckpoints: Array.isArray(plan?.knowledgeCheckpoints) && plan.knowledgeCheckpoints.length
       ? plan.knowledgeCheckpoints
       : ["After concept introduction", "After worked example", "Before summary"],
-    motivation: plan.motivation ?? `Why ${plan.lessonObjective} matters in ${interview.courseInfo.industry}`,
-    reflectionPrompts: plan.reflectionPrompts?.length
+    motivation: plan?.motivation ?? `Why ${plan?.lessonObjective ?? "this lesson"} matters in ${interview.courseInfo?.industry ?? "industry"}`,
+    reflectionPrompts: plan?.reflectionPrompts?.length
       ? plan.reflectionPrompts
       : [
           "What was the most surprising concept in this lesson?",
           "How would you explain this to a colleague?",
         ],
     learningStrategy:
-      plan.learningStrategy ??
+      plan?.learningStrategy ??
       `Follow master pedagogy: ${flow.slice(0, 6).join(" → ")} → ... → ${flow[flow.length - 1]}`,
-    suggestedPractice: plan.suggestedPractice?.length
+    suggestedPractice: plan?.suggestedPractice?.length
       ? plan.suggestedPractice
-      : requiredSteps.includes("try-it-yourself") && plan.requiredLab
+      : requiredSteps.includes("try-it-yourself") && plan?.requiredLab
         ? ["Guided lab", "Independent practice"]
         : ["Worked example review", "Knowledge check"],
   };

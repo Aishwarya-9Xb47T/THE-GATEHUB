@@ -5,7 +5,7 @@
  */
 import type { LessonBlueprintPlan, LessonPipelineContext } from "../orchestrator/contracts.js";
 import type { ArchitectQualityReport } from "../types.js";
-import { buildLessonOutlineContext, planLessonPedagogy } from "../lessonPlanningEngine.js";
+import { buildLessonOutlineContext, planLessonPedagogy, ensureLessonBlueprintPlan } from "../lessonPlanningEngine.js";
 import { hasLearningComponent } from "../types.js";
 import { PROFESSOR_SYSTEM_PROMPT, buildInterviewContext } from "../instructorPersona.js";
 import { architectCompletionJSON } from "../architectLLM.js";
@@ -15,48 +15,58 @@ import { enrichLessonPlanPart4 } from "../engines/part4Orchestrator.js";
 import { runAgent } from "../orchestrator/agentRunner.js";
 
 function toLessonBlueprintPlan(
-  pedagogy: Awaited<ReturnType<typeof planLessonPedagogy>>,
+  pedagogy: Awaited<ReturnType<typeof planLessonPedagogy>> | null | undefined,
   design: Partial<LessonBlueprintPlan>,
   ctx: LessonPipelineContext
 ): LessonBlueprintPlan {
-  const { skeleton, interview } = ctx;
+  const base = ensureLessonBlueprintPlan(pedagogy, ctx.skeleton, ctx.interview);
   return {
-    ...pedagogy,
-    lessonObjective: (pedagogy.learningGoals as string[] | undefined)?.[0] ?? `Master concepts in ${skeleton.title}`,
-    industryContext: pedagogy.industryHook,
-    estimatedReadingMinutes: skeleton.durationMinutes ?? 45,
-    estimatedPracticeMinutes: pedagogy.includeLab ? 30 : 15,
-    estimatedVideoMinutes: skeleton.videos?.length ? 12 : 0,
-    requiredDiagrams: pedagogy.useDiagrams || pedagogy.useVisuals,
-    requiredCode: pedagogy.useCode,
-    requiredTables: (interview.lessonStructure ?? []).includes("comparison-table"),
-    requiredVideo: Boolean(skeleton.videos?.length) || interview.videoStrategy?.includeVideos === true,
-    requiredQuiz: pedagogy.includeQuiz,
-    requiredLab: pedagogy.includeLab,
-    requiredReferences: (interview.lessonStructure ?? []).includes("references"),
-    requiredAssignment: hasLearningComponent(interview, "Assignments"),
-    requiredInterviewPrep: hasLearningComponent(interview, "Interview Questions"),
-    conceptOrder: design.conceptOrder ?? pedagogy.sectionsToEmphasize,
-    microLearningFlow: design.microLearningFlow ?? [
-      "Hook and motivation",
-      "Core concept",
-      "Worked example",
-      "Guided practice",
-      "Knowledge checkpoint",
-      "Summary and bridge",
-    ],
-    practiceIntervals: design.practiceIntervals ?? ["After each major concept", "End of lesson recap"],
-    revisionSpacing: design.revisionSpacing ?? "Revisit prior module concepts in opening recap",
-    difficultyCurve: design.difficultyCurve ?? `Progress from ${skeleton.difficultyTier ?? "intermediate"} foundations to applied practice`,
-    knowledgeCheckpoints: design.knowledgeCheckpoints ?? (pedagogy.learningGoals as string[] | undefined)?.slice(0, 4) ?? [],
-    bloomsLevels: design.bloomsLevels ?? ["Understand", "Apply", "Analyze"],
-    motivation: design.motivation,
-    reflectionPrompts: design.reflectionPrompts,
-    learningStrategy: design.learningStrategy,
-    cognitiveLoadNotes: design.cognitiveLoadNotes,
-    suggestedPractice: design.suggestedPractice,
-    adaptiveProfile: ctx.adaptiveProfile,
-    retrievalContext: ctx.retrievalBundle,
+    ...base,
+    ...design,
+    lessonObjective:
+      (typeof design.lessonObjective === "string" && design.lessonObjective.trim())
+        ? design.lessonObjective
+        : base.lessonObjective,
+    conceptOrder: Array.isArray(design.conceptOrder) && design.conceptOrder.length
+      ? design.conceptOrder
+      : base.conceptOrder,
+    microLearningFlow: Array.isArray(design.microLearningFlow) && design.microLearningFlow.length
+      ? design.microLearningFlow
+      : base.microLearningFlow,
+    practiceIntervals: Array.isArray(design.practiceIntervals) && design.practiceIntervals.length
+      ? design.practiceIntervals
+      : base.practiceIntervals,
+    revisionSpacing:
+      typeof design.revisionSpacing === "string" && design.revisionSpacing.trim()
+        ? design.revisionSpacing
+        : base.revisionSpacing,
+    difficultyCurve:
+      typeof design.difficultyCurve === "string" && design.difficultyCurve.trim()
+        ? design.difficultyCurve
+        : base.difficultyCurve,
+    knowledgeCheckpoints: Array.isArray(design.knowledgeCheckpoints) && design.knowledgeCheckpoints.length
+      ? design.knowledgeCheckpoints
+      : base.knowledgeCheckpoints,
+    bloomsLevels: Array.isArray(design.bloomsLevels) && design.bloomsLevels.length
+      ? design.bloomsLevels
+      : base.bloomsLevels,
+    motivation: design.motivation ?? base.motivation,
+    reflectionPrompts: design.reflectionPrompts ?? base.reflectionPrompts,
+    learningStrategy: design.learningStrategy ?? base.learningStrategy,
+    cognitiveLoadNotes: design.cognitiveLoadNotes ?? base.cognitiveLoadNotes,
+    suggestedPractice: design.suggestedPractice ?? base.suggestedPractice,
+    adaptiveProfile: ctx.adaptiveProfile ?? base.adaptiveProfile,
+    retrievalContext: ctx.retrievalBundle ?? base.retrievalContext,
+    // Preserve required* flags from pedagogy when design omits them
+    requiredDiagrams: design.requiredDiagrams ?? base.requiredDiagrams,
+    requiredCode: design.requiredCode ?? base.requiredCode,
+    requiredTables: design.requiredTables ?? base.requiredTables,
+    requiredVideo: design.requiredVideo ?? base.requiredVideo,
+    requiredQuiz: design.requiredQuiz ?? base.requiredQuiz,
+    requiredLab: design.requiredLab ?? base.requiredLab,
+    requiredReferences: design.requiredReferences ?? base.requiredReferences,
+    requiredAssignment: design.requiredAssignment ?? hasLearningComponent(ctx.interview, "Assignments"),
+    requiredInterviewPrep: design.requiredInterviewPrep ?? hasLearningComponent(ctx.interview, "Interview Questions"),
   };
 }
 
@@ -109,8 +119,8 @@ function validateInstructionalDesign(plan: LessonBlueprintPlan): ArchitectQualit
     {
       id: "objective",
       label: "Lesson objective",
-      status: plan.lessonObjective.length >= 10 ? ("pass" as const) : ("fail" as const),
-      detail: plan.lessonObjective,
+      status: (plan.lessonObjective?.length ?? 0) >= 10 ? ("pass" as const) : ("fail" as const),
+      detail: plan.lessonObjective ?? "",
     },
     {
       id: "goals",
@@ -121,14 +131,14 @@ function validateInstructionalDesign(plan: LessonBlueprintPlan): ArchitectQualit
     {
       id: "flow",
       label: "Micro-learning flow",
-      status: plan.microLearningFlow.length >= 4 ? ("pass" as const) : ("warn" as const),
-      detail: `${plan.microLearningFlow.length} steps`,
+      status: (plan.microLearningFlow?.length ?? 0) >= 4 ? ("pass" as const) : ("warn" as const),
+      detail: `${plan.microLearningFlow?.length ?? 0} steps`,
     },
     {
       id: "checkpoints",
       label: "Knowledge checkpoints",
-      status: plan.knowledgeCheckpoints.length >= 2 ? ("pass" as const) : ("warn" as const),
-      detail: `${plan.knowledgeCheckpoints.length} checkpoints`,
+      status: (plan.knowledgeCheckpoints?.length ?? 0) >= 2 ? ("pass" as const) : ("warn" as const),
+      detail: `${plan.knowledgeCheckpoints?.length ?? 0} checkpoints`,
     },
   ];
   const fail = checks.filter((c) => c.status === "fail").length;

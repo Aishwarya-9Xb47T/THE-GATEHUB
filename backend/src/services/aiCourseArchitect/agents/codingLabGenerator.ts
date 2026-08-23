@@ -120,7 +120,7 @@ async function generateLabWithAI(
 ): Promise<ArchitectCodingLab | null> {
   if (!getOpenAi()) return null;
 
-  const goalsStr = Array.isArray(pedagogy.learningGoals) ? pedagogy.learningGoals.join("; ") : "";
+  const goalsStr = Array.isArray(pedagogy?.learningGoals) ? pedagogy.learningGoals.join("; ") : "";
   const prompt = `Design a complete coding lab for "${lesson.title}" (${interview.courseInfo.subject}).
 
 ${buildInterviewContext(interview)}

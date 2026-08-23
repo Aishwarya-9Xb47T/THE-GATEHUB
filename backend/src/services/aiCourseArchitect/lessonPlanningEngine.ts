@@ -11,6 +11,7 @@ import type {
   LessonPedagogyPlan,
 } from "./types.js";
 import type { LessonBlueprintPlan } from "./orchestrator/contracts.js";
+// LessonBlueprintPlan used by ensureLessonBlueprintPlan + formatPedagogyForPrompt
 import { formatMasterPedagogyForPrompt } from "./engines/masterPedagogy.js";
 import { hasLearningComponent, hasLessonStructure } from "./types.js";
 import { PROFESSOR_SYSTEM_PROMPT, LESSON_DESIGN_SECTIONS } from "./instructorPersona.js";
@@ -207,9 +208,101 @@ function buildHeuristicPlan(
   };
 }
 
-export function formatPedagogyForPrompt(plan: LessonPedagogyPlan | LessonBlueprintPlan): string {
+/**
+ * Guarantee a usable LessonBlueprintPlan even when an upstream agent returns undefined.
+ * Prevents crashes like: Cannot read properties of undefined (reading 'learningGoals').
+ */
+export function ensureLessonBlueprintPlan(
+  plan: Partial<LessonBlueprintPlan> | LessonPedagogyPlan | null | undefined,
+  skeleton: ArchitectLessonBlueprint,
+  interview: AICourseArchitectInterview
+): LessonBlueprintPlan {
+  const heuristic = buildHeuristicPlan(
+    skeleton,
+    { id: "module", title: skeleton.title, description: "", learningOutcomes: [], estimatedHours: 1, lessons: [skeleton] },
+    interview,
+    { globalIndex: 0, priorLessons: [], nextLessons: [] }
+  );
+  const candidateGoals =
+    (plan as { learningGoals?: unknown } | null | undefined)?.learningGoals ??
+    (plan as { learning_goals?: unknown } | null | undefined)?.learning_goals ??
+    (plan as { goals?: unknown } | null | undefined)?.goals ??
+    skeleton.objectives ??
+    heuristic.learningGoals;
+
+  const normalized = normalizeLessonPedagogyPlan(
+    {
+      ...(plan ?? {}),
+      learningGoals: candidateGoals,
+    } as Partial<LessonPedagogyPlan> & { learningGoals?: unknown },
+    heuristic
+  );
+
+  const partial = (plan ?? {}) as Partial<LessonBlueprintPlan>;
+  return {
+    ...normalized,
+    lessonObjective:
+      (typeof partial.lessonObjective === "string" && partial.lessonObjective.trim())
+        ? partial.lessonObjective
+        : (normalized.learningGoals[0] ?? `Master concepts in ${skeleton.title}`),
+    industryContext: partial.industryContext ?? normalized.industryHook,
+    estimatedReadingMinutes: partial.estimatedReadingMinutes ?? skeleton.durationMinutes ?? 45,
+    estimatedPracticeMinutes: partial.estimatedPracticeMinutes ?? (normalized.includeLab ? 30 : 15),
+    estimatedVideoMinutes: partial.estimatedVideoMinutes ?? (skeleton.videos?.length ? 12 : 0),
+    requiredDiagrams: partial.requiredDiagrams ?? (normalized.useDiagrams || normalized.useVisuals),
+    requiredCode: partial.requiredCode ?? normalized.useCode,
+    requiredTables: partial.requiredTables ?? (interview.lessonStructure ?? []).includes("comparison-table"),
+    requiredVideo: partial.requiredVideo ?? (Boolean(skeleton.videos?.length) || interview.videoStrategy?.includeVideos === true),
+    requiredQuiz: partial.requiredQuiz ?? normalized.includeQuiz,
+    requiredLab: partial.requiredLab ?? normalized.includeLab,
+    requiredReferences: partial.requiredReferences ?? (interview.lessonStructure ?? []).includes("references"),
+    requiredAssignment: partial.requiredAssignment ?? hasLearningComponent(interview, "Assignments"),
+    requiredInterviewPrep: partial.requiredInterviewPrep ?? hasLearningComponent(interview, "Interview Questions"),
+    conceptOrder: Array.isArray(partial.conceptOrder) && partial.conceptOrder.length
+      ? partial.conceptOrder.map(String)
+      : normalized.sectionsToEmphasize,
+    microLearningFlow: Array.isArray(partial.microLearningFlow) && partial.microLearningFlow.length
+      ? partial.microLearningFlow.map(String)
+      : [
+          "Hook and motivation",
+          "Core concept",
+          "Worked example",
+          "Guided practice",
+          "Knowledge checkpoint",
+          "Summary and bridge",
+        ],
+    practiceIntervals: Array.isArray(partial.practiceIntervals) && partial.practiceIntervals.length
+      ? partial.practiceIntervals.map(String)
+      : ["After each major concept", "End of lesson recap"],
+    revisionSpacing: typeof partial.revisionSpacing === "string" && partial.revisionSpacing.trim()
+      ? partial.revisionSpacing
+      : "Revisit prior module concepts in opening recap",
+    difficultyCurve: typeof partial.difficultyCurve === "string" && partial.difficultyCurve.trim()
+      ? partial.difficultyCurve
+      : `Progress from ${skeleton.difficultyTier ?? "intermediate"} foundations to applied practice`,
+    knowledgeCheckpoints: Array.isArray(partial.knowledgeCheckpoints) && partial.knowledgeCheckpoints.length
+      ? partial.knowledgeCheckpoints.map(String)
+      : normalized.learningGoals.slice(0, 4),
+    bloomsLevels: Array.isArray(partial.bloomsLevels) && partial.bloomsLevels.length
+      ? partial.bloomsLevels.map(String)
+      : ["Understand", "Apply", "Analyze"],
+    motivation: partial.motivation,
+    reflectionPrompts: partial.reflectionPrompts,
+    learningStrategy: partial.learningStrategy,
+    cognitiveLoadNotes: partial.cognitiveLoadNotes,
+    suggestedPractice: partial.suggestedPractice,
+    adaptiveProfile: partial.adaptiveProfile,
+    retrievalContext: partial.retrievalContext,
+  };
+}
+
+export function formatPedagogyForPrompt(plan: LessonPedagogyPlan | LessonBlueprintPlan | null | undefined): string {
   const safeJoin = (arr: unknown, sep = "; "): string =>
     Array.isArray(arr) ? arr.join(sep) : String(arr ?? "");
+
+  if (!plan) {
+    return "PEDAGOGY PLAN: (unavailable — use lesson title and objectives)";
+  }
 
   const base = `
 PEDAGOGY PLAN (follow this reasoning):

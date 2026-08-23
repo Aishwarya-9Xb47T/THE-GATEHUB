@@ -976,7 +976,7 @@ export function AICourseArchitectPage() {
                 <Input value={interview.courseInfo.industry} onChange={(e) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, industry: e.target.value } }))} placeholder="Technology, Healthcare, Finance..." />
               </div>
               <ListInput label="Prerequisites" items={interview.courseInfo.prerequisites} onChange={(items) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, prerequisites: items } }))} />
-              <ListInput label="Learning Goals" items={interview.courseInfo.learningGoals} onChange={(items) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, learningGoals: items } }))} />
+              <ListInput label="Learning Goals" items={interview.courseInfo?.learningGoals ?? []} onChange={(items) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, learningGoals: items } }))} />
               <ListInput label="Expected Outcomes" items={interview.courseInfo.expectedOutcomes} onChange={(items) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, expectedOutcomes: items } }))} />
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={interview.courseInfo.certificationEligible} onCheckedChange={(v) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, certificationEligible: !!v } }))} />
@@ -1062,7 +1062,7 @@ export function AICourseArchitectPage() {
 
               <ListInput
                 label="Key Learning Goals (Specific Skills)"
-                items={interview.courseInfo.learningGoals}
+                items={interview.courseInfo?.learningGoals ?? []}
                 onChange={(items) => setInterview((p) => ({ ...p, courseInfo: { ...p.courseInfo, learningGoals: items } }))}
               />
 
@@ -1860,19 +1860,26 @@ export function AICourseArchitectPage() {
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Approved blueprint: <strong>{blueprint?.courseTitle}</strong> — {blueprint?.modules.length} modules,{" "}
-                    {blueprint?.modules.reduce((n, m) => n + m.lessons.length, 0)} lessons. Content will be written to Academic Studio LaTeX project.
+                    Approved blueprint: <strong>{blueprint?.courseTitle}</strong> — {blueprint?.modules?.length ?? 0} modules,{" "}
+                    {(blueprint?.modules ?? []).reduce((n, m) => n + (m.lessons?.length ?? 0), 0)} lessons. Content will be written to Academic Studio LaTeX project.
                   </p>
                   {jobError && (
                     <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 space-y-3">
                       <div className="flex items-start gap-2 text-sm text-destructive">
                         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                         <div>
-                          <p className="font-semibold">Generation interrupted</p>
+                          <p className="font-semibold">
+                            {/blueprint validation failed/i.test(jobError)
+                              ? "Blueprint validation failed"
+                              : "Generation interrupted"}
+                          </p>
                           <p className="text-xs mt-0.5 text-muted-foreground">{jobError}</p>
+                          {jobStageMessage && (
+                            <p className="text-xs mt-1 text-muted-foreground">Stage: {jobStageMessage}</p>
+                          )}
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <Button
                           type="button"
                           size="sm"
@@ -1886,6 +1893,15 @@ export function AICourseArchitectPage() {
                           type="button"
                           size="sm"
                           variant="outline"
+                          className="text-xs"
+                          onClick={handleResumeJob}
+                        >
+                          Retry Failed Stage
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
                           className="text-xs"
                           onClick={handleGenerate}
                         >
