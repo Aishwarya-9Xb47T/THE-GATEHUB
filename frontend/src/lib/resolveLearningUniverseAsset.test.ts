@@ -26,16 +26,15 @@ describe("resolveLearningUniverseAsset", () => {
       assets
     );
     expect(resolved.status).toBe("found");
-    expect(resolved.resolvedUrl).toContain("/uploads/learning-universes/uni-1/abc-123.mp4");
+    expect(resolved.resolvedUrl).toContain("/api/learning-universes/uni-1/assets/lecture.mp4");
     expect(resolved.resolvedUrl).not.toContain("/uploads/projects/");
   });
 
-  it("resolves canonical videos/ storage pointers without inventing learning-universes path", () => {
+  it("resolves canonical videos/ storage pointers via LU asset API", () => {
     const pointerAssets = [{ filename: "lecture.mp4", storedFilename: "videos/abc-uuid.mp4" }];
     const resolved = resolveLearningUniverseAsset("lecture.mp4", "uni-1", pointerAssets);
     expect(resolved.status).toBe("found");
-    expect(resolved.resolvedUrl).toContain("/uploads/videos/abc-uuid.mp4");
-    expect(resolved.resolvedUrl).not.toContain("/learning-universes/");
+    expect(resolved.resolvedUrl).toContain("/api/learning-universes/uni-1/assets/lecture.mp4");
   });
 
   it("rewrites localhost upload hosts", () => {
@@ -45,7 +44,7 @@ describe("resolveLearningUniverseAsset", () => {
       assets
     );
     expect(resolved.status).toBe("found");
-    expect(resolved.resolvedUrl).toContain("/uploads/learning-universes/uni-1/img-9.png");
+    expect(resolved.resolvedUrl).toContain("/api/learning-universes/uni-1/assets/diagram.png");
     expect(resolved.resolvedUrl).not.toContain("localhost:5000");
     expect(resolved.resolvedUrl).not.toContain("/uploads/projects/");
   });
@@ -61,7 +60,7 @@ describe("resolveLearningUniverseAsset", () => {
     );
     expect(resolved.status).toBe("found");
     expect(resolved.resolvedUrl).toContain(
-      "/uploads/learning-universes/cmsu3za18000oubjgb9j5hxle/ef319b35-ab48-4ea5-9240-0b32026f9e60.mp4"
+      "/api/learning-universes/cmsu3za18000oubjgb9j5hxle/assets/45246303-a85f-461b-b05d-18a424d0f7c3.mp4"
     );
     expect(resolved.resolvedUrl).not.toContain("/uploads/projects/");
     expect(resolved.resolvedUrl).not.toMatch(/[\r\n]/);
@@ -108,7 +107,7 @@ describe("resolveVideoSource published uploads", () => {
       { url: "http://localhost:5000/uploads/projects/p1/lecture.mp4", type: "upload" },
       resolveUpload
     );
-    expect(fromLocal?.url).toContain("/uploads/learning-universes/uni-1/abc-123.mp4");
+    expect(fromLocal?.url).toContain("/api/learning-universes/uni-1/assets/lecture.mp4");
     expect(fromLocal?.url).not.toContain("/uploads/projects/");
   });
 });

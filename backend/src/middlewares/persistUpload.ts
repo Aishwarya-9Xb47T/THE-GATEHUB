@@ -17,6 +17,7 @@ import {
   detectContentType,
   isMissingObjectError,
   isB2CapExceededError,
+  statObjectBytes,
   type B2Prefix,
 } from "../services/b2StorageService.js";
 import { getUploadRoot, resolveSafeUploadPath, normalizeUploadRelativePath } from "./uploadAccess.js";
@@ -446,6 +447,14 @@ function uploadRelativesToTry(relativePath: string): string[] {
   const primary = normalizeUploadRelativePath(relativePath);
   const relatives: string[] = [primary, ...classroomAssetLookupRelatives(primary)];
 
+  // Legacy LU copies: learning-universes/<id>/<uuid>.mp4 → also try canonical videos/<uuid>.mp4
+  const luCopy = primary.match(/^learning-universes\/[^/]+\/([^/]+)$/i);
+  if (luCopy?.[1]) {
+    const base = luCopy[1];
+    relatives.push(`videos/${base}`);
+    relatives.push(base);
+  }
+
   // If primary has no directory segment, search standard upload category prefixes
   if (!primary.includes("/")) {
     const ext = path.extname(primary).toLowerCase();
@@ -465,6 +474,119 @@ function uploadRelativesToTry(relativePath: string): string[] {
   }
 
   return [...new Set(relatives)];
+}
+
+export class StorageStreamError extends Error {
+  constructor(
+    public code:
+      | "OBJECT_NOT_FOUND"
+      | "ACCESS_DENIED"
+      | "BANDWIDTH_LIMIT"
+      | "TRANSACTION_LIMIT"
+      | "NETWORK_ERROR"
+      | "INVALID_KEY",
+    message: string,
+    public httpStatus: number,
+    public details?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "StorageStreamError";
+  }
+}
+
+function classifyStreamError(err: unknown, key?: string): StorageStreamError {
+  if (err instanceof StorageStreamError) return err;
+  if (isB2CapExceededError(err)) {
+    return new StorageStreamError(
+      "BANDWIDTH_LIMIT",
+      err instanceof Error ? err.message : "B2 download/transaction cap exceeded",
+      503,
+      { key, storageErrorCode: "BANDWIDTH_LIMIT" }
+    );
+  }
+  const status = httpStatusOfGet(err);
+  const message = err instanceof Error ? err.message : String(err);
+  if (status === 404 || isMissingObjectError(err)) {
+    return new StorageStreamError("OBJECT_NOT_FOUND", message || "Object not found", 404, { key });
+  }
+  if (status === 403) {
+    return new StorageStreamError("ACCESS_DENIED", message || "Access denied", 403, { key });
+  }
+  return new StorageStreamError("NETWORK_ERROR", message || "Storage network error", 502, {
+    key,
+    status,
+  });
+}
+
+async function resolveB2StreamTarget(relativePath: string): Promise<{
+  key: string;
+  size: number;
+  contentType?: string;
+  sizeKnown: boolean;
+} | null> {
+  const relatives = uploadRelativesToTry(relativePath);
+  const candidateKeys: string[] = [];
+  for (const relative of relatives) {
+    const normalized = normalizeUploadRelativePath(relative);
+    candidateKeys.push(`uploads/${normalized}`);
+    candidateKeys.push(normalized);
+  }
+  const uniqueKeys = [...new Set(candidateKeys)];
+
+  for (const candidateKey of uniqueKeys) {
+    try {
+      const meta = await headObject(candidateKey);
+      if (!meta) continue;
+      let size = Number(meta.contentLength) || 0;
+      if (size <= 0) {
+        const stat = await statObjectBytes(candidateKey);
+        size = Number(stat.bytes) || 0;
+        if (size <= 0 && (stat.source === "head" || Boolean(meta.etag))) {
+          // Object exists but length unknown — stream with client Range forwarded to B2.
+          return {
+            key: candidateKey,
+            size: 0,
+            contentType: meta.contentType || stat.contentType,
+            sizeKnown: false,
+          };
+        }
+      }
+      if (size > 0 || meta.etag) {
+        return {
+          key: candidateKey,
+          size,
+          contentType: meta.contentType,
+          sizeKnown: size > 0,
+        };
+      }
+    } catch (err) {
+      if (isB2CapExceededError(err)) throw classifyStreamError(err, candidateKey);
+      // keep trying other keys
+    }
+  }
+
+  // Head often 403 without listFiles — probe via list / 1-byte range (not full download).
+  for (const candidateKey of uniqueKeys) {
+    try {
+      const stat = await statObjectBytes(candidateKey);
+      if (stat.source === "list" || stat.source === "range" || (stat.source === "head" && Number(stat.bytes) > 0)) {
+        return {
+          key: candidateKey,
+          size: Number(stat.bytes) || 0,
+          contentType: stat.contentType,
+          sizeKnown: Number(stat.bytes) > 0,
+        };
+      }
+      if (stat.status === 403) {
+        // Likely exists; allow stream attempt with unknown size.
+        return { key: candidateKey, size: 0, contentType: stat.contentType, sizeKnown: false };
+      }
+    } catch (err) {
+      if (isB2CapExceededError(err)) throw classifyStreamError(err, candidateKey);
+    }
+  }
+
+  return null;
 }
 
 export async function serveStoredUpload(
@@ -488,89 +610,20 @@ export async function serveStoredUpload(
 
   if (!isB2Configured()) return false;
 
-  let key = "";
-  let meta: Awaited<ReturnType<typeof headObject>> = null;
-  const candidateKeys: string[] = [];
-  for (const relative of relatives) {
-    const normalized = normalizeUploadRelativePath(relative);
-    candidateKeys.push(`uploads/${normalized}`);
-    candidateKeys.push(normalized);
-  }
-  for (const candidateKey of [...new Set(candidateKeys)]) {
-    const candidateMeta = await headObject(candidateKey);
-    if (candidateMeta) {
-      key = candidateKey;
-      meta = candidateMeta;
-      break;
-    }
-  }
-  if (!meta) {
-    for (const candidateKey of [...new Set(candidateKeys)]) {
-      try {
-        const streamed = await getObjectStream(candidateKey);
-        const size = streamed.contentLength ?? 0;
-        const mime =
-          options?.mimeType ||
-          (streamed.contentType && streamed.contentType !== "application/octet-stream"
-            ? streamed.contentType
-            : mimeFromUploadPath(candidateKey, streamed.contentType));
-        applyUploadCorsHeaders(res, options?.origin);
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("Accept-Ranges", "bytes");
-        res.setHeader("Content-Type", mime);
-        if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
-        mediaLog("MEDIA_B2", { key: candidateKey, mime, size, found: 1, via: "get_fallback" });
-        mediaLog("MEDIA_STREAM", {
-          key: candidateKey,
-          mime,
-          range: "none",
-          status: streamed.status || 200,
-          length: streamed.contentLength,
-          source: "b2",
-        });
-        if (options?.method === "HEAD") {
-          res.status(200);
-          if (size) res.setHeader("Content-Length", String(size));
-          res.end();
-          streamed.body.resume?.();
-          return true;
-        }
-        res.status(streamed.status || 200);
-        if (streamed.contentLength != null) res.setHeader("Content-Length", String(streamed.contentLength));
-        streamed.body.on("error", (err) => {
-          console.error(
-            `[MEDIA_STREAM] stream_error key=${candidateKey} message=${err instanceof Error ? err.message : "unknown"}`,
-          );
-          if (!res.headersSent) res.status(502).end();
-          else res.destroy();
-        });
-        streamed.body.pipe(res);
-        return true;
-      } catch (err) {
-        if (isB2CapExceededError(err)) {
-          throw err;
-        }
-        if (!isMissingObjectError(err) && httpStatusOfGet(err) !== 404) {
-          console.warn(
-            "[MEDIA_B2] get_fallback_error key=" +
-              candidateKey +
-              " message=" +
-              (err instanceof Error ? err.message : "unknown"),
-          );
-        }
-      }
-    }
-    mediaLog("MEDIA_B2", { path: relativePath, keysTried: candidateKeys.length, found: 0 });
+  const target = await resolveB2StreamTarget(relativePath);
+  if (!target) {
+    mediaLog("MEDIA_B2", { path: relativePath, found: 0 });
     return false;
   }
 
-  const size = meta.contentLength ?? 0;
+  const { key, sizeKnown } = target;
+  let size = target.size;
   const mime =
     options?.mimeType ||
-    (meta.contentType && meta.contentType !== "application/octet-stream"
-      ? meta.contentType
-      : mimeFromUploadPath(key, meta.contentType));
-  const inspected = inspectByteRange(options?.range, size);
+    (target.contentType && target.contentType !== "application/octet-stream"
+      ? target.contentType
+      : mimeFromUploadPath(key, target.contentType));
+
   applyUploadCorsHeaders(res, options?.origin);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Accept-Ranges", "bytes");
@@ -584,39 +637,61 @@ export async function serveStoredUpload(
     mime,
     range: options?.range || "none",
     source: "b2",
+    sizeKnown: sizeKnown ? 1 : 0,
   });
   mediaLog("MEDIA_B2", { key, mime, size, found: 1 });
 
-  if (inspected.type === "unsatisfiable") {
-    sendUnsatisfiableRange(res, size);
-    return true;
+  // Known size → RFC 7233 validation. Unknown size → forward Range to B2.
+  let b2Range: string | undefined;
+  let responseStatus = 200;
+  let contentLength: number | undefined = sizeKnown && size > 0 ? size : undefined;
+  let contentRangeHeader: string | undefined;
+
+  if (sizeKnown && size > 0) {
+    const inspected = inspectByteRange(options?.range, size);
+    if (inspected.type === "unsatisfiable") {
+      sendUnsatisfiableRange(res, size);
+      return true;
+    }
+    if (inspected.type === "valid") {
+      b2Range = `bytes=${inspected.start}-${inspected.end}`;
+      responseStatus = 206;
+      contentLength = inspected.end - inspected.start + 1;
+      contentRangeHeader = `bytes ${inspected.start}-${inspected.end}/${size}`;
+    }
+  } else if (options?.range?.trim()) {
+    b2Range = options.range.trim();
+    responseStatus = 206;
   }
 
-  const b2Range =
-    inspected.type === "valid" ? `bytes=${inspected.start}-${inspected.end}` : undefined;
-
   if (options?.method === "HEAD") {
-    if (inspected.type === "valid") {
-      const chunkSize = inspected.end - inspected.start + 1;
+    if (responseStatus === 206 && contentRangeHeader && contentLength != null) {
       mediaLog("MEDIA_RANGE", { key, mime, range: options?.range, status: 206, head: 1 });
       res.status(206);
-      res.setHeader("Content-Range", `bytes ${inspected.start}-${inspected.end}/${size}`);
-      res.setHeader("Content-Length", String(chunkSize));
+      res.setHeader("Content-Range", contentRangeHeader);
+      res.setHeader("Content-Length", String(contentLength));
     } else {
       mediaLog("MEDIA_STREAM", { key, mime, range: "none", status: 200, head: 1 });
       res.status(200);
-      if (size) res.setHeader("Content-Length", String(size));
+      if (sizeKnown && size > 0) res.setHeader("Content-Length", String(size));
     }
     res.end();
     return true;
   }
 
-  const streamed = await getObjectStream(key, b2Range);
-  const status = streamed.status || (b2Range ? 206 : 200);
+  let streamed: Awaited<ReturnType<typeof getObjectStream>>;
+  try {
+    streamed = await getObjectStream(key, b2Range);
+  } catch (err) {
+    throw classifyStreamError(err, key);
+  }
+
+  const status = streamed.status || responseStatus;
   const contentType =
     streamed.contentType && streamed.contentType !== "application/octet-stream"
       ? streamed.contentType
       : mime;
+
   if (b2Range) {
     mediaLog("MEDIA_RANGE", {
       key,
@@ -634,14 +709,24 @@ export async function serveStoredUpload(
     length: streamed.contentLength,
     source: "b2",
   });
+
   res.status(status);
   res.setHeader("Content-Type", contentType);
   if (contentType === "application/pdf") res.removeHeader("X-Frame-Options");
-  if (streamed.contentLength != null) res.setHeader("Content-Length", String(streamed.contentLength));
-  if (streamed.contentRange) res.setHeader("Content-Range", streamed.contentRange);
+  if (streamed.contentLength != null) {
+    res.setHeader("Content-Length", String(streamed.contentLength));
+  } else if (contentLength != null) {
+    res.setHeader("Content-Length", String(contentLength));
+  }
+  if (streamed.contentRange) {
+    res.setHeader("Content-Range", streamed.contentRange);
+  } else if (contentRangeHeader) {
+    res.setHeader("Content-Range", contentRangeHeader);
+  }
+
   streamed.body.on("error", (err) => {
     console.error(
-      `[MEDIA_STREAM] stream_error key=${key} message=${err instanceof Error ? err.message : "unknown"}`
+      `[VIDEO_STREAM_ERROR] key=${key} range=${b2Range || "none"} message=${err instanceof Error ? err.message : "unknown"}`
     );
     if (!res.headersSent) res.status(502).end();
     else res.destroy();

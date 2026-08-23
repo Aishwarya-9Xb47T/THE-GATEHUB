@@ -366,23 +366,30 @@ export async function getObjectStream(
   range?: string
 ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number; contentRange?: string; status: number }> {
   const client = getClient();
-  const out: GetObjectCommandOutput = await client.send(
-    new GetObjectCommand({
-      Bucket: requireBucket(),
-      Key: key,
-      Range: range,
-    })
-  );
-  if (!out.Body) {
-    throw new Error("Empty B2 object body");
+  try {
+    const out: GetObjectCommandOutput = await client.send(
+      new GetObjectCommand({
+        Bucket: requireBucket(),
+        Key: key,
+        Range: range,
+      })
+    );
+    if (!out.Body) {
+      throw new Error("Empty B2 object body");
+    }
+    return {
+      body: out.Body as NodeJS.ReadableStream,
+      contentType: out.ContentType,
+      contentLength: out.ContentLength,
+      contentRange: out.ContentRange,
+      status: out.$metadata.httpStatusCode || (range ? 206 : 200),
+    };
+  } catch (err) {
+    if (isB2CapExceededError(err)) {
+      throw new B2CapExceededError(err instanceof Error ? err.message : undefined);
+    }
+    throw err;
   }
-  return {
-    body: out.Body as NodeJS.ReadableStream,
-    contentType: out.ContentType,
-    contentLength: out.ContentLength,
-    contentRange: out.ContentRange,
-    status: out.$metadata.httpStatusCode || (range ? 206 : 200),
-  };
 }
 
 export async function getSignedGetUrl(key: string, expiresInSeconds = SIGNED_URL_TTL_SECONDS): Promise<string> {

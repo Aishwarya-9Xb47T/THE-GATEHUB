@@ -77,7 +77,7 @@ import {
   resolveSafeUploadPath,
   normalizeUploadRelativePath,
 } from "./middlewares/uploadAccess.js";
-import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload } from "./middlewares/persistUpload.js";
+import { applyUploadCorsHeaders, serveStoredUpload, streamLocalUpload, StorageStreamError } from "./middlewares/persistUpload.js";
 import { isVideoUploadPath } from "./utils/uploadMedia.js";
 import { pingB2Storage, isB2CapExceededError } from "./services/b2StorageService.js";
 
@@ -285,17 +285,38 @@ async function serveProjectUpload(req: Request, res: Response) {
   }
   const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  if (fs.existsSync(filePath)) {
-    return streamLocalUpload(res, filePath, { range, method: req.method, origin });
+  try {
+    if (fs.existsSync(filePath)) {
+      return streamLocalUpload(res, filePath, { range, method: req.method, origin });
+    }
+    const served = await serveStoredUpload(res, relative, {
+      range,
+      method: req.method,
+      origin,
+      asVideo: isVideoUploadPath(relative),
+    });
+    if (served) return;
+    return res.status(404).json({ success: false, error: "File not found", code: "OBJECT_NOT_FOUND" });
+  } catch (err) {
+    const classified =
+      err instanceof StorageStreamError
+        ? err
+        : isB2CapExceededError(err)
+          ? new StorageStreamError("BANDWIDTH_LIMIT", "B2 capacity exceeded", 503, { path: relative })
+          : null;
+    const status = classified?.httpStatus || 500;
+    console.error(
+      `[VIDEO_STREAM_ERROR] path=${relative} range=${range || "none"} status=${status} storageErrorCode=${classified?.code || "NETWORK_ERROR"} storageErrorMessage=${err instanceof Error ? err.message : String(err)}`
+    );
+    applyUploadCorsHeaders(res, origin);
+    if (!res.headersSent) {
+      return res.status(status).json({
+        success: false,
+        error: classified?.message || "Failed to stream video",
+        code: classified?.code || "NETWORK_ERROR",
+      });
+    }
   }
-  const served = await serveStoredUpload(res, relative, {
-    range,
-    method: req.method,
-    origin,
-    asVideo: isVideoUploadPath(relative),
-  });
-  if (served) return;
-  return res.status(404).json({ success: false, error: "File not found" });
 }
 
 async function serveAnyUpload(req: Request, res: Response, next: () => void) {
@@ -313,21 +334,57 @@ async function serveAnyUpload(req: Request, res: Response, next: () => void) {
     `[MEDIA_RESOLVE] path=${relativePath} method=${req.method} range=${range || "none"} video=${isVideoUploadPath(relativePath) ? 1 : 0}`
   );
 
-  if (fs.existsSync(filePath)) {
-    return streamLocalUpload(res, filePath, { range, method: req.method, origin });
-  }
+  try {
+    if (fs.existsSync(filePath)) {
+      return streamLocalUpload(res, filePath, { range, method: req.method, origin });
+    }
 
-  const streamed = await serveStoredUpload(res, relativePath, {
-    asVideo: isVideoUploadPath(relativePath),
-    range,
-    method: req.method,
-    origin,
-  });
-  if (streamed) return;
-  if (isVideoUploadPath(relativePath)) {
-    return res.status(404).json({ success: false, error: "Video not found" });
+    const streamed = await serveStoredUpload(res, relativePath, {
+      asVideo: isVideoUploadPath(relativePath),
+      range,
+      method: req.method,
+      origin,
+    });
+    if (streamed) return;
+    if (isVideoUploadPath(relativePath)) {
+      console.error(
+        `[VIDEO_STREAM_ERROR] path=${relativePath} range=${range || "none"} status=404 storageErrorCode=OBJECT_NOT_FOUND`
+      );
+      return res.status(404).json({
+        success: false,
+        error: "Video not found",
+        code: "OBJECT_NOT_FOUND",
+      });
+    }
+    return next();
+  } catch (err) {
+    const classified =
+      err instanceof StorageStreamError
+        ? err
+        : isB2CapExceededError(err)
+          ? new StorageStreamError(
+              "BANDWIDTH_LIMIT",
+              err instanceof Error ? err.message : "B2 capacity exceeded",
+              503,
+              { path: relativePath }
+            )
+          : null;
+
+    const code = classified?.code || "NETWORK_ERROR";
+    const status = classified?.httpStatus || 500;
+    console.error(
+      `[VIDEO_STREAM_ERROR] path=${relativePath} range=${range || "none"} status=${status} storageErrorCode=${code} storageErrorMessage=${err instanceof Error ? err.message : String(err)}`
+    );
+    applyUploadCorsHeaders(res, origin);
+    if (!res.headersSent) {
+      return res.status(status).json({
+        success: false,
+        error: classified?.message || "Failed to stream video",
+        code,
+      });
+    }
+    res.destroy();
   }
-  return next();
 }
 
 app.head("/uploads/projects/:projectId/:filename", serveProjectUpload);

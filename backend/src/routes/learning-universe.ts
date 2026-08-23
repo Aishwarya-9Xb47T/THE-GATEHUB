@@ -270,43 +270,91 @@ async function serveLearningUniverseAsset(req: AuthRequest, res: express.Respons
       return res.status(404).json({ success: false, error: "Asset not found" });
     }
     const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
-    const { streamLocalUpload, serveStoredUpload, hydrateLocalUpload } = await import(
+    const { streamLocalUpload, serveStoredUpload, hydrateLocalUpload, StorageStreamError } = await import(
       "../middlewares/persistUpload.js"
     );
-    const assetPath = path.join(ASSETS_DIR, id, asset.storedFilename);
-    if (fs.existsSync(assetPath)) {
-      return streamLocalUpload(res, assetPath, { range, method: req.method, mimeType: asset.mimeType || undefined });
-    }
-    // Canonical pointer: storedFilename is videos/<uuid>.mp4 (or images/...) under /uploads
-    const relative = String(asset.storedFilename || "")
-      .replace(/^\/+/, "")
-      .replace(/^uploads\//, "");
-    if (relative.includes("/") || /^(videos|images|banners|pdfs|projects)\//i.test(relative)) {
-      const hydratedCanonical = await hydrateLocalUpload(`/uploads/${relative}`);
-      if (hydratedCanonical) {
-        return streamLocalUpload(res, hydratedCanonical, {
+    const { isB2CapExceededError } = await import("../services/b2StorageService.js");
+
+    try {
+      const assetPath = path.join(ASSETS_DIR, id, asset.storedFilename);
+      if (fs.existsSync(assetPath)) {
+        return streamLocalUpload(res, assetPath, {
           range,
           method: req.method,
           mimeType: asset.mimeType || undefined,
         });
       }
-      const streamedCanonical = await serveStoredUpload(res, relative, {
+      // Canonical pointer: storedFilename is videos/<uuid>.mp4 (or images/...) under /uploads
+      const relative = String(asset.storedFilename || "")
+        .replace(/^\/+/, "")
+        .replace(/^uploads\//, "");
+      console.info(
+        `[VIDEO_PLAYBACK_TRACE] courseId=${id} assetId=${asset.id} storageKey=${relative} mimeType=${asset.mimeType} size=${asset.size} range=${range || "none"}`
+      );
+      if (relative.includes("/") || /^(videos|images|banners|pdfs|projects)\//i.test(relative)) {
+        const hydratedCanonical = await hydrateLocalUpload(`/uploads/${relative}`);
+        if (hydratedCanonical) {
+          return streamLocalUpload(res, hydratedCanonical, {
+            range,
+            method: req.method,
+            mimeType: asset.mimeType || undefined,
+          });
+        }
+        const streamedCanonical = await serveStoredUpload(res, relative, {
+          range,
+          method: req.method,
+          mimeType: asset.mimeType || undefined,
+        });
+        if (streamedCanonical) return;
+      }
+      const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
+      if (hydrated) {
+        return streamLocalUpload(res, hydrated, {
+          range,
+          method: req.method,
+          mimeType: asset.mimeType || undefined,
+        });
+      }
+      // Also try videos/<basename> when legacy storedFilename was a bare UUID copy.
+      const base = path.basename(relative);
+      const streamedVideos = await serveStoredUpload(res, `videos/${base}`, {
         range,
         method: req.method,
         mimeType: asset.mimeType || undefined,
       });
-      if (streamedCanonical) return;
+      if (streamedVideos) return;
+      const streamed = await serveStoredUpload(res, `learning-universes/${id}/${asset.storedFilename}`, {
+        range,
+        method: req.method,
+      });
+      if (streamed) return;
+      console.error(
+        `[VIDEO_STREAM_ERROR] courseId=${id} assetId=${asset.id} storageKey=${relative} status=404 storageErrorCode=OBJECT_NOT_FOUND`
+      );
+      return res.status(404).json({ success: false, error: "Asset file not found", code: "OBJECT_NOT_FOUND" });
+    } catch (streamErr) {
+      const classified =
+        streamErr instanceof StorageStreamError
+          ? streamErr
+          : isB2CapExceededError(streamErr)
+            ? new StorageStreamError(
+                "BANDWIDTH_LIMIT",
+                streamErr instanceof Error ? streamErr.message : "B2 capacity exceeded",
+                503
+              )
+            : null;
+      const status = classified?.httpStatus || 500;
+      console.error(
+        `[VIDEO_STREAM_ERROR] courseId=${id} assetId=${asset.id} storageKey=${asset.storedFilename} range=${range || "none"} status=${status} storageErrorCode=${classified?.code || "NETWORK_ERROR"} storageErrorMessage=${streamErr instanceof Error ? streamErr.message : String(streamErr)}`
+      );
+      if (!res.headersSent) {
+        return res.status(status).json({
+          success: false,
+          error: classified?.message || "Failed to stream video",
+          code: classified?.code || "NETWORK_ERROR",
+        });
+      }
     }
-    const hydrated = await hydrateLocalUpload(`/uploads/learning-universes/${id}/${asset.storedFilename}`);
-    if (hydrated) {
-      return streamLocalUpload(res, hydrated, { range, method: req.method, mimeType: asset.mimeType || undefined });
-    }
-    const streamed = await serveStoredUpload(res, `learning-universes/${id}/${asset.storedFilename}`, {
-      range,
-      method: req.method,
-    });
-    if (streamed) return;
-    return res.status(404).json({ success: false, error: "Asset file not found" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: "Failed to serve asset" });
@@ -326,6 +374,23 @@ router.get("/:id/asset-health", authenticate, requireRole("instructor", "admin")
     res.status(500).json({ success: false, error: (err as Error).message || "Asset health check failed" });
   }
 });
+
+router.get(
+  "/:id/assets/:assetId/diagnose",
+  authenticate,
+  requireRole("instructor", "admin"),
+  async (req: AuthRequest, res) => {
+    try {
+      const { diagnoseVideoAsset } = await import("../services/publishedCourseAssetHealth.js");
+      const report = await diagnoseVideoAsset(req.params.assetId);
+      console.info("[VIDEO_PLAYBACK_TRACE]", report);
+      res.json({ success: true, data: report });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, error: (err as Error).message || "Diagnose failed" });
+    }
+  }
+);
 
 // Protected routes (for instructors)
 router.post("/draft", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {

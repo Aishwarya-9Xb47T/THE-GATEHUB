@@ -453,14 +453,38 @@ export function UploadedVideoPlayer({
 
               // Diagnostic probe to get real HTTP status code
               fetch(currentSrc, { method: "HEAD" })
-                .then((res) => {
+                .then(async (res) => {
+                  let bodyCode = "";
+                  try {
+                    const ct = res.headers.get("content-type") || "";
+                    if (ct.includes("json")) {
+                      const body = (await res.json()) as { code?: string; error?: string };
+                      bodyCode = body.code || body.error || "";
+                    }
+                  } catch {
+                    /* ignore */
+                  }
                   if (!res.ok) {
-                    if (res.status === 403) {
-                      setErrorDetail("Storage access temporarily unavailable (HTTP 403)");
-                    } else if (res.status === 404) {
+                    if (res.status === 403 || bodyCode === "ACCESS_DENIED") {
+                      setErrorDetail(
+                        bodyCode
+                          ? `Storage access denied (${bodyCode})`
+                          : "Storage access temporarily unavailable (HTTP 403)"
+                      );
+                    } else if (res.status === 404 || bodyCode === "OBJECT_NOT_FOUND") {
                       setErrorDetail("Video file not found in storage (HTTP 404)");
+                    } else if (
+                      res.status === 503 ||
+                      bodyCode === "BANDWIDTH_LIMIT" ||
+                      bodyCode === "TRANSACTION_LIMIT"
+                    ) {
+                      setErrorDetail(
+                        `Storage capacity temporarily unavailable (HTTP ${res.status}${bodyCode ? `: ${bodyCode}` : ""})`
+                      );
                     } else {
-                      setErrorDetail(`HTTP ${res.status}: Failed to stream video`);
+                      setErrorDetail(
+                        `HTTP ${res.status}: Failed to stream video${bodyCode ? ` (${bodyCode})` : ""}`
+                      );
                     }
                   } else {
                     setErrorDetail(label);

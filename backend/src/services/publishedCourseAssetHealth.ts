@@ -171,3 +171,88 @@ export async function checkPublishedCourseAssets(
 
   return { courseId, overall, items };
 }
+
+export async function diagnoseVideoAsset(assetId: string): Promise<{
+  assetId: string;
+  type: string;
+  status: string;
+  storageProvider: string;
+  bucket: string | null;
+  storageKey: string;
+  storageObjectExists: boolean;
+  storageObjectReadable: boolean;
+  contentType: string | null;
+  size: number;
+  playbackEndpoint: string;
+  playbackEndpointStatus: string;
+  rangeSupported: boolean;
+  errors: string[];
+  courseId?: string;
+}> {
+  const errors: string[] = [];
+  const asset = await prisma.learningUniverseAsset.findUnique({
+    where: { id: assetId },
+    include: { learningUniverse: { select: { id: true, status: true } } },
+  });
+  if (!asset) {
+    return {
+      assetId,
+      type: "VIDEO",
+      status: "MISSING",
+      storageProvider: "b2",
+      bucket: process.env.B2_BUCKET_NAME?.trim() || null,
+      storageKey: "",
+      storageObjectExists: false,
+      storageObjectReadable: false,
+      contentType: null,
+      size: 0,
+      playbackEndpoint: "",
+      playbackEndpointStatus: "ASSET_NOT_FOUND",
+      rangeSupported: false,
+      errors: ["LearningUniverseAsset not found"],
+    };
+  }
+
+  const relative = asset.storedFilename.replace(/^\/+/, "").replace(/^uploads\//, "");
+  const key = `uploads/${relative}`;
+  const playbackEndpoint = `/uploads/${relative}`;
+  let storageObjectExists = false;
+  let storageObjectReadable = false;
+  let contentType: string | null = asset.mimeType || null;
+  let size = asset.size || 0;
+  let playbackEndpointStatus = "UNKNOWN";
+
+  if (!isB2Configured()) {
+    errors.push("B2 not configured");
+    playbackEndpointStatus = "STORAGE_NOT_CONFIGURED";
+  } else {
+    const probe = await probeStorageObject(key);
+    storageObjectExists =
+      probe.code === "EXISTS" || probe.code === "STORAGE_AUTHORIZATION_ERROR";
+    storageObjectReadable = probe.code === "EXISTS";
+    if (probe.bytes) size = probe.bytes;
+    if (probe.contentType) contentType = probe.contentType;
+    playbackEndpointStatus = probe.code;
+    if (probe.code !== "EXISTS" && probe.code !== "STORAGE_AUTHORIZATION_ERROR") {
+      errors.push(`probe=${probe.code}${probe.error ? ` ${probe.error}` : ""}`);
+    }
+  }
+
+  return {
+    assetId: asset.id,
+    type: "VIDEO",
+    status: storageObjectExists ? "READY" : "ORPHANED",
+    storageProvider: "b2",
+    bucket: process.env.B2_BUCKET_NAME?.trim() || null,
+    storageKey: relative,
+    storageObjectExists,
+    storageObjectReadable,
+    contentType,
+    size,
+    playbackEndpoint,
+    playbackEndpointStatus,
+    rangeSupported: true,
+    errors,
+    courseId: asset.learningUniverseId,
+  };
+}

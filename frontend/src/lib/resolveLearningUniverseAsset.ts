@@ -47,16 +47,11 @@ export function matchUniverseAsset(
   );
 }
 
-function publicUniverseAssetUrl(universeId: string, storedFilename: string): string {
-  const cleaned = storedFilename.replace(/^\/+/, "").replace(/^uploads\//, "");
-  // Canonical pointer assets store durable keys like videos/<uuid>.mp4 (not a LU copy UUID).
-  if (
-    cleaned.includes("/") ||
-    /^(videos|images|banners|pdfs|projects)\//i.test(cleaned)
-  ) {
-    return withUploadAuth(`${apiBase()}/uploads/${cleaned}`);
-  }
-  return withUploadAuth(`${apiBase()}/uploads/learning-universes/${universeId}/${cleaned}`);
+function publicUniverseAssetUrl(universeId: string, asset: UniverseAsset): string {
+  // Prefer LU asset API — looks up DB row, tries canonical videos/ key, supports Range/206.
+  return withUploadAuth(
+    `${apiBase()}/api/learning-universes/${universeId}/assets/${encodeURIComponent(asset.filename)}`
+  );
 }
 
 function normalizeUploadUrl(ref: string): string | null {
@@ -83,7 +78,7 @@ export function resolveLearningUniverseAsset(
     if (matched) {
       return {
         originalRef,
-        resolvedUrl: publicUniverseAssetUrl(universeId, matched.storedFilename),
+        resolvedUrl: publicUniverseAssetUrl(universeId, matched),
         status: "found",
       };
     }
@@ -108,7 +103,7 @@ export function resolveLearningUniverseAsset(
           if (matched) {
             return {
               originalRef,
-              resolvedUrl: publicUniverseAssetUrl(universeId, matched.storedFilename),
+              resolvedUrl: publicUniverseAssetUrl(universeId, matched),
               status: "found",
             };
           }
