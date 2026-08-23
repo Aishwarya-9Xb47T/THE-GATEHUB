@@ -168,8 +168,10 @@ export const CATEGORY_FALLBACK_SOURCES: Record<string, string> = {
 };
 
 function publicUrl(relativePath: string): string {
-  const base = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
-  return `${base}${relativePath.startsWith("/") ? relativePath : `/${relativePath}`}`;
+  // Return a root-relative path so the frontend's resolveCourseMediaUrl() resolves it
+  // against the correct backend origin at runtime, rather than baking in a potentially
+  // stale API_URL that breaks when the host changes or when run locally.
+  return relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
 }
 
 function googleCseId(): string | undefined {

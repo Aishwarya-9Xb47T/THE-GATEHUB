@@ -34,6 +34,31 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
+      # ── Email / SMTP (required for password reset, verification emails) ──
+      # For Gmail: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USER=you@gmail.com,
+      # SMTP_PASSWORD=<16-char Google App Password — NOT your Gmail login password>
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # ── Backblaze B2 (required for persistent file storage on Render) ──
+      # Without these, ALL uploaded videos and banners are LOST on every redeploy/restart.
+      - key: B2_APPLICATION_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false
+      - key: B2_BUCKET_NAME
+        sync: false
+      - key: B2_ENDPOINT
+        sync: false
+      - key: B2_REGION
+        sync: false
 
   - type: web
     name: gatehub-frontend

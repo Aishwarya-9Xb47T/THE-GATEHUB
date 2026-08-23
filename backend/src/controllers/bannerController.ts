@@ -193,8 +193,8 @@ export async function uploadBanner(req: AuthRequest, res: Response) {
       fileName: thumbFilename,
       contentType: thumbFile.mimetype || "image/jpeg",
     });
-    const base = process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`;
-    stored.thumbnailUrl = `${base}/uploads/banners/thumbs/${thumbFilename}`;
+    // Use root-relative path — frontend resolves it against the correct backend origin at runtime.
+    stored.thumbnailUrl = `/uploads/banners/thumbs/${thumbFilename}`;
   }
 
   res.json({ success: true, data: { ...formatBannerResponse(stored), bannerType: "upload" } });

@@ -427,6 +427,39 @@ async function initializeBackgroundServices() {
     const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");
     const pdflatexPath = ensureLatexBinOnPath();
     console.log(`[LATEX] pdflatex: ${pdflatexPath || "MISSING"}`);
+
+    // ── Storage configuration ──────────────────────────────────────────
+    const { isB2Configured, describeB2ConfigSafe } = await import("./services/b2StorageService.js");
+    if (isB2Configured()) {
+      const b2 = describeB2ConfigSafe();
+      console.log(`[STORAGE] B2 configured: YES bucket=${b2.bucket} region=${b2.region} endpoint=${b2.endpoint}`);
+    } else {
+      console.warn(
+        "[STORAGE] B2 configured: NO — using ephemeral local filesystem. " +
+        "All uploaded files (videos, banners, etc.) WILL BE LOST on container restart or redeploy. " +
+        "Set B2_APPLICATION_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_NAME, B2_ENDPOINT, B2_REGION in Render dashboard."
+      );
+    }
+
+    // ── API_URL presence check ─────────────────────────────────────────
+    const apiUrl = process.env.API_URL?.trim();
+    if (apiUrl) {
+      console.log(`[CONFIG] API_URL: ${apiUrl}`);
+    } else {
+      console.warn(
+        "[CONFIG] API_URL not set — banner URLs will be generated with http://localhost:<port>. " +
+        "Set API_URL=https://gatehub-backend-mprr.onrender.com in Render dashboard."
+      );
+    }
+
+    // ── SMTP startup verification ──────────────────────────────────────
+    try {
+      const { verifySmtpTransporter } = await import("./services/emailService.js");
+      await verifySmtpTransporter();
+    } catch {
+      // verifySmtpTransporter logs its own errors
+    }
+
     console.log("[SUCCESS] Background services initialized.");
   } catch (err) {
     console.error("[ERROR] Background initialization failed:", err);

@@ -74,6 +74,10 @@ async function resolveMailConfig() {
 async function getTransporter() {
   const cfg = await resolveMailConfig();
   if (!cfg.user || !cfg.pass) {
+    console.error(
+      "[EMAIL] SMTP not configured — missing SMTP_USER/EMAIL_USER or SMTP_PASSWORD/EMAIL_PASS. " +
+      "Password reset and verification emails will NOT be sent."
+    );
     throw new Error(
       "Email is not configured. Please configure SMTP settings in Admin Settings or set EMAIL_USER/EMAIL_PASS (or SMTP_USER/SMTP_PASSWORD) in environment variables."
     );
@@ -81,6 +85,12 @@ async function getTransporter() {
 
   const key = `${cfg.host}|${cfg.port}|${cfg.user}`;
   if (cachedTransporter && cachedKey === key) return { transporter: cachedTransporter, cfg };
+
+  // Safe log — host, port, and masked user. Never logs password.
+  const userDomain = cfg.user.includes("@") ? cfg.user.split("@")[1] : "(no-domain)";
+  console.log(
+    `[EMAIL] Creating SMTP transporter: host=${cfg.host || "(gmail-service)"} port=${cfg.port} secure=${cfg.port === 465} user=***@${userDomain}`
+  );
 
   const transporter = cfg.host
     ? nodemailer.createTransport({
@@ -107,14 +117,43 @@ async function getTransporter() {
 
 async function sendMail(payload: MailPayload) {
   const { transporter, cfg } = await getTransporter();
-  await transporter.sendMail({
+  const result = await transporter.sendMail({
     from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
     to: payload.to,
     subject: payload.subject,
     html: payload.html,
     text: payload.text,
-  });
-  console.log("[EMAIL] Sent:", payload.subject, "→", payload.to.replace(/(^.).*(@.*)$/, "$1***$2"));
+  }) as { messageId?: string; accepted?: string[]; rejected?: string[]; response?: string };
+
+  const maskedTo = payload.to.replace(/(^.).*(@.*)$/, "$1***$2");
+  console.log(
+    `[EMAIL] Sent: "${payload.subject}" → ${maskedTo} | messageId=${result?.messageId || "(none)"} accepted=${JSON.stringify(result?.accepted ?? [])} rejected=${JSON.stringify(result?.rejected ?? [])}`
+  );
+
+  if (result?.rejected?.length) {
+    console.error(`[EMAIL] SMTP rejected recipient(s): ${JSON.stringify(result.rejected)}`);
+  }
+}
+
+/**
+ * Startup health-check for SMTP. Logs [EMAIL] SMTP READY or [EMAIL] SMTP FAILED.
+ * Safe to call at boot — never exposes credentials.
+ */
+export async function verifySmtpTransporter(): Promise<void> {
+  try {
+    const { transporter } = await getTransporter();
+    await transporter.verify();
+    console.log("[EMAIL] SMTP READY — transporter verified successfully");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const category =
+      msg.includes("not configured") ? "SMTP_NOT_CONFIGURED" :
+      msg.includes("ECONNREFUSED") ? "SMTP_CONNECTION_REFUSED" :
+      msg.includes("ETIMEDOUT") || msg.includes("timeout") ? "SMTP_TIMEOUT" :
+      msg.includes("535") || msg.includes("Authentication") ? "SMTP_AUTH_FAILED" :
+      "SMTP_VERIFY_FAILED";
+    console.error(`[EMAIL] SMTP FAILED at startup — category=${category} message=${msg}`);
+  }
 }
 
 export async function sendPasswordResetEmail(email: string, rawToken: string) {

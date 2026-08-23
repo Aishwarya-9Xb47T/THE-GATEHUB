@@ -633,6 +633,8 @@ export async function forgotPassword(email: string, req?: ReqLike) {
   const normalized = normalizeEmail(email);
   const meta = getReqMeta(req);
 
+  console.log("[AUTH] Forgot-password request received for domain:", normalized.split("@")[1] || "unknown");
+
   const user = await prisma.user.findUnique({ where: { email: normalized } });
   await logSecurityEvent({
     action: SECURITY_ACTIONS.PASSWORD_RESET_REQUESTED,
@@ -641,15 +643,35 @@ export async function forgotPassword(email: string, req?: ReqLike) {
     ...meta,
   });
 
+  console.log("[AUTH] User lookup completed. found=%s suspended=%s deleted=%s",
+    !!user, user?.suspended ?? false, !!user?.deletedAt);
+
   if (!user || user.suspended || user.deletedAt) return generic;
-  if (user.authProvider === "google" && !user.passwordHash) return generic;
+  if (user.authProvider === "google" && !user.passwordHash) {
+    console.log("[AUTH] Skipping reset for Google-only account (no password hash)");
+    return generic;
+  }
 
   try {
+    console.log("[AUTH] Generating password reset token...");
     const { rawToken } = await issueAuthToken({ userId: user.id, type: "password_reset" });
+    console.log("[AUTH] Reset token generated and persisted");
+
     const { sendPasswordResetEmail } = await import("./emailService.js");
+    console.log("[EMAIL] Attempting password reset email...");
     await sendPasswordResetEmail(user.email, rawToken);
+    console.log("[EMAIL] Password reset email dispatched successfully");
   } catch (err) {
-    console.error("Password reset email failed:", err instanceof Error ? err.message : "error");
+    const msg = err instanceof Error ? err.message : String(err);
+    // Categorise the error safely — never log the token or password
+    const category =
+      msg.includes("not configured") ? "SMTP_NOT_CONFIGURED" :
+      msg.includes("ECONNREFUSED") ? "SMTP_CONNECTION_REFUSED" :
+      msg.includes("ETIMEDOUT") || msg.includes("timeout") ? "SMTP_TIMEOUT" :
+      msg.includes("535") || msg.includes("Authentication") ? "SMTP_AUTH_FAILED" :
+      msg.includes("550") ? "SMTP_RECIPIENT_REJECTED" :
+      "SMTP_ERROR";
+    console.error("[EMAIL] Password reset email FAILED. category=%s message=%s", category, msg);
   }
 
   return generic;
