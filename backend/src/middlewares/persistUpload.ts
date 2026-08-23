@@ -433,7 +433,27 @@ export function streamLocalUpload(
 
 function uploadRelativesToTry(relativePath: string): string[] {
   const primary = normalizeUploadRelativePath(relativePath);
-  return [...new Set([primary, ...classroomAssetLookupRelatives(primary)])];
+  const relatives: string[] = [primary, ...classroomAssetLookupRelatives(primary)];
+
+  // If primary has no directory segment, search standard upload category prefixes
+  if (!primary.includes("/")) {
+    const ext = path.extname(primary).toLowerCase();
+    if (/\.(mp4|webm|mov|avi|mkv|m4v)$/i.test(ext)) {
+      relatives.push(`videos/${primary}`);
+    } else if (/\.(png|jpg|jpeg|webp|svg|gif|avif)$/i.test(ext)) {
+      relatives.push(`images/${primary}`);
+      relatives.push(`banners/${primary}`);
+    } else if (/\.pdf$/i.test(ext)) {
+      relatives.push(`pdfs/${primary}`);
+      relatives.push(`latex/pdfs/${primary}`);
+    } else if (/\.(mp3|wav|ogg|m4a|aac)$/i.test(ext)) {
+      relatives.push(`music/${primary}`);
+    }
+    relatives.push(`attachments/${primary}`);
+    relatives.push(`other/${primary}`);
+  }
+
+  return [...new Set(relatives)];
 }
 
 export async function serveStoredUpload(

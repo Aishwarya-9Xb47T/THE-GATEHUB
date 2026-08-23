@@ -435,19 +435,46 @@ export function UploadedVideoPlayer({
                       : code === 4
                         ? "MEDIA_ERR_SRC_NOT_SUPPORTED"
                         : "MEDIA_ERR_UNKNOWN";
-              console.error("[VIDEO_DEBUG] element_error", label, e.currentTarget.currentSrc?.split("?")[0]);
+              const currentSrc = e.currentTarget.currentSrc || activeSrc;
+              console.error("[VIDEO_DEBUG] element_error", {
+                code,
+                label,
+                src: currentSrc.split("?")[0],
+                mimeType,
+                title,
+              });
+
               if (!triedFallback && fallbackSrc && activeSrc !== fallbackSrc) {
                 setTriedFallback(true);
                 setActiveSrc(fallbackSrc);
                 setIsLoading(true);
                 return;
               }
+
+              // Diagnostic probe to get real HTTP status code
+              fetch(currentSrc, { method: "HEAD" })
+                .then((res) => {
+                  if (!res.ok) {
+                    if (res.status === 403) {
+                      setErrorDetail("Storage access temporarily unavailable (HTTP 403)");
+                    } else if (res.status === 404) {
+                      setErrorDetail("Video file not found in storage (HTTP 404)");
+                    } else {
+                      setErrorDetail(`HTTP ${res.status}: Failed to stream video`);
+                    }
+                  } else {
+                    setErrorDetail(label);
+                  }
+                })
+                .catch(() => {
+                  setErrorDetail(label);
+                });
+
               setIsLoading(false);
               setHasError(true);
-              setErrorDetail(label);
             }}
           >
-            <source src={activeSrc} type={mimeType} />
+            <source src={activeSrc} type={mimeType || "video/mp4"} />
             {captionTracks.map((cap) => (
               <track
                 key={`${cap.language}-${cap.url}`}
