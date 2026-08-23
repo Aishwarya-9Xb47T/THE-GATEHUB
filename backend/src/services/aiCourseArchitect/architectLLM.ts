@@ -145,7 +145,7 @@ export async function architectCompletion(opts: ArchitectCompletionOptions): Pro
   };
   if (status.openai) add("openai", process.env.AI_ARCHITECT_OPENAI_MODEL || "gpt-4o-mini");
   if (status.anthropic) add("anthropic", process.env.AI_ARCHITECT_ANTHROPIC_MODEL || "claude-sonnet-4-20250514");
-  if (status.gemini) add("google", process.env.AI_ARCHITECT_GEMINI_MODEL || "gemini-2.5-flash");
+  if (status.gemini) add("google", process.env.AI_ARCHITECT_GEMINI_MODEL || "gemini-3.5-flash-lite");
 
   let lastError: unknown;
   for (const candidate of candidates) {

@@ -53,8 +53,9 @@ const DEFAULTS: Record<ArchitectPhase, ModelRoute> = {
   revision: { model: "gpt-4o-mini", family: "openai" },
   interview: { model: "gpt-4o", family: "openai" },
   youtube: { model: "gpt-4o-mini", family: "openai" },
-  diagram: { model: "gemini-2.5-flash", family: "google" },
-  visual: { model: "gemini-2.5-flash", family: "google" },
+  // gemini-3.5-flash-lite: primary Google model (fast, free-tier, JSON output)
+  diagram: { model: "gemini-3.5-flash-lite", family: "google" },
+  visual: { model: "gemini-3.5-flash-lite", family: "google" },
   qa: { model: "gpt-4o", family: "openai" },
 };
 
@@ -87,7 +88,7 @@ function defaultModelForFamily(family: ModelFamily, phase: ArchitectPhase): stri
     case "anthropic":
       return process.env.AI_ARCHITECT_ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
     case "google":
-      return process.env.AI_ARCHITECT_GEMINI_MODEL || "gemini-2.5-flash";
+      return process.env.AI_ARCHITECT_GEMINI_MODEL || "gemini-3.5-flash-lite";
     default:
       return process.env.AI_ARCHITECT_OPENAI_MODEL || "gpt-4o";
   }

@@ -17,11 +17,14 @@ describe("geminiClient", () => {
     jest.useRealTimers();
   });
 
-  it("defaults to a current free Gemini 2.5 model, not shut-down gemini-2.0-flash", () => {
-    expect(DEFAULT_GEMINI_MODEL).toBe("gemini-2.5-flash");
+  it("defaults to gemini-3.5-flash-lite, excluding obsolete models", () => {
+    expect(DEFAULT_GEMINI_MODEL).toBe("gemini-3.5-flash-lite");
     expect(architectGeminiModels()).not.toContain("gemini-2.0-flash");
     expect(architectGeminiModels()).not.toContain("gemini-1.5-flash");
-    expect(architectGeminiModels()[0]).toBe("gemini-2.5-flash");
+    expect(architectGeminiModels()).not.toContain("gemini-flash-latest");
+    expect(architectGeminiModels()).not.toContain("gemini-2.5-flash-lite");
+    expect(architectGeminiModels()[0]).toBe("gemini-3.5-flash-lite");
+    expect(architectGeminiModels()[1]).toBe("gemini-3.5-flash");
   });
 
   it("extracts text from non-thought parts", () => {

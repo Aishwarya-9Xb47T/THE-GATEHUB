@@ -5,13 +5,20 @@
  */
 import { getGeminiApiKey } from "./openaiClient.js";
 
-/** Current free-tier Gemini API models. gemini-2.0-flash was shut down 2026-06-01. */
+/**
+ * Current supported Gemini models (2026-08).
+ * PRIMARY  : gemini-3.5-flash-lite  — fast, low-cost, free-tier JSON output
+ * FALLBACK : gemini-3.5-flash       — used only if primary fails
+ *
+ * REMOVED (obsolete/unavailable):
+ *   - gemini-flash-latest  : 503 high-demand, not reliable
+ *   - gemini-2.5-flash-lite: 404 no longer available to new users (Google deprecated)
+ *   - gemini-2.5-flash     : replaced by 3.5 generation
+ *   - gemini-3.1-flash-lite: intermediate version, superseded
+ */
 export const GEMINI_FREE_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-flash-latest",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash-lite",
   "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
 ] as const;
 
 export const DEFAULT_GEMINI_MODEL = GEMINI_FREE_MODELS[0];
@@ -166,7 +173,8 @@ async function generateOnce(opts: {
       contents: [{ role: "user", parts: [{ text: opts.user }] }],
       generationConfig,
     }),
-    signal: AbortSignal.timeout(55_000),
+    // 45 s per single attempt — leaves headroom under Render's 100 s HTTP timeout
+    signal: AbortSignal.timeout(45_000),
   });
 
   const rawText = await res.text();
@@ -232,6 +240,19 @@ async function generateOnce(opts: {
   return extracted.text;
 }
 
+/**
+ * Maximum wall-clock time (ms) for the entire callGeminiGenerateContent call
+ * across all model attempts. Prevents the frontend from hanging on "Planning...".
+ * Set to 90 s — well within Render's 100 s gateway timeout.
+ */
+const GEMINI_OVERALL_TIMEOUT_MS = 90_000;
+
+/**
+ * Maximum retry count per model for 503/UNAVAILABLE errors.
+ * 404/NOT_FOUND errors immediately skip to the next model without any retry.
+ */
+const GEMINI_503_MAX_RETRIES = 2;
+
 export async function callGeminiGenerateContent(opts: {
   system: string;
   user: string;
@@ -246,12 +267,43 @@ export async function callGeminiGenerateContent(opts: {
   const temperature = opts.temperature ?? 0.4;
   let lastError: GeminiRequestError | undefined;
 
+  const overallDeadline = Date.now() + GEMINI_OVERALL_TIMEOUT_MS;
+
   for (const model of models) {
     let disableThinking = true;
     let jsonMode = json;
+    // attempt index tracked separately so 503 retries are capped at GEMINI_503_MAX_RETRIES
+    let attempt503 = 0;
     for (let attempt = 0; attempt < 3; attempt++) {
+      // Hard overall deadline check — bail out and surface error to frontend
+      if (Date.now() >= overallDeadline) {
+        console.error("[ArchitectLLM][Gemini] overall timeout reached", {
+          model,
+          attempt,
+          elapsedMs: Date.now() - (overallDeadline - GEMINI_OVERALL_TIMEOUT_MS),
+        });
+        throw (
+          lastError ||
+          new GeminiRequestError({
+            message: `Gemini blueprint generation failed: status=504 code=OVERALL_TIMEOUT message=Blueprint request exceeded ${GEMINI_OVERALL_TIMEOUT_MS / 1000}s limit`,
+            status: 504,
+            code: "OVERALL_TIMEOUT",
+            model,
+            retryable: false,
+          })
+        );
+      }
+
+      console.info("[ArchitectLLM][Gemini]", {
+        model,
+        attempt: attempt + 1,
+        status: "starting",
+        json: jsonMode,
+        disableThinking,
+      });
+
       try {
-        return await generateOnce({
+        const result = await generateOnce({
           model,
           system: opts.system,
           user: opts.user,
@@ -260,6 +312,13 @@ export async function callGeminiGenerateContent(opts: {
           temperature,
           disableThinking,
         });
+        // SUCCESS
+        console.info("[ArchitectLLM][Gemini] SUCCESS", {
+          model,
+          attempt: attempt + 1,
+          outputChars: result.length,
+        });
+        return result;
       } catch (err) {
         const geminiErr =
           err instanceof GeminiRequestError
@@ -271,7 +330,9 @@ export async function callGeminiGenerateContent(opts: {
                 model,
               });
         lastError = geminiErr;
-        console.error("[ArchitectLLM][Gemini] call failed", {
+
+        // Always log the safe error details (never log the API key)
+        console.error("[ArchitectLLM][Gemini] attempt failed", {
           model,
           attempt: attempt + 1,
           status: geminiErr.status,
@@ -280,15 +341,30 @@ export async function callGeminiGenerateContent(opts: {
           message: geminiErr.message.slice(0, 240),
         });
 
-        const blob = geminiErr.message.toLowerCase();
+        // Auth errors — hard stop immediately, no point retrying any model
         if (geminiErr.status === 401 || geminiErr.status === 403) {
           throw geminiErr;
         }
+
+        // 404 NOT_FOUND — model is unavailable/deprecated, skip immediately (no retry)
+        if (isModelNotFound(geminiErr)) {
+          console.warn("[ArchitectLLM][Gemini] model not found — skipping to next model", {
+            model,
+            status: geminiErr.status,
+            code: geminiErr.code,
+          });
+          break; // move to next model in the list
+        }
+
+        // 400 with thinking enabled — retry once without thinkingConfig
         if (geminiErr.status === 400 && disableThinking) {
           disableThinking = false;
           console.info("[ArchitectLLM][Gemini] retrying without thinkingConfig", { model });
           continue;
         }
+
+        // 400 with JSON mime type — retry once in plain-text mode
+        const blob = geminiErr.message.toLowerCase();
         if (
           geminiErr.status === 400 &&
           jsonMode &&
@@ -299,15 +375,35 @@ export async function callGeminiGenerateContent(opts: {
           continue;
         }
 
-        if (isModelNotFound(geminiErr) || geminiErr.status === 400) {
+        // Other 400 errors — not retryable, skip to next model
+        if (geminiErr.status === 400) {
           break;
         }
-        if (geminiErr.retryable && attempt < 2) {
-          const delay = 400 * 2 ** attempt;
-          console.info("[ArchitectLLM][Gemini] retrying", { model, delayMs: delay, status: geminiErr.status });
-          await sleep(delay);
-          continue;
+
+        // 503 UNAVAILABLE — short exponential backoff, max GEMINI_503_MAX_RETRIES attempts
+        if (geminiErr.retryable && (geminiErr.status === 503 || geminiErr.status === 429)) {
+          attempt503++;
+          if (attempt503 <= GEMINI_503_MAX_RETRIES) {
+            const delay = 300 * 2 ** (attempt503 - 1); // 300ms, 600ms
+            console.info("[ArchitectLLM][Gemini] retrying after transient error", {
+              model,
+              attempt503,
+              maxRetries: GEMINI_503_MAX_RETRIES,
+              delayMs: delay,
+              status: geminiErr.status,
+            });
+            await sleep(delay);
+            continue;
+          }
+          // Exhausted 503 retries for this model — fall through to next model
+          console.warn("[ArchitectLLM][Gemini] 503 retry limit reached — falling back", {
+            model,
+            attempt503,
+          });
+          break;
         }
+
+        // All other errors — not retryable, skip to next model
         break;
       }
     }
