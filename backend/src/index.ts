@@ -93,7 +93,7 @@ import { bootstrapAiProviders } from "./services/ai/AiRouter.js";
 import { ensureDocIndexLoaded } from "./services/docsAssistantService.js";
 import { waitForDatabase } from "./utils/waitForDatabase.js";
 import { logBannerStudioStartupStatus } from "./services/bannerService.js";
-import { architectAiProviderStatus } from "./services/aiCourseArchitect/openaiClient.js";
+import { logArchitectAiStartupStatus } from "./services/aiCourseArchitect/openaiClient.js";
 
 const requiredEnv = ["DATABASE_URL", "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "OPENAI_API_KEY"];
 requiredEnv.forEach((env) => {
@@ -103,16 +103,7 @@ requiredEnv.forEach((env) => {
 });
 
 {
-  const ai = architectAiProviderStatus();
-  if (!ai.configured) {
-    console.warn(
-      "[AI ARCHITECT] No backend AI key configured (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_AI_API_KEY/GEMINI_API_KEY). Research & Plan Curriculum will return 503 until a key is set on this backend service. Do not put API keys in VITE_* frontend variables."
-    );
-  } else {
-    console.log(
-      `[AI ARCHITECT] Provider keys: openai=${ai.openai ? "yes" : "no"} anthropic=${ai.anthropic ? "yes" : "no"} gemini=${ai.gemini ? "yes" : "no"}`
-    );
-  }
+  logArchitectAiStartupStatus();
 }
 
 // Ensure required directories exist
@@ -424,6 +415,7 @@ async function initializeBackgroundServices() {
     await bootstrapAiProviders();
     await ensureDocIndexLoaded();
     logBannerStudioStartupStatus();
+    logArchitectAiStartupStatus();
     const { logClassroomRendererStartup } = await import("./services/classroomStudio/presentationRenderService.js");
     await logClassroomRendererStartup();
     const { ensureLatexBinOnPath } = await import("./services/latexCompileService.js");

@@ -1,13 +1,13 @@
 /**
  * V4 Agent 3 — Module Designer AI
  */
-import { getOpenAi } from "../openaiClient.js";
+import { architectCompletionJSON } from "../architectLLM.js";
+import { hasArchitectAiProvider } from "../openaiClient.js";
 import type { ArchitectBlueprint, AICourseArchitectInterview } from "../types.js";
 import type { CoursePlannerOutput, ModuleDesignerOutput, ModuleDesignSpec } from "../orchestrator/contracts.js";
 import type { ArchitectQualityReport } from "../types.js";
 import { hasLearningComponent } from "../types.js";
 import { PROFESSOR_SYSTEM_PROMPT, ANTI_HALLUCINATION_RULES } from "../instructorPersona.js";
-import { getArchitectModel } from "../architectModels.js";
 import { runAgent } from "../orchestrator/agentRunner.js";
 
 
@@ -55,40 +55,32 @@ async function executeModuleDesigner(
 ): Promise<ModuleDesignerOutput> {
   const { blueprint, interview, coursePlan } = input;
   const heuristic = buildHeuristicModuleDesign(blueprint, interview);
-  if (!getOpenAi()) return heuristic;
+  if (!hasArchitectAiProvider()) {
+    throw new Error("Module designer requires a configured backend AI provider");
+  }
 
   try {
-    const res = await getOpenAi()!.chat.completions.create({
-      model: getArchitectModel("structure"),
-      messages: [
-        { role: "system", content: PROFESSOR_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Agent 3 — Module Designer. Return { "modules": ModuleDesignSpec[] } for each module.
+    const parsed = await architectCompletionJSON<{ modules?: ModuleDesignSpec[] }>({
+      phase: "structure",
+      system: PROFESSOR_SYSTEM_PROMPT,
+      user: `Agent 3 — Module Designer. Return { "modules": ModuleDesignSpec[] } for each module.
 ${ANTI_HALLUCINATION_RULES}
 Course plan: ${coursePlan.executiveSummary.slice(0, 300)}
 Modules: ${JSON.stringify(blueprint.modules.map((m) => ({ id: m.id, title: m.title, lessons: m.lessons.length })))}`,
-        },
-      ],
-      response_format: { type: "json_object" },
       temperature: 0.45,
     });
-    const raw = res.choices[0]?.message?.content;
-    if (raw) {
-      const parsed = JSON.parse(raw) as { modules?: ModuleDesignSpec[] };
-      if (parsed.modules?.length) {
-        return {
-          modules: heuristic.modules.map((h) => {
-            const enriched = parsed.modules!.find((m) => m.moduleId === h.moduleId);
-            return enriched ? { ...h, ...enriched } : h;
-          }),
-        };
-      }
+    if (parsed?.modules?.length) {
+      return {
+        modules: heuristic.modules.map((h) => {
+          const enriched = parsed.modules!.find((m) => m.moduleId === h.moduleId);
+          return enriched ? { ...h, ...enriched } : h;
+        }),
+      };
     }
   } catch (err) {
     console.error("[Agent 3 Module Designer]", err);
   }
-  return heuristic;
+  throw new Error("Module designer AI returned no output. Check the configured backend AI key and retry.");
 }
 
 export async function runModuleDesignerAgent(

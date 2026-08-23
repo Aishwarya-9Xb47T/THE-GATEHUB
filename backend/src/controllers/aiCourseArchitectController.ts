@@ -57,7 +57,7 @@ import {
   assertProductTypeMatch,
   readStructuredRecord,
 } from "../services/productRoutingService.js";
-import { architectAiProviderStatus } from "../services/aiCourseArchitect/openaiClient.js";
+import { architectAiProviderStatus, ARCHITECT_AI_MISSING_KEY_MESSAGE } from "../services/aiCourseArchitect/openaiClient.js";
 import { persistRemoteBannerIfNeeded } from "../services/bannerService.js";
 import { isMissingObjectError } from "../services/b2StorageService.js";
 
@@ -141,13 +141,14 @@ function friendlyArchitectError(err: unknown, stage = "generate"): AppError {
 
 function assertArchitectAiConfigured(stage = "prepare"): void {
   const status = architectAiProviderStatus();
-  console.info("[AI Architect] AI provider status", status);
+  console.info("[AI Architect] AI provider status", {
+    openai: status.openai,
+    anthropic: status.anthropic,
+    gemini: status.gemini,
+    selected: status.selected,
+  });
   if (status.configured) return;
-  throw architectError(
-    503,
-    "Research & Plan Curriculum requires a backend AI key. Set OPENAI_API_KEY on the Render gatehub-backend Environment (ANTHROPIC_API_KEY or GOOGLE_AI_API_KEY/GEMINI_API_KEY are also supported). This is a backend-only secret. Do not add it to the frontend or any VITE_* variable.",
-    { code: "AI_PROVIDER_KEY", stage, retryable: false }
-  );
+  throw architectError(503, ARCHITECT_AI_MISSING_KEY_MESSAGE, { code: "AI_PROVIDER_KEY", stage, retryable: false });
 }
 
 function parseInterview(body: unknown): AICourseArchitectInterview {

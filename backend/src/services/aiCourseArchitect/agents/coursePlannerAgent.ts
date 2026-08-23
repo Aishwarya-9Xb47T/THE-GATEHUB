@@ -1,14 +1,14 @@
 /**
  * V4 Agent 1 — Course Planner AI
  */
-import { getOpenAi } from "../openaiClient.js";
+import { architectCompletionJSON } from "../architectLLM.js";
+import { hasArchitectAiProvider } from "../openaiClient.js";
 import type { AICourseArchitectInterview } from "../types.js";
 import type { CoursePlannerOutput } from "../orchestrator/contracts.js";
 import type { ArchitectQualityReport } from "../types.js";
 import { hasLearningComponent, normalizeInterview } from "../types.js";
 import { computeScalePlan } from "../curriculumPlanner.js";
 import { PROFESSOR_SYSTEM_PROMPT, buildInterviewContext, ANTI_HALLUCINATION_RULES } from "../instructorPersona.js";
-import { getArchitectModel } from "../architectModels.js";
 import { runAgent } from "../orchestrator/agentRunner.js";
 
 
@@ -76,37 +76,26 @@ async function executeCoursePlanner(
   _attempt: number
 ): Promise<CoursePlannerOutput> {
   const normalized = normalizeInterview(interview);
-  if (!getOpenAi()) return buildHeuristicCoursePlan(normalized);
+  const fallback = buildHeuristicCoursePlan(normalized);
+  if (!hasArchitectAiProvider()) {
+    throw new Error("Course planner requires a configured backend AI provider");
+  }
 
   try {
-    const res = await getOpenAi()!.chat.completions.create(
-      {
-        model: getArchitectModel("blueprint"),
-        messages: [
-          { role: "system", content: PROFESSOR_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
+    const parsed = await architectCompletionJSON<CoursePlannerOutput>({
+      phase: "blueprint",
+      system: PROFESSOR_SYSTEM_PROMPT,
+      user: `Agent 1 — Course Planner. NO lesson content. Return CoursePlannerOutput JSON.
 ${buildInterviewContext(normalized)}
 ${ANTI_HALLUCINATION_RULES}
 Schema: executiveSummary, learningOutcomes[], careerOutcomes[], skillMap[], prerequisites[], industryApplications[], estimatedHours, recommendedLearningPath[], assessmentStrategy, projectStrategy, labStrategy, certificationGoals[], recommendedModuleCount, recommendedLessonCount`,
-          },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.45,
-      },
-      { timeout: 20_000, signal: AbortSignal.timeout(20_000) }
-    );
-    const raw = res.choices[0]?.message?.content;
-    if (raw) {
-      const parsed = JSON.parse(raw) as CoursePlannerOutput;
-      const fallback = buildHeuristicCoursePlan(normalized);
-      return { ...fallback, ...parsed };
-    }
+      temperature: 0.45,
+    });
+    if (parsed) return { ...fallback, ...parsed };
   } catch (err) {
     console.error("[Agent 1 Course Planner]", err);
   }
-  return buildHeuristicCoursePlan(normalized);
+  throw new Error("Course planner AI returned no output. Check the configured backend AI key and retry.");
 }
 
 export async function runCoursePlannerAgent(interview: AICourseArchitectInterview) {

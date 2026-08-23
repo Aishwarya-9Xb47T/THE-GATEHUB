@@ -2,6 +2,7 @@
  * V6 — Multi-provider model routing (OpenAI, Anthropic Claude, Google Gemini).
  * Override per phase: AI_ARCHITECT_MODEL_<PHASE> or AI_ARCHITECT_PROVIDER_<PHASE>
  */
+import { architectAiProviderStatus } from "./openaiClient.js";
 export type ArchitectPhase =
   | "research"
   | "structure"
@@ -104,7 +105,19 @@ export function getArchitectModelRoute(phase: ArchitectPhase): ModelRoute {
   if (provider) {
     return { model: defaultModelForFamily(provider, phase), family: provider };
   }
-  return DEFAULTS[phase];
+
+  const preferred = DEFAULTS[phase];
+  const status = architectAiProviderStatus();
+  const familyConfigured = (family: ModelFamily): boolean => {
+    if (family === "openai") return status.openai;
+    if (family === "anthropic") return status.anthropic;
+    return status.gemini;
+  };
+  if (familyConfigured(preferred.family)) return preferred;
+  if (status.openai) return { model: defaultModelForFamily("openai", phase), family: "openai" };
+  if (status.anthropic) return { model: defaultModelForFamily("anthropic", phase), family: "anthropic" };
+  if (status.gemini) return { model: defaultModelForFamily("google", phase), family: "google" };
+  return preferred;
 }
 
 /** @deprecated Use getArchitectModelRoute — returns model id only for backward compatibility. */

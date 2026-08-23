@@ -1,4 +1,5 @@
 import { architectCompletionJSON } from "./architectLLM.js";
+import { hasArchitectAiProvider } from "./openaiClient.js";
 import type { AICourseArchitectInterview, CurriculumResearchReport } from "./types.js";
 import { computeScalePlan } from "./curriculumPlanner.js";
 import { PROFESSOR_SYSTEM_PROMPT, buildInterviewContext, KNOWLEDGE_SOURCES } from "./instructorPersona.js";
@@ -58,6 +59,9 @@ Return JSON:
     console.error("[Curriculum Research] LLM completion failed:", err);
   }
 
+  if (hasArchitectAiProvider()) {
+    throw new Error("Curriculum research AI returned no output. Check the configured backend AI key and retry.");
+  }
   return buildIntelligentResearch(interview, plan);
 }
 

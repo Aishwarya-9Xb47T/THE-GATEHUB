@@ -59,6 +59,16 @@ services:
         sync: false
       - key: B2_REGION
         sync: false
+      # ── AI Course Architect (Research & Plan Curriculum) ──
+      # Set the secret in Render → gatehub-backend → Environment.
+      # Preferred: OPENAI_API_KEY. Only ONE provider key is required.
+      # Do NOT add these to the frontend service or any VITE_* variable.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
 
   - type: web
     name: gatehub-frontend
