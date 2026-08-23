@@ -8,7 +8,7 @@ import { prisma } from "../../utils/prisma.js";
 import type { VideoMapping } from "./types.js";
 import { architectUploadStorageRefs } from "./videoAssignmentEngine.js";
 import type { ParsedLearningUniverse } from "../../controllers/learning-universe-parser.js";
-import { collectMediaReferences } from "../learningUniverseMedia.js";
+import { collectMediaReferences, isPublishableMediaAssetRef } from "../learningUniverseMedia.js";
 import { loadProjectFiles } from "../luProject/luProjectFiles.js";
 import {
   isProjectImageAsset,
@@ -293,7 +293,7 @@ export async function ensureUniverseMediaFromReferences(
     await syncAllProjectVideosToUniverse(universeId, sourceProjectId);
   }
 
-  const refs = collectMediaReferences(parsed);
+  const refs = collectMediaReferences(parsed).filter((r) => isPublishableMediaAssetRef(r.filename));
   if (!refs.length) return;
 
   const projectFiles = sourceProjectId ? await loadProjectFiles(sourceProjectId) : undefined;

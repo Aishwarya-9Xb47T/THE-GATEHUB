@@ -1,5 +1,10 @@
 /**
  * Learning Universe uploaded media resolution and validation.
+ *
+ * CRITICAL BOUNDARY:
+ * - LaTeX project component files (.tex) are NOT media assets
+ * - uploads/latex/** (except pdfs/) are compiler/project paths, NOT course media
+ * - Only image/video/download binaries with media extensions are publish-validated
  */
 
 import type { ParsedLearningUniverse } from "../controllers/learning-universe-parser.js";
@@ -15,6 +20,8 @@ export interface MediaValidationIssue {
   blockType: string;
   lessonTitle: string;
   message: string;
+  code?: string;
+  stage?: string;
 }
 
 const REMOTE_PREFIX = /^(https?:\/\/|data:|blob:)/i;
@@ -25,6 +32,25 @@ const PLACEHOLDER_ASSET_REFS = [
   /^assets\/datasets\/sample\.csv$/i,
   /^assets\/downloads\/lesson-resources\.zip$/i,
 ];
+
+const MEDIA_EXT =
+  /\.(mp4|webm|mov|m4v|m3u8|ogg|mp3|wav|png|jpe?g|gif|svg|webp|pdf|zip|csv|txt|json|ipynb)$/i;
+
+const LATEX_SOURCE_EXT = /\.(tex|sty|cls|bib|bst|aux|log|out|toc|lof|lot|bbl|blg|idx|ind|ilg|fls|fdb_latexmk|synctex\.gz)$/i;
+
+const LATEX_COMPONENT_BASENAMES = new Set([
+  "videos.tex",
+  "overview.tex",
+  "objectives.tex",
+  "summary.tex",
+  "main.tex",
+  "metadata.tex",
+  "track.tex",
+  "module.tex",
+  "theory.tex",
+  "examples.tex",
+  "practice.tex",
+]);
 
 function isPlaceholderAssetRef(filename: string): boolean {
   const normalized = filename.trim().replace(/\\/g, "/");
@@ -40,6 +66,58 @@ export function isLocalMediaRef(value: string | undefined | null): boolean {
   return !REMOTE_PREFIX.test(value.trim());
 }
 
+/**
+ * True only for paths that represent real uploaded course media (not LaTeX sources).
+ * Used at the publish asset boundary so component files like lesson-01/videos.tex
+ * never fail publish as "Uploaded asset not found".
+ */
+export function isPublishableMediaAssetRef(filename: string | undefined | null): boolean {
+  if (!filename?.trim()) return false;
+  const normalized = filename.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!normalized) return false;
+  if (REMOTE_PREFIX.test(normalized)) return false;
+  if (isPlaceholderAssetRef(normalized)) return false;
+
+  const base = refBasename(normalized).toLowerCase();
+  if (LATEX_COMPONENT_BASENAMES.has(base)) return false;
+  if (LATEX_SOURCE_EXT.test(base)) return false;
+
+  // Compiler / project trees — never course media (PDF outputs under latex/pdfs/ are OK)
+  const lower = normalized.toLowerCase().replace(/^\/+/, "");
+  if (lower.startsWith("uploads/latex/") && !lower.startsWith("uploads/latex/pdfs/")) {
+    return false;
+  }
+  if (lower.includes("/lesson-") && lower.endsWith(".tex")) {
+    return false;
+  }
+
+  // Must look like a real media/download binary
+  if (!MEDIA_EXT.test(base)) return false;
+
+  return true;
+}
+
+function asContentRecord(content: unknown): Record<string, string> {
+  if (!content || typeof content !== "object" || Array.isArray(content)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(content as Record<string, unknown>)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
+}
+
+function videoLocalFilename(content: Record<string, string>): string | undefined {
+  const type = (content.type || "").toLowerCase();
+  if (type === "youtube" || type === "placeholder") return undefined;
+  // Only upload / missing-type local files — never treat youtube URL as local via || url fallback
+  const candidate =
+    content.file ||
+    (type === "upload" || type === "external" || !type ? content.url : undefined);
+  if (!candidate?.trim()) return undefined;
+  if (!isLocalMediaRef(candidate)) return undefined;
+  return candidate.trim();
+}
+
 /** Collect local media filenames referenced in parsed universe. */
 export function collectMediaReferences(parsed: ParsedLearningUniverse): MediaReference[] {
   const refs: MediaReference[] = [];
@@ -48,22 +126,22 @@ export function collectMediaReferences(parsed: ParsedLearningUniverse): MediaRef
     for (const mod of track.modules) {
       for (const lesson of mod.lessons) {
         for (const block of lesson.contentBlocks) {
-          const c = block.content as Record<string, string>;
+          const c = asContentRecord(block.content);
           if (block.type === "image") {
             const file = c.file || c.path || c.url;
-            if (isLocalMediaRef(file)) {
+            if (isLocalMediaRef(file) && isPublishableMediaAssetRef(file)) {
               refs.push({ filename: file!.trim(), blockType: "image", lessonTitle: lesson.title });
             }
           }
           if (block.type === "video") {
-            const file = c.file || (c.type === "upload" ? c.url : undefined) || c.url;
-            if (isLocalMediaRef(file)) {
-              refs.push({ filename: file!.trim(), blockType: "video", lessonTitle: lesson.title });
+            const file = videoLocalFilename(c);
+            if (file && isPublishableMediaAssetRef(file)) {
+              refs.push({ filename: file, blockType: "video", lessonTitle: lesson.title });
             }
           }
           if (block.type === "download" || block.type === "resource") {
             const file = c.file || c.fileurl || c.fileUrl;
-            if (isLocalMediaRef(file)) {
+            if (isLocalMediaRef(file) && isPublishableMediaAssetRef(file)) {
               refs.push({
                 filename: file!.trim(),
                 blockType: block.type as MediaReference["blockType"],
@@ -73,10 +151,14 @@ export function collectMediaReferences(parsed: ParsedLearningUniverse): MediaRef
           }
         }
         for (const video of lesson.videos) {
-          const file = video.file || (video.type === "upload" ? video.url : undefined);
-          if (video.type === "upload" && isLocalMediaRef(file || video.url)) {
+          const file = videoLocalFilename({
+            type: video.type,
+            file: video.file || "",
+            url: video.url || "",
+          });
+          if (video.type === "upload" && file && isPublishableMediaAssetRef(file)) {
             refs.push({
-              filename: (file || video.url || "").trim(),
+              filename: file,
               blockType: "video",
               lessonTitle: lesson.title,
             });
@@ -89,30 +171,121 @@ export function collectMediaReferences(parsed: ParsedLearningUniverse): MediaRef
   return refs;
 }
 
+/**
+ * Strip invalid media refs (LaTeX .tex paths etc.) from parsed content before publish.
+ * Keeps real YouTube / upload video mappings intact.
+ */
+export function sanitizeParsedMediaReferences(parsed: ParsedLearningUniverse): number {
+  let cleaned = 0;
+
+  const scrubVideo = (video: {
+    type: string;
+    url?: string;
+    file?: string;
+    title?: string;
+  }) => {
+    if (video.type === "youtube" || video.type === "placeholder") {
+      if (video.file && !isPublishableMediaAssetRef(video.file)) {
+        delete video.file;
+        cleaned++;
+      }
+      return;
+    }
+    if (video.file && !isPublishableMediaAssetRef(video.file) && !REMOTE_PREFIX.test(video.file)) {
+      console.warn(
+        `[PUBLISH_ASSET_LOOKUP] scrubbing non-media video.file=${video.file} lessonType=${video.type}`
+      );
+      delete video.file;
+      cleaned++;
+    }
+    if (
+      video.url &&
+      isLocalMediaRef(video.url) &&
+      !isPublishableMediaAssetRef(video.url)
+    ) {
+      console.warn(
+        `[PUBLISH_ASSET_LOOKUP] scrubbing non-media video.url=${video.url}`
+      );
+      video.url = "";
+      cleaned++;
+    }
+  };
+
+  for (const track of parsed.tracks) {
+    for (const mod of track.modules) {
+      for (const lesson of mod.lessons) {
+        for (const video of lesson.videos) {
+          scrubVideo(video);
+        }
+        for (const block of lesson.contentBlocks) {
+          if (block.type === "video" && block.content && typeof block.content === "object") {
+            scrubVideo(block.content as { type: string; url?: string; file?: string });
+          }
+          if (
+            (block.type === "image" || block.type === "download" || block.type === "resource") &&
+            block.content &&
+            typeof block.content === "object"
+          ) {
+            const c = block.content as Record<string, string>;
+            for (const key of ["file", "path", "url", "fileurl", "fileUrl"] as const) {
+              const val = c[key];
+              if (val && isLocalMediaRef(val) && !isPublishableMediaAssetRef(val)) {
+                console.warn(
+                  `[PUBLISH_ASSET_LOOKUP] scrubbing non-media ${block.type}.${key}=${val} lesson=${lesson.title}`
+                );
+                delete c[key];
+                cleaned++;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return cleaned;
+}
+
 export function validateMediaAssets(
   parsed: ParsedLearningUniverse,
-  availableFilenames: string[]
+  availableFilenames: string[],
+  context?: { courseId?: string; projectId?: string }
 ): MediaValidationIssue[] {
   const available = new Set(availableFilenames.map((f) => f.toLowerCase()));
   const issues: MediaValidationIssue[] = [];
 
+  const seen = new Set<string>();
   for (const ref of collectMediaReferences(parsed)) {
     if (isPlaceholderAssetRef(ref.filename)) continue;
+    if (!isPublishableMediaAssetRef(ref.filename)) {
+      console.info(
+        `[PUBLISH_ASSET_LOOKUP] skip_non_media path=${ref.filename} type=${ref.blockType} courseId=${context?.courseId ?? ""} projectId=${context?.projectId ?? ""}`
+      );
+      continue;
+    }
+
+    const dedupeKey = `${ref.blockType}:${refBasename(ref.filename).toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
 
     const base = refBasename(ref.filename);
     const found =
       available.has(ref.filename.toLowerCase()) ||
       available.has(base.toLowerCase()) ||
-      [...available].some(
-        (a) => refBasename(a).toLowerCase() === base.toLowerCase()
-      );
+      [...available].some((a) => refBasename(a).toLowerCase() === base.toLowerCase());
+
+    console.info(
+      `[PUBLISH_ASSET_LOOKUP] path=${ref.filename} type=${ref.blockType} lesson=${ref.lessonTitle} found=${found ? 1 : 0} courseId=${context?.courseId ?? ""} projectId=${context?.projectId ?? ""}`
+    );
 
     if (!found) {
       issues.push({
         filename: ref.filename,
         blockType: ref.blockType,
         lessonTitle: ref.lessonTitle,
-        message: `Uploaded asset not found: ${ref.filename} (referenced in ${ref.lessonTitle})`,
+        code: "STORAGE_OBJECT_NOT_FOUND",
+        stage: "ASSET_VALIDATION",
+        message: `Asset validation failed: type=${ref.blockType.toUpperCase()} storageKey=${ref.filename} reason=STORAGE_OBJECT_NOT_FOUND (lesson=${ref.lessonTitle})`,
       });
     }
   }
@@ -125,6 +298,9 @@ export function findAssetFilename(
   assets: Array<{ filename: string }>
 ): string | null {
   if (!ref) return null;
+  if (!isPublishableMediaAssetRef(ref) && isLocalMediaRef(ref)) {
+    return null;
+  }
   const exact = assets.find((a) => a.filename === ref);
   if (exact) return exact.filename;
   const ci = assets.find((a) => a.filename.toLowerCase() === ref.toLowerCase());

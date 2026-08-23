@@ -7,7 +7,7 @@ import { randomUUID } from "crypto";
 import type { ParsedLearningUniverse } from "./learning-universe-parser.js";
 import { recordProjectVersion } from "../services/latexVersionService.js";
 import { validateColabUrl, validateColabUrlsInDsl, sanitizeColabUrlsInDsl } from "../services/colabUrlValidator.js";
-import { validateMediaAssets } from "../services/learningUniverseMedia.js";
+import { validateMediaAssets, sanitizeParsedMediaReferences } from "../services/learningUniverseMedia.js";
 import { ensureUniverseMediaFromReferences } from "../services/aiCourseArchitect/aiArchitectMediaSync.js";
 import { loadProjectFiles, getProjectJsonFromFiles } from "../services/luProject/luProjectFiles.js";
 import {
@@ -210,9 +210,28 @@ async function assertPublishValidation(
     }
   }
 
-  const mediaIssues = validateMediaAssets(parsed, availableFilenames);
+  // LaTeX component paths (e.g. uploads/latex/.../lesson-01/videos.tex) are NOT media assets.
+  const scrubbed = sanitizeParsedMediaReferences(parsed);
+  if (scrubbed > 0) {
+    console.info(
+      `[PUBLISH] sanitized ${scrubbed} non-media asset reference(s) before validation universeId=${universeId ?? ""} projectId=${sourceProjectId ?? ""}`
+    );
+  }
+
+  const mediaIssues = validateMediaAssets(parsed, availableFilenames, {
+    courseId: universeId,
+    projectId: sourceProjectId,
+  });
   if (mediaIssues.length > 0) {
-    throw new Error(mediaIssues.map((i) => i.message).join("; "));
+    const detail = mediaIssues
+      .map((i) => i.message)
+      .join("; ");
+    const err = new Error(detail);
+    (err as Error & { code?: string; stage?: string }).code =
+      mediaIssues[0]?.code || "ASSET_VALIDATION_FAILED";
+    (err as Error & { code?: string; stage?: string }).stage =
+      mediaIssues[0]?.stage || "ASSET_VALIDATION";
+    throw err;
   }
 }
 
