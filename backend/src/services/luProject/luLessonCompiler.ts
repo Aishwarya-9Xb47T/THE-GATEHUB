@@ -495,11 +495,21 @@ function ensureLessonForDirectory(
 }
 
 function stampCompiledSource(
-  block: { type: string; content?: unknown; compiledSourcePath?: string; title?: string },
+  block: {
+    type: string;
+    content?: unknown;
+    compiledSourcePath?: string;
+    title?: string;
+    nodes?: unknown;
+  },
   compiledFile: CompiledTexFile
 ): void {
   const sourcePath = canonicalDocumentIdentity(compiledFile.path);
   block.compiledSourcePath = sourcePath;
+  // Prefer block.nodes when present — documentNodesToBlocks already stripped videos out.
+  // Never re-inject compiledFile.nodes (which still contain video nodes) or students see
+  // duplicate YouTube embeds while hollow video blocks lose local uploads.
+  const strippedNodes = Array.isArray(block.nodes) ? block.nodes : undefined;
   if (block.content && typeof block.content === "object") {
     const content = block.content as {
       compiledSourcePath?: string;
@@ -509,14 +519,16 @@ function stampCompiledSource(
     };
     content.compiledSourcePath = sourcePath;
     content.sourceTex = compiledFile.sourceTex;
-    if (!content.nodes) content.nodes = compiledFile.nodes;
+    // Always prefer stripped nodes when documentNodesToBlocks provided them.
+    if (strippedNodes) content.nodes = strippedNodes;
+    else if (!content.nodes) content.nodes = compiledFile.nodes;
     if (!content.title) content.title = compiledFile.title;
   } else {
     block.content = {
       title: compiledFile.title,
       compiledSourcePath: sourcePath,
       sourceTex: compiledFile.sourceTex,
-      nodes: compiledFile.nodes,
+      nodes: strippedNodes ?? compiledFile.nodes,
     };
   }
 }
@@ -557,6 +569,32 @@ function pushCompiledDocumentBlock(
         type: block.type,
         content: block.content,
         compiledSourcePath: sourcePath,
+        title: typeof block.title === "string" ? block.title : undefined,
+      });
+    } else if (block.type === "video") {
+      // documentNodesToBlocks may expose videoUrl/videoType at top level; always persist
+      // a nested content payload so the experience engine can resolve both upload + YouTube.
+      const top = block as {
+        content?: unknown;
+        title?: string;
+        videoUrl?: string;
+        videoType?: string;
+        src?: string;
+      };
+      let content = top.content;
+      if (!content || typeof content !== "object") {
+        const url = String(top.videoUrl || top.src || "");
+        const type = String(top.videoType || (url.includes("youtu") ? "youtube" : "upload"));
+        content = {
+          type,
+          url,
+          ...(type === "upload" && url ? { file: url } : {}),
+          ...(typeof top.title === "string" ? { title: top.title } : {}),
+        };
+      }
+      nextBlocks.push({
+        type: "video",
+        content,
         title: typeof block.title === "string" ? block.title : undefined,
       });
     } else {

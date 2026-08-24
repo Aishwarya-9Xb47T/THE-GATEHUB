@@ -91,13 +91,23 @@ export function documentNodesToBlocks(
   
   for (const node of nodes) {
     if (node.kind === "video" || node.type === "video") {
-      // Extract video node as a separate video block
+      // Extract video node as a separate video block with nested `content`
+      // so publish → experience engine can read url/type (not only top-level fields).
+      const url = node.url || node.file || "";
+      const videoType =
+        node.sourceType || (node.url?.includes("youtu") ? "youtube" : "upload");
       blocks.push({
         type: "video",
         title: node.title || title,
-        videoUrl: node.url || node.file || "",
-        videoType: node.sourceType || (node.url?.includes("youtu") ? "youtube" : "upload"),
-        src: node.url || node.file || "",
+        videoUrl: url,
+        videoType,
+        src: url,
+        content: {
+          type: videoType,
+          url,
+          ...(node.file || videoType === "upload" ? { file: node.file || url || undefined } : {}),
+          ...(node.title ? { title: node.title } : {}),
+        },
         sourceTex,
       });
     } else {

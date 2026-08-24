@@ -122,8 +122,48 @@ function workspacePath(
 }
 
 function blockContent(block: LuContentBlock): Record<string, unknown> {
-  if (typeof block.content === "string") return { text: block.content };
-  return (block.content as Record<string, unknown>) || {};
+  const raw =
+    typeof block.content === "string"
+      ? { text: block.content }
+      : ((block.content as Record<string, unknown>) || {});
+  // Publish historically stored videoUrl/videoType/src on the block root while
+  // leaving content empty — merge those so local uploads survive the student path.
+  if (block.type === "video") {
+    const top = block as Record<string, unknown>;
+    return {
+      ...raw,
+      url: raw.url ?? top.videoUrl ?? top.src ?? raw.url,
+      file: raw.file ?? top.file,
+      type: raw.type ?? top.videoType ?? raw.type,
+      title: raw.title ?? top.title ?? raw.title,
+    };
+  }
+  return raw;
+}
+
+function videoIdentityKey(norm: {
+  type: string;
+  url: string;
+  file?: string;
+  youtubeId?: string;
+}): string {
+  if (norm.youtubeId) return `youtube:${norm.youtubeId}`;
+  if (norm.type === "youtube") {
+    const id = norm.url ? normalizeVideoPayload({ type: "youtube", url: norm.url }).youtubeId : undefined;
+    if (id) return `youtube:${id}`;
+  }
+  const ref = (norm.file || norm.url || "").replace(/\\/g, "/").toLowerCase();
+  const base = ref.split("/").pop() || ref;
+  return `${norm.type || "upload"}:${base}`;
+}
+
+function stripVideoNodesFromDocument(
+  nodes: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  return nodes.filter((n) => {
+    const t = String(n.type ?? n.kind ?? "");
+    return t !== "video";
+  });
 }
 
 type EmbeddedMediaItem = {
@@ -395,9 +435,15 @@ function documentPayloadFromBlock(
   if (topLevelNodes && topLevelNodes.length > 0) {
     const b = block as Record<string, unknown>;
     const embedded = (block as Record<string, unknown>);
+    // Videos are first-class contentBlocks / lesson.videos — do not also render them
+    // inside document AST (publish used to re-inject full compiled nodes with videos).
+    const nodes = stripVideoNodesFromDocument(
+      topLevelNodes as Array<Record<string, unknown>>
+    ) as DocumentBlockContent["nodes"];
+    if (!nodes.length) return null;
     return {
       title: typeof b.title === "string" ? b.title : undefined,
-      nodes: topLevelNodes,
+      nodes,
       sourceTex: typeof b.sourceTex === "string" ? b.sourceTex : undefined,
       ...(Array.isArray(embedded.embeddedMediaBefore) && (embedded.embeddedMediaBefore as unknown[]).length
         ? { embeddedMediaBefore: embedded.embeddedMediaBefore as EmbeddedMediaItem[] }
@@ -414,9 +460,13 @@ function documentPayloadFromBlock(
     embeddedMediaAfter?: EmbeddedMediaItem[];
   };
   if (!content?.nodes?.length) return null;
+  const nodes = stripVideoNodesFromDocument(
+    content.nodes as Array<Record<string, unknown>>
+  ) as DocumentBlockContent["nodes"];
+  if (!nodes.length) return null;
   return {
     title: content.title,
-    nodes: content.nodes,
+    nodes,
     sourceTex: content.sourceTex,
     ...(content.embeddedMediaBefore?.length ? { embeddedMediaBefore: content.embeddedMediaBefore } : {}),
     ...(content.embeddedMediaAfter?.length ? { embeddedMediaAfter: content.embeddedMediaAfter } : {}),
@@ -799,26 +849,50 @@ function buildLessonSteps(
     }
   }
 
-  const hasVideoBlocks = blocks.some((b) => b.type === "video");
-  if (!hasVideoBlocks && lesson.videos?.length) {
-    for (let vi = 0; vi < lesson.videos.length; vi++) {
-      const v = lesson.videos[vi];
-      const norm = normalizeVideoPayload(v as Record<string, unknown>);
+  // Deduplicate video steps (publish could emit the same YouTube as multiple blocks)
+  // and always merge lesson.videos so local uploads are not dropped when hollow
+  // type:"video" blocks exist (hasVideoBlocks used to skip this fallback entirely).
+  {
+    const seenVideoKeys = new Set<string>();
+    const kept: LearnerExperienceStep[] = [];
+    for (const step of steps) {
+      if (step.kind !== "video") {
+        kept.push(step);
+        continue;
+      }
+      const norm = normalizeVideoPayload(step.payload as Record<string, unknown>);
       if (!norm.url && !norm.file && !norm.youtubeId) continue;
-      const vId = (v as { id?: string }).id ?? `v-${vi}`;
-      const vTitle = norm.title || (lesson.videos.length > 1 ? `Video ${vi + 1}` : "Video");
-      steps.push({
-        id: `video-${lesson.id}-${vId}`,
-        kind: "video",
-        title: vTitle,
-        payload: {
-          ...norm,
-          id: vId,
-          blockType: "video",
-        },
-        progressRule: progressRule("view", false, 1),
-      });
-      seenKinds.add("video");
+      const key = videoIdentityKey(norm);
+      if (seenVideoKeys.has(key)) continue;
+      seenVideoKeys.add(key);
+      kept.push(step);
+    }
+    steps.length = 0;
+    steps.push(...kept);
+
+    if (lesson.videos?.length) {
+      for (let vi = 0; vi < lesson.videos.length; vi++) {
+        const v = lesson.videos[vi];
+        const norm = normalizeVideoPayload(v as Record<string, unknown>);
+        if (!norm.url && !norm.file && !norm.youtubeId) continue;
+        const key = videoIdentityKey(norm);
+        if (seenVideoKeys.has(key)) continue;
+        seenVideoKeys.add(key);
+        const vId = (v as { id?: string }).id ?? `v-${vi}`;
+        const vTitle = norm.title || (lesson.videos.length > 1 ? `Video ${vi + 1}` : "Video");
+        steps.push({
+          id: `video-${lesson.id}-${vId}`,
+          kind: "video",
+          title: vTitle,
+          payload: {
+            ...norm,
+            id: vId,
+            blockType: "video",
+          },
+          progressRule: progressRule("view", false, 1),
+        });
+        seenKinds.add("video");
+      }
     }
   }
 

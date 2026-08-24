@@ -75,7 +75,8 @@ function buildLessonData(
     videos: {
       create: lesson.videos.map((v, vi) => ({
         type: v.type,
-        url: v.url,
+        // Upload videos often store the path on `file`; persist a non-empty url for students.
+        url: v.url || (v as { file?: string }).file || "",
         title: v.title,
         order: vi,
       })),
