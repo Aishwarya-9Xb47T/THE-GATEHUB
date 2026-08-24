@@ -715,7 +715,7 @@ export function InteractiveClassroomEditor() {
 
   if (loading) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-background">
+      <div className="interactive-classroom-editor flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden bg-background">
         <div className="text-center space-y-3">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" />
           <p className="text-sm text-muted-foreground">Loading presentation…</p>
@@ -726,7 +726,7 @@ export function InteractiveClassroomEditor() {
 
   if (!presentation) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-background">
+      <div className="interactive-classroom-editor flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden bg-background">
         <p className="text-muted-foreground">Presentation not found</p>
       </div>
     );
@@ -737,7 +737,10 @@ export function InteractiveClassroomEditor() {
     : -1;
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-background">
+    <div
+      className="interactive-classroom-editor flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      data-testid="interactive-classroom-editor"
+    >
       {/* Top toolbar */}
       <header className="h-14 shrink-0 border-b bg-card px-3 flex items-center gap-2 min-w-0">
         <div className="flex items-center gap-1 shrink-0">
@@ -840,21 +843,26 @@ export function InteractiveClassroomEditor() {
         </div>
       </header>
 
-      {/* Workspace */}
-      <div ref={workspaceRef} className="flex flex-1 min-h-0">
-        {/* Slides sidebar */}
+      {/* Workspace — every flex ancestor uses min-h-0 so the stage cannot grow the page */}
+      <div
+        ref={workspaceRef}
+        className="flex min-h-0 flex-1 overflow-hidden"
+        data-testid="interactive-classroom-workspace"
+      >
+        {/* Slides sidebar — only independently scrollable vertical region */}
         <aside
-          className={`shrink-0 border-r bg-card/50 flex flex-col transition-[width] duration-200 ${
+          data-testid="interactive-classroom-slide-list"
+          className={`flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r bg-card/50 transition-[width] duration-200 ${
             sidebarCollapsed ? "w-14" : "w-64"
           }`}
         >
           {!sidebarCollapsed && (
-            <div className="px-3 py-2 border-b">
+            <div className="shrink-0 border-b px-3 py-2">
               <h2 className="text-sm font-semibold">Slides</h2>
             </div>
           )}
-          <ScrollArea className="flex-1">
-            <div className={`p-2 space-y-1 ${sidebarCollapsed ? "px-1" : ""}`}>
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+            <div className={`space-y-1 p-2 ${sidebarCollapsed ? "px-1" : ""}`}>
               {slides.map((slide) => {
                 const isSelected = selectedSlideId === slide.id;
                 const title = getSlideDisplayTitle(slide);
@@ -897,13 +905,13 @@ export function InteractiveClassroomEditor() {
                               ? classroomRenderedImageUrl(presentationId, slide.order, slide.thumbnail)
                               : null);
                             return (
-                              <div className="w-full h-16 bg-slate-900 rounded mb-1 overflow-hidden relative border border-white/5">
+                              <div className="relative mb-1 h-16 w-full overflow-hidden rounded border border-white/5 bg-slate-900">
                                 {first ? (
                                   <img
                                     src={withUploadAuth(first)}
                                     alt=""
                                     data-thumb-index="0"
-                                    className="w-full h-full object-contain"
+                                    className="h-full w-full object-contain"
                                     onError={(event) => {
                                       const img = event.currentTarget;
                                       const index = Number(img.dataset.thumbIndex || "0") + 1;
@@ -919,15 +927,15 @@ export function InteractiveClassroomEditor() {
                               </div>
                             );
                           })()}
-                          <p className="text-sm font-medium truncate">{title}</p>
-                          <div className="flex items-center gap-1 mt-0.5">
+                          <p className="truncate text-sm font-medium">{title}</p>
+                          <div className="mt-0.5 flex items-center gap-1">
                             {slide.isHidden && (
-                              <EyeOff className="w-3 h-3 text-muted-foreground" aria-label="Hidden during session" />
+                              <EyeOff className="h-3 w-3 text-muted-foreground" aria-label="Hidden during session" />
                             )}
-                            {slide.isLocked && <Lock className="w-3 h-3 text-muted-foreground" />}
-                            {slide.isImportant && <Star className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
+                            {slide.isLocked && <Lock className="h-3 w-3 text-muted-foreground" />}
+                            {slide.isImportant && <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />}
                             {slide.interactions.length > 0 && (
-                              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">
+                              <Badge variant="secondary" className="h-4 px-1 py-0 text-[10px]">
                                 {slide.interactions.length}
                               </Badge>
                             )}
@@ -939,14 +947,17 @@ export function InteractiveClassroomEditor() {
                 );
               })}
             </div>
-          </ScrollArea>
+          </div>
         </aside>
 
         {/* Slide canvas workspace */}
-        <main className="flex-1 min-w-0 flex flex-col min-h-0 bg-muted/20">
+        <main
+          className="main-presentation-area flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-muted/20"
+          data-testid="interactive-classroom-main-stage"
+        >
           {selectedSlide ? (
             <>
-              <div className="h-11 shrink-0 border-b bg-card px-2 sm:px-3 flex items-center gap-2 min-w-0">
+              <div className="flex h-11 min-w-0 shrink-0 items-center gap-2 border-b bg-card px-2 sm:px-3">
                 <div className="flex items-center gap-0.5 shrink-0">
                   <Button
                     variant="ghost"
@@ -1047,7 +1058,10 @@ export function InteractiveClassroomEditor() {
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-hidden">
+              <div
+                className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden"
+                data-testid="interactive-classroom-presentation-stage"
+              >
                 <SlideRenderer
                   key={selectedSlide.id}
                   content={selectedSlide.content}
@@ -1055,7 +1069,7 @@ export function InteractiveClassroomEditor() {
                   slideNumber={selectedSlide.order}
                   presentationId={presentationId}
                   slideId={selectedSlide.id}
-                  className="w-full h-full max-h-full"
+                  className="h-full max-h-full w-full"
                   canRepair
                   repairing={repairingVisuals}
                   pipelineStatus={usesOriginalPresentationSource(presentation.sourceType, selectedSlide?.content?.visual) ? "ready" : presentation.status}
@@ -1069,7 +1083,7 @@ export function InteractiveClassroomEditor() {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex flex-1 items-center justify-center">
               <p className="text-muted-foreground">Select a slide to begin</p>
             </div>
           )}

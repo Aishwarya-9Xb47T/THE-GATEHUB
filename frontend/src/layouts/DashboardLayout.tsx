@@ -182,7 +182,13 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
       closeSidebar={() => closeSidebar({ persist: false })}
       isSidebarOpen={isSidebarOpen}
     >
-    <div className="app-shell flex min-h-dvh bg-background">
+    <div
+      className={cn(
+        "app-shell flex min-h-dvh bg-background",
+        // Editor must not grow the document: lock shell to the viewport.
+        isInteractiveClassroomEditor && "h-dvh max-h-dvh min-h-0 overflow-hidden",
+      )}
+    >
       {/* Sidebar — hidden during immersive learn / workspace / quiz studio */}
       <AnimatePresence>
         {isSidebarOpen && !hideDashboardChrome && (
@@ -276,9 +282,9 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
       <main className={cn(
         "flex flex-col flex-1 min-h-0 w-full transition-all duration-300",
         hideDashboardChrome
-          ? "h-dvh pl-0"
+          ? "h-dvh overflow-hidden pl-0"
           : fillRemainingViewport
-            ? cn("h-dvh", isSidebarOpen && isDesktop ? "pl-72" : "pl-0")
+            ? cn("h-dvh overflow-hidden", isSidebarOpen && isDesktop ? "pl-72" : "pl-0")
             : isSidebarOpen && isDesktop
               ? "pl-72"
               : "pl-0"
@@ -287,7 +293,7 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
         {!hideDashboardChrome && (
         <div
           data-floating-obstacle="dashboard-topbar"
-          className="sticky top-0 z-20 flex items-center justify-between h-14 sm:h-16 px-4 sm:px-6 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 ring-1 ring-border/40"
+          className="sticky top-0 z-20 shrink-0 flex items-center justify-between h-14 sm:h-16 px-4 sm:px-6 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 ring-1 ring-border/40"
         >
           <SidebarToggleButton
             isOpen={isSidebarOpen}

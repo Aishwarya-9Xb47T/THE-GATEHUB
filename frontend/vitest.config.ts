@@ -16,6 +16,7 @@ export default defineConfig({
       "src/lib/landingQueries.test.ts",
       "src/lib/pptxSvgPostProcess.test.ts",
       "src/lib/resolveLearningUniverseAsset.test.ts",
+      "src/pages/instructor/interactive-classroom/InteractiveClassroomEditor.layout.test.tsx",
     ],
   },
   resolve: {
