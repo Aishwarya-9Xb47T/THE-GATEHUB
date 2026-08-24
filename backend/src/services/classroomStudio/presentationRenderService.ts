@@ -649,13 +649,8 @@ export async function logClassroomRendererStartup(): Promise<void> {
     javaHome: env.javaHome,
     chrome: env.chrome,
   });
-  try {
-    const { describeLibreOfficeRuntime } = await import('./presentationLibreOfficeRender.js');
-    const runtime = await describeLibreOfficeRuntime();
-    console.info('[CLASSROOM_RENDER] LibreOffice runtime:', runtime);
-  } catch (error) {
-    console.warn('[CLASSROOM_RENDER] LibreOffice runtime probe failed', error instanceof Error ? error.message : error);
-  }
+  // Do not spawn soffice/java at boot — LibreOffice --version has SIGSEGV'd Render
+  // containers (exit 139). Path probes above are enough; full runtime probe stays on-demand.
 }
 
 export async function renderPresentationSlides(

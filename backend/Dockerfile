@@ -100,7 +100,7 @@ RUN apt-get update \
   && DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build" npx prisma generate
 
 ENV NODE_ENV=production
-ENV PORT=5000
+ENV PORT=10000
 ENV UPLOAD_DIR=/app/uploads
 ENV PATH="/usr/bin:${PATH}"
 ENV HOME=/tmp
@@ -113,7 +113,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-EXPOSE 5000
+EXPOSE 10000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT}/api/health" || exit 1

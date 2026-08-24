@@ -120,7 +120,8 @@ requiredDirs.forEach((dir) => {
 });
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 10000;
+const HOST = "0.0.0.0";
 const isProduction = process.env.NODE_ENV === "production";
 
 // Render / reverse proxies: correct client IP for rate limiting
@@ -563,10 +564,9 @@ async function initializeBackgroundServices() {
 
 try {
   console.log(`[MEM] Before app.listen | RSS: ${fmtMb(process.memoryUsage().rss)} | Heap: ${fmtMb(process.memoryUsage().heapUsed)}`);
-  const server = app.listen(PORT, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`[MEM] After app.listen | RSS: ${fmtMb(process.memoryUsage().rss)} | Heap: ${fmtMb(process.memoryUsage().heapUsed)}`);
-    console.log(`[SUCCESS] Server running on http://localhost:${PORT}`);
-    console.log("SERVER STARTED SUCCESSFULLY ON PORT 5000");
+    console.log(`[SUCCESS] Server running on ${HOST}:${PORT}`);
     void initializeBackgroundServices();
   });
 

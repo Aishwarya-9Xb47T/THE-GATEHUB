@@ -42,7 +42,8 @@ javac -version 2>&1 | sed 's/^/[entrypoint] /'
 if command -v soffice >/dev/null 2>&1 || test -x /usr/lib/libreoffice/program/soffice; then
   SOFFICE_BIN="$(command -v soffice 2>/dev/null || echo /usr/lib/libreoffice/program/soffice)"
   echo "[entrypoint] soffice=${SOFFICE_BIN}"
-  "${SOFFICE_BIN}" --headless --version 2>&1 | head -n 2 | sed 's/^/[entrypoint] /' || echo "[entrypoint] WARN: soffice --version failed"
+  # Do not execute soffice here — --headless --version can SIGSEGV (exit 139) and kill the container.
+  echo "[entrypoint] LibreOffice binary present (version probe deferred to render jobs)"
 else
   echo "[entrypoint] WARN: LibreOffice soffice is not on PATH"
 fi
