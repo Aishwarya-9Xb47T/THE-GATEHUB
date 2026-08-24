@@ -5,6 +5,8 @@
  */
 
 const STATIC_ALLOWED_ORIGINS = [
+  "https://thegatehub.com",
+  "https://www.thegatehub.com",
   "https://gatehub-frontend.onrender.com",
   "http://darkred-viper-851326.hostingersite.com",
   "https://darkred-viper-851326.hostingersite.com",

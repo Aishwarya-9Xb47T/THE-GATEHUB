@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it } from "@jest/globals";
+import { afterEach, describe, expect, it } from "vitest";
 import { getAllowedCorsOrigins, isAllowedCorsOrigin } from "../corsOrigins.js";
 
 const REQUIRED_ORIGINS = [
+  "https://thegatehub.com",
+  "https://www.thegatehub.com",
   "https://gatehub-frontend.onrender.com",
   "http://darkred-viper-851326.hostingersite.com",
   "https://darkred-viper-851326.hostingersite.com",

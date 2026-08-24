@@ -3,8 +3,8 @@ function stripTrailingSlash(value: string): string {
 }
 
 /**
- * Development: relative `/api` so the Vite proxy still works.
- * Production: `VITE_API_BASE_URL` (e.g. https://host/api). Never hardcoded.
+ * Development: relative `/api` so the Vite `/api` proxy still works (localhost backend).
+ * Production: `VITE_API_BASE_URL` from `.env.production` (Render backend). Never use localhost in prod.
  */
 export function getApiBase(): string {
   if (import.meta.env.PROD) {
