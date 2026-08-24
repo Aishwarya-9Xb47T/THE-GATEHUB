@@ -17,6 +17,7 @@ export default defineConfig({
       "src/lib/pptxSvgPostProcess.test.ts",
       "src/lib/resolveLearningUniverseAsset.test.ts",
       "src/pages/instructor/interactive-classroom/InteractiveClassroomEditor.layout.test.tsx",
+      "src/pages/auth/ForgotPasswordPage.test.tsx",
     ],
   },
   resolve: {

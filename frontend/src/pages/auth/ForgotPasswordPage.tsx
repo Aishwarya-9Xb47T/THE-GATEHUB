@@ -17,9 +17,13 @@ const schema = z.object({
 });
 type Form = z.infer<typeof schema>;
 
+/** Bound the forgot-password wait so the UI never sticks on "Sending link...". */
+const FORGOT_PASSWORD_TIMEOUT_MS = 25_000;
+
 export function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState(
     "If an account exists for that email, a password reset link has been sent."
   );
@@ -29,17 +33,36 @@ export function ForgotPasswordPage() {
 
   const onSubmit = async (data: Form) => {
     setLoading(true);
+    setError(null);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), FORGOT_PASSWORD_TIMEOUT_MS);
     try {
-      const res = await api<{ message?: string }>("/auth/forgot-password", {
+      const res = await api<{ message?: string; success?: boolean }>("/auth/forgot-password", {
         method: "POST",
         body: data,
+        signal: controller.signal,
       });
+
+      // `api()` does not throw on HTTP errors — check `error` explicitly.
+      if (res.error) {
+        const timedOut =
+          controller.signal.aborted ||
+          /cancel|abort|timeout/i.test(res.error);
+        setError(
+          timedOut
+            ? "Unable to send the reset email right now. Please try again."
+            : res.error
+        );
+        return;
+      }
+
       if (res.data?.message) setMessage(res.data.message);
       setSubmitted(true);
-    } catch (error: any) {
-      console.error("Request failed:", error);
-      setSubmitted(true);
+    } catch (err: unknown) {
+      console.error("Request failed:", err);
+      setError("Unable to send the reset email right now. Please try again.");
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -77,12 +100,19 @@ export function ForgotPasswordPage() {
                         type="email"
                         placeholder="you@example.com"
                         className="h-12 pl-11 pr-4 rounded-xl bg-background/50 focus:bg-background transition-colors"
+                        disabled={loading}
                         {...register("email")}
                       />
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors" />
                     </div>
                     {errors.email && <p className="text-sm text-red-500 font-medium">{errors.email.message}</p>}
                   </div>
+
+                  {error && (
+                    <p className="text-sm text-red-500 font-medium" role="alert" data-testid="forgot-password-error">
+                      {error}
+                    </p>
+                  )}
 
                   <Button type="submit" className="w-full h-12 text-lg rounded-xl font-semibold shadow-lg hover:shadow-primary/30 transition-all hover:-translate-y-0.5" disabled={loading}>
                     {loading ? "Sending link..." : "Send Reset Link"}
@@ -94,7 +124,7 @@ export function ForgotPasswordPage() {
                   </Link>
                 </form>
               ) : (
-                <div className="text-center space-y-6 py-4">
+                <div className="text-center space-y-6 py-4" data-testid="forgot-password-success">
                   <div className="flex justify-center">
                     <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center">
                       <CheckCircle2 className="w-10 h-10 text-green-500" />

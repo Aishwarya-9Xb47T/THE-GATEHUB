@@ -634,6 +634,7 @@ export async function forgotPassword(email: string, req?: ReqLike) {
   const meta = getReqMeta(req);
 
   console.log("[AUTH] Forgot-password request received for domain:", normalized.split("@")[1] || "unknown");
+  console.log("[EMAIL] EMAIL_RESET_START");
 
   const user = await prisma.user.findUnique({ where: { email: normalized } });
   await logSecurityEvent({
@@ -646,32 +647,47 @@ export async function forgotPassword(email: string, req?: ReqLike) {
   console.log("[AUTH] User lookup completed. found=%s suspended=%s deleted=%s",
     !!user, user?.suspended ?? false, !!user?.deletedAt);
 
+  // Anti-enumeration: unknown / ineligible accounts still get a generic success (no email to send).
   if (!user || user.suspended || user.deletedAt) return generic;
   if (user.authProvider === "google" && !user.passwordHash) {
     console.log("[AUTH] Skipping reset for Google-only account (no password hash)");
     return generic;
   }
 
-  try {
-    console.log("[AUTH] Generating password reset token...");
-    const { rawToken } = await issueAuthToken({ userId: user.id, type: "password_reset" });
-    console.log("[AUTH] Reset token generated and persisted");
+  console.log("[AUTH] Generating password reset token...");
+  const { rawToken } = await issueAuthToken({ userId: user.id, type: "password_reset" });
+  console.log("[AUTH] Reset token generated and persisted");
 
-    const { sendPasswordResetEmail } = await import("./emailService.js");
-    console.log("[EMAIL] Attempting password reset email...");
+  const { sendPasswordResetEmail } = await import("./emailService.js");
+  const sendStarted = Date.now();
+  try {
+    console.log("[EMAIL] EMAIL_SEND_START");
     await sendPasswordResetEmail(user.email, rawToken);
-    console.log("[EMAIL] Password reset email dispatched successfully");
+    console.log("[EMAIL] EMAIL_SEND_SUCCESS durationMs=%s", Date.now() - sendStarted);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Categorise the error safely — never log the token or password
     const category =
-      msg.includes("not configured") ? "SMTP_NOT_CONFIGURED" :
-      msg.includes("ECONNREFUSED") ? "SMTP_CONNECTION_REFUSED" :
-      msg.includes("ETIMEDOUT") || msg.includes("timeout") ? "SMTP_TIMEOUT" :
-      msg.includes("535") || msg.includes("Authentication") ? "SMTP_AUTH_FAILED" :
-      msg.includes("550") ? "SMTP_RECIPIENT_REJECTED" :
-      "SMTP_ERROR";
-    console.error("[EMAIL] Password reset email FAILED. category=%s message=%s", category, msg);
+      msg.includes("EMAIL_PROVIDER_NOT_CONFIGURED") || msg.includes("not configured")
+        ? "EMAIL_PROVIDER_NOT_CONFIGURED"
+        : msg.includes("EMAIL_PROVIDER_TIMEOUT") || msg.includes("ETIMEDOUT") || msg.includes("timeout") || msg.includes("timed out")
+          ? "EMAIL_PROVIDER_TIMEOUT"
+          : msg.includes("EMAIL_SEND_FAILED") || msg.includes("provider HTTP")
+            ? "EMAIL_SEND_FAILED"
+            : "EMAIL_SEND_FAILED";
+    console.error(
+      "[EMAIL] EMAIL_SEND_FAILED durationMs=%s category=%s message=%s",
+      Date.now() - sendStarted,
+      category,
+      // Never include tokens/API keys — message is already sanitized upstream.
+      msg.replace(/Bearer\s+\S+/gi, "Bearer ***").slice(0, 240)
+    );
+    // Never report success when the provider did not accept the message.
+    throw new AppError(
+      503,
+      "Unable to send the reset email right now. Please try again.",
+      true,
+      { code: "PASSWORD_RESET_EMAIL_FAILED", retryable: true, reason: category }
+    );
   }
 
   return generic;

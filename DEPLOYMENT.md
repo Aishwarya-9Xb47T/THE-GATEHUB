@@ -79,7 +79,7 @@ Copy `.env.production.example` → `.env.production`. **Never commit** `.env.pro
 ### Integrations (feature-dependent)
 
 Payments: `RAZORPAY_*`, `STRIPE_*`  
-Email: `EMAIL_USER`, `EMAIL_PASS`  
+Email (password reset on Render Free): `EMAIL_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` (Resend HTTPS — SMTP ports are blocked on Render Free)  
 AI: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`  
 Banner cloud: `FIREBASE_*`, `PEXELS_API_KEY`, etc.
 

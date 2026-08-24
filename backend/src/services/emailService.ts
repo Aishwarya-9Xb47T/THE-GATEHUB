@@ -89,25 +89,33 @@ async function getTransporter() {
   // Safe log — host, port, and masked user. Never logs password.
   const userDomain = cfg.user.includes("@") ? cfg.user.split("@")[1] : "(no-domain)";
   console.log(
-    `[EMAIL] Creating SMTP transporter: host=${cfg.host || "(gmail-service)"} port=${cfg.port} secure=${cfg.port === 465} user=***@${userDomain}`
+    `[EMAIL] EMAIL_PROVIDER_CONNECTION_START host=${cfg.host || "(gmail-service)"} port=${cfg.port} secure=${cfg.port === 465} user=***@${userDomain}`
   );
 
+  const connectionTimeout = Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10_000);
+  const greetingTimeout = Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10_000);
+  const socketTimeout = Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20_000);
+
+  // Existing Gmail / SMTP setup: prefer STARTTLS on 587; secure on 465.
+  // Timeouts must fail the request — never hang the forgot-password API indefinitely.
   const transporter = cfg.host
     ? nodemailer.createTransport({
         host: cfg.host,
         port: cfg.port,
         secure: cfg.port === 465,
+        requireTLS: cfg.port === 587,
         auth: { user: cfg.user, pass: cfg.pass },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
+        connectionTimeout,
+        greetingTimeout,
+        socketTimeout,
+        tls: { minVersion: "TLSv1.2" },
       })
     : nodemailer.createTransport({
         service: "gmail",
         auth: { user: cfg.user, pass: cfg.pass },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
+        connectionTimeout,
+        greetingTimeout,
+        socketTimeout,
       });
 
   cachedTransporter = transporter;
@@ -115,31 +123,85 @@ async function getTransporter() {
   return { transporter, cfg };
 }
 
+function maskRecipient(email: string): string {
+  return email.replace(/(^.).*(@.*)$/, "$1***$2");
+}
+
+async function withSendTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`EMAIL_SEND timed out after ${ms}ms`));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function sendMail(payload: MailPayload) {
-  const { transporter, cfg } = await getTransporter();
-  const result = await transporter.sendMail({
-    from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
-    to: payload.to,
-    subject: payload.subject,
-    html: payload.html,
-    text: payload.text,
-  }) as { messageId?: string; accepted?: string[]; rejected?: string[]; response?: string };
+  const started = Date.now();
+  const maskedTo = maskRecipient(payload.to);
+  console.log(`[EMAIL] EMAIL_SEND_START to=${maskedTo} subject="${payload.subject}"`);
 
-  const maskedTo = payload.to.replace(/(^.).*(@.*)$/, "$1***$2");
-  console.log(
-    `[EMAIL] Sent: "${payload.subject}" → ${maskedTo} | messageId=${result?.messageId || "(none)"} accepted=${JSON.stringify(result?.accepted ?? [])} rejected=${JSON.stringify(result?.rejected ?? [])}`
-  );
+  try {
+    const { transporter, cfg } = await getTransporter();
+    const sendTimeoutMs = Number(process.env.SMTP_SEND_TIMEOUT_MS || 20_000);
+    const result = (await withSendTimeout(
+      transporter.sendMail({
+        from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
+        to: payload.to,
+        subject: payload.subject,
+        html: payload.html,
+        text: payload.text,
+      }),
+      sendTimeoutMs
+    )) as { messageId?: string; accepted?: string[]; rejected?: string[]; response?: string };
 
-  if (result?.rejected?.length) {
-    console.error(`[EMAIL] SMTP rejected recipient(s): ${JSON.stringify(result.rejected)}`);
+    const durationMs = Date.now() - started;
+    console.log(
+      `[EMAIL] EMAIL_SEND_SUCCESS durationMs=${durationMs} to=${maskedTo} messageId=${result?.messageId || "(none)"} accepted=${JSON.stringify(result?.accepted ?? [])} rejected=${JSON.stringify(result?.rejected ?? [])}`
+    );
+
+    if (result?.rejected?.length) {
+      throw new Error(`SMTP rejected recipient(s): ${result.rejected.length}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const durationMs = Date.now() - started;
+    const isTimeout = /timed out|timeout|ETIMEDOUT|ESOCKETTIMEDOUT/i.test(msg);
+    console.error(
+      `[EMAIL] ${isTimeout ? "EMAIL_SEND_TIMEOUT" : "EMAIL_SEND_FAILED"} durationMs=${durationMs} to=${maskedTo} message=${msg}`
+    );
+    // Invalidate cached transporter after failures so the next attempt reconnects cleanly.
+    cachedTransporter = null;
+    cachedKey = "";
+    throw err instanceof Error ? err : new Error(msg);
   }
 }
 
 /**
- * Startup health-check for SMTP. Logs [EMAIL] SMTP READY or [EMAIL] SMTP FAILED.
- * Safe to call at boot — never exposes credentials.
+ * Startup health-check for email delivery.
+ * Prefer HTTPS API (Render Free blocks SMTP 25/465/587). Never logs secrets.
  */
 export async function verifySmtpTransporter(): Promise<void> {
+  if (process.env.EMAIL_API_KEY?.trim()) {
+    if (!process.env.EMAIL_FROM?.trim()) {
+      console.error(
+        "[EMAIL] EMAIL_PROVIDER_NOT_CONFIGURED — EMAIL_API_KEY is set but EMAIL_FROM is missing"
+      );
+      return;
+    }
+    console.log(
+      "[EMAIL] EMAIL_PROVIDER_READY — HTTPS email API configured (Resend). SMTP startup verify skipped."
+    );
+    return;
+  }
+
   try {
     const { transporter } = await getTransporter();
     await transporter.verify();
@@ -152,22 +214,126 @@ export async function verifySmtpTransporter(): Promise<void> {
       msg.includes("ETIMEDOUT") || msg.includes("timeout") ? "SMTP_TIMEOUT" :
       msg.includes("535") || msg.includes("Authentication") ? "SMTP_AUTH_FAILED" :
       "SMTP_VERIFY_FAILED";
-    console.error(`[EMAIL] SMTP FAILED at startup — category=${category} message=${msg}`);
+    console.error(
+      `[EMAIL] SMTP FAILED at startup — category=${category} message=${msg}. ` +
+        "On Render Free, set EMAIL_API_KEY + EMAIL_FROM for password-reset email (HTTPS)."
+    );
+  }
+}
+
+function resolveHttpsMailConfig() {
+  const apiKey = process.env.EMAIL_API_KEY?.trim() || "";
+  const fromEmail = process.env.EMAIL_FROM?.trim() || "";
+  const fromName = process.env.EMAIL_FROM_NAME?.trim() || "THE GATEHUB";
+
+  if (!apiKey) {
+    throw new Error(
+      "EMAIL_PROVIDER_NOT_CONFIGURED: EMAIL_API_KEY is missing. " +
+        "Set EMAIL_API_KEY (Resend) on Render — SMTP ports are blocked on Render Free."
+    );
+  }
+  if (!fromEmail) {
+    throw new Error(
+      "EMAIL_PROVIDER_NOT_CONFIGURED: EMAIL_FROM is missing. " +
+        "Use a Resend-verified sender (e.g. onboarding@resend.dev for tests, or your verified domain)."
+    );
+  }
+
+  return { apiKey, fromEmail, fromName };
+}
+
+/**
+ * Deliver password-reset mail via Resend HTTPS API (not SMTP).
+ * Render Free blocks outbound SMTP on 25/465/587.
+ * Exported for focused unit tests; do not log apiKey / token / Authorization.
+ */
+export async function sendPasswordResetViaHttpsApi(payload: MailPayload): Promise<{ id?: string }> {
+  const { apiKey, fromEmail, fromName } = resolveHttpsMailConfig();
+  const started = Date.now();
+  const maskedTo = maskRecipient(payload.to);
+  const timeoutMs = Number(process.env.EMAIL_API_TIMEOUT_MS || 15_000);
+  const from =
+    fromEmail.includes("<") ? fromEmail : `${fromName} <${fromEmail}>`;
+
+  console.log(`[EMAIL] EMAIL_SEND_START provider=resend to=${maskedTo} subject="${payload.subject}"`);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: [payload.to],
+        subject: payload.subject,
+        html: payload.html,
+        text: payload.text,
+      }),
+    });
+
+    const durationMs = Date.now() - started;
+    const rawBody = await response.text();
+    let parsed: { id?: string; message?: string; name?: string } = {};
+    try {
+      parsed = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      parsed = {};
+    }
+
+    if (!response.ok) {
+      const safeReason = (parsed.message || parsed.name || `HTTP ${response.status}`).slice(0, 160);
+      console.error(
+        `[EMAIL] EMAIL_SEND_FAILED provider=resend durationMs=${durationMs} to=${maskedTo} status=${response.status} reason=${safeReason}`
+      );
+      throw new Error(`EMAIL_SEND_FAILED: provider HTTP ${response.status}`);
+    }
+
+    console.log(
+      `[EMAIL] EMAIL_SEND_SUCCESS provider=resend durationMs=${durationMs} to=${maskedTo} id=${parsed.id || "(none)"}`
+    );
+    return { id: parsed.id };
+  } catch (err) {
+    const durationMs = Date.now() - started;
+    if (err instanceof Error && err.name === "AbortError") {
+      console.error(
+        `[EMAIL] EMAIL_PROVIDER_TIMEOUT provider=resend durationMs=${durationMs} to=${maskedTo}`
+      );
+      throw new Error(`EMAIL_PROVIDER_TIMEOUT: Resend request timed out after ${timeoutMs}ms`);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("EMAIL_SEND_FAILED") || msg.startsWith("EMAIL_PROVIDER_")) {
+      throw err instanceof Error ? err : new Error(msg);
+    }
+    console.error(
+      `[EMAIL] EMAIL_SEND_FAILED provider=resend durationMs=${durationMs} to=${maskedTo} message=${msg.slice(0, 200)}`
+    );
+    throw err instanceof Error ? err : new Error(msg);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 export async function sendPasswordResetEmail(email: string, rawToken: string) {
   const frontend = getFrontendUrl();
   const resetLink = `${frontend}/reset-password?token=${encodeURIComponent(rawToken)}`;
-  const { cfg } = await getTransporter();
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
 
-  await sendMail({
+  // HTTPS only — do not use SMTP (blocked on Render Free).
+  await sendPasswordResetViaHttpsApi({
     to: email,
     subject: "Reset your THE GATEHUB password",
     html: brandShell({
       title: "Password reset",
-      supportEmail: cfg.supportEmail,
-      footerNote: "This link expires in 1 hour and can be used only once. If you did not request a reset, you can ignore this email.",
+      supportEmail,
+      footerNote:
+        "This link expires in 1 hour and can be used only once. If you did not request a reset, you can ignore this email.",
       ctaLabel: "Reset password",
       ctaUrl: resetLink,
       bodyHtml: `<p style="color:#0f172a;line-height:1.6;">We received a request to reset the password for your THE GATEHUB account.</p>
