@@ -29,6 +29,9 @@ build/
 .env.*
 !.env.example
 !.env.test.example
+# Vite production build env (public API host only — no secrets)
+!.env.production
+!frontend/.env.production
 
 # Logs & Temporary Files
 logs/
