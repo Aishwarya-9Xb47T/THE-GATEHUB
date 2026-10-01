@@ -127,7 +127,7 @@ describe("sendPasswordResetEmail preserves production reset URL", () => {
     process.env.EMAIL_API_KEY = "re_test_key_not_real";
     process.env.EMAIL_FROM = "onboarding@resend.dev";
     process.env.NODE_ENV = "production";
-    process.env.FRONTEND_URL = "https://gatehub-frontend.onrender.com";
+    process.env.FRONTEND_URL = "https://thegatehub.com";
   });
 
   afterEach(() => {
@@ -156,7 +156,7 @@ describe("sendPasswordResetEmail preserves production reset URL", () => {
     await sendPasswordResetEmail("user@example.com", token);
 
     expect(capturedBody).toContain(
-      "https://gatehub-frontend.onrender.com/reset-password?token=" + encodeURIComponent(token)
+      "https://thegatehub.com/reset-password?token=" + encodeURIComponent(token)
     );
     expect(capturedBody).not.toContain("localhost");
 

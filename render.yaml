@@ -23,9 +23,9 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: CLIENT_URL
-        value: https://gatehub-frontend.onrender.com
+        value: https://thegatehub.com
       - key: FRONTEND_URL
-        value: https://gatehub-frontend.onrender.com
+        value: https://thegatehub.com
       - key: API_URL
         value: https://gatehub-backend-mprr.onrender.com
       - key: GOOGLE_OAUTH_CALLBACK_URL
@@ -88,6 +88,8 @@ services:
         value: https://gatehub-backend-mprr.onrender.com
       - key: VITE_WS_URL
         value: wss://gatehub-backend-mprr.onrender.com/yjs/
+      - key: VITE_PUBLIC_APP_URL
+        value: https://thegatehub.com
 
 databases:
   - name: gatehub-db

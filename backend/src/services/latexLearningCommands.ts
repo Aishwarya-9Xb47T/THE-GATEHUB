@@ -5,6 +5,7 @@
 
 import { expandLearningUniverseForPdf, type LuPdfProjectContext } from "./latexPdfRenderer.js";
 import { sanitizeForListings } from "./luProject/luTexEscape.js";
+import { getFrontendUrl } from "../utils/frontendUrl.js";
 import {
   LEARNING_COMMANDS,
   COMMANDS_WITH_RICH_LATEX_STUBS,
@@ -313,7 +314,7 @@ function findMatchingBrace(text: string, openIndex: number): number {
 }
 
 export function buildLearningCommandStubs(projectId?: string): string {
-  const videoUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const videoUrl = getFrontendUrl();
   const resourceBase = projectId
     ? `${videoUrl}/resources/course/${projectId}`
     : videoUrl;

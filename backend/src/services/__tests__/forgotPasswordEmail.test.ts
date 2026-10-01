@@ -147,12 +147,12 @@ describe("password reset URL (production frontend)", () => {
 
   it("builds reset links against the configured production frontend, not localhost", () => {
     process.env.NODE_ENV = "production";
-    process.env.FRONTEND_URL = "https://gatehub-frontend.onrender.com";
+    process.env.FRONTEND_URL = "https://thegatehub.com";
     delete process.env.CLIENT_URL;
     const frontend = getFrontendUrl();
-    expect(frontend).toBe("https://gatehub-frontend.onrender.com");
+    expect(frontend).toBe("https://thegatehub.com");
     expect(frontend).not.toMatch(/localhost|127\.0\.0\.1/);
     const link = `${frontend}/reset-password?token=${encodeURIComponent("opaque-token")}`;
-    expect(link.startsWith("https://gatehub-frontend.onrender.com/reset-password?token=")).toBe(true);
+    expect(link.startsWith("https://thegatehub.com/reset-password?token=")).toBe(true);
   });
 });

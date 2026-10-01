@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import type { AuthRequest } from "../middlewares/auth.js";
+import { getClientUrlSafe } from "../utils/frontendUrl.js";
 
 export interface LearningPlatformInfo {
   id: string;
@@ -146,9 +147,9 @@ export async function getWaygroundConfig(req: Request, res: Response) {
       name: "Wayground",
       status: "connected",
       ltiVersion: "1.3",
-      issuer: process.env.CLIENT_URL || "http://localhost:5173",
+      issuer: getClientUrlSafe(),
       clientId: "thegatehub-wayground-lti-v1",
-      oidcInitiationUrl: `${process.env.CLIENT_URL || "http://localhost:5173"}/api/v1/learning-platforms/wayground/lti/init`,
+      oidcInitiationUrl: `${getClientUrlSafe()}/api/v1/learning-platforms/wayground/lti/init`,
       defaultEndpoints: {
         explore: "https://wayground.com/explore/admin",
         join: "https://wayground.com/join",

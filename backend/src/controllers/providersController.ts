@@ -9,6 +9,7 @@ import type { Request, Response } from 'express';
 import { AppError } from '../middlewares/errorHandler.js';
 import type { AuthRequest } from '../middlewares/auth.js';
 import { providerIntegrationService } from '../services/providers/ProviderIntegrationService.js';
+import { getClientUrlSafe } from '../utils/frontendUrl.js';
 
 /**
  * Get all available providers
@@ -95,7 +96,7 @@ export async function handleCallback(req: Request, res: Response) {
     return res.redirect(`${redirectUrl}?success=true`);
   }
   
-  res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/instructor/quiz-room/create?providerAuth=success`);
+  res.redirect(`${getClientUrlSafe()}/instructor/quiz-room/create?providerAuth=success`);
 }
 
 /**

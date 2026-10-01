@@ -6,6 +6,7 @@
 import QRCode from 'qrcode';
 import { AppError } from '../../middlewares/errorHandler.js';
 import * as sessionTokenService from './sessionTokenService.js';
+import { getFrontendUrl } from '../../utils/frontendUrl.js';
 
 export interface QRCodeOptions {
   width?: number;
@@ -162,7 +163,7 @@ export async function generatePresentationJoinURL(
   roomCode: string,
   baseUrl?: string
 ): Promise<string> {
-  const base = baseUrl || process.env.FRONTEND_URL || 'http://localhost:5173';
+  const base = baseUrl || getFrontendUrl();
   return `${base}/student/classroom/join/${roomCode}`;
 }
 

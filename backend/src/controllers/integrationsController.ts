@@ -15,6 +15,7 @@ import { buildOverleafLaunchUrl } from "../services/integrations/overleafLaunchS
 import { validateColabUrl } from "../services/colabUrlValidator.js";
 import { listIntegrationProviders } from "../services/integrations/integrationProviderRegistry.js";
 import { registerGoogleProviders } from "../services/integrations/googleIntegrationProvider.js";
+import { getClientUrlSafe } from "../utils/frontendUrl.js";
 
 registerGoogleProviders();
 
@@ -30,7 +31,7 @@ export async function googleStatus(req: AuthRequest, res: Response) {
 
 export async function googleConnect(req: AuthRequest, res: Response) {
   if (!req.user) throw new AppError(401, "Unauthorized");
-  const returnTo = String(req.query.returnTo || process.env.CLIENT_URL || "http://localhost:5173");
+  const returnTo = String(req.query.returnTo || getClientUrlSafe());
   const url = buildGoogleAuthUrl(req.user.id, returnTo);
   res.json({ success: true, url });
 }
@@ -38,7 +39,7 @@ export async function googleConnect(req: AuthRequest, res: Response) {
 export async function googleCallback(req: AuthRequest, res: Response) {
   const code = String(req.query.code || "");
   const state = String(req.query.state || "");
-  const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+  const clientUrl = getClientUrlSafe();
 
   try {
     const { returnTo } = await handleGoogleCallback(code, state);

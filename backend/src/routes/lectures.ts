@@ -11,6 +11,7 @@ import { isAdminRole } from "../utils/roles.js";
 import { resolveLectureVideoFilePath, videoContentTypeFromPath } from "../utils/lectureVideoPath.js";
 import { persistMulterFile, serveStoredUpload, localPathIfExists } from "../middlewares/persistUpload.js";
 import { b2KeyFromPublicPath, isB2Configured } from "../services/b2StorageService.js";
+import { getClientUrlSafe } from "../utils/frontendUrl.js";
 
 export const lectureRouter = Router({ mergeParams: true });
 
@@ -51,7 +52,7 @@ lectureRouter.get("/:id/notes-pdf", optionalAuthenticate, async (req: AuthReques
       "Content-Type": "application/pdf",
       "Content-Length": stat.size,
       "Cache-Control": "private, max-age=3600",
-      "Access-Control-Allow-Origin": process.env.CLIENT_URL || "http://localhost:5173",
+      "Access-Control-Allow-Origin": getClientUrlSafe(),
     });
     return fs.createReadStream(local).pipe(res);
   }
@@ -101,7 +102,7 @@ async function streamLectureVideo(req: AuthRequest, res: import("express").Respo
       filePath = resolveLectureVideoFilePath(paramId);
     }
 
-    const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
+    const clientOrigin = getClientUrlSafe();
 
     if ((!filePath || !fs.existsSync(filePath)) && lecture?.videoUrl && isB2Configured()) {
       const relative = String(lecture.videoUrl)

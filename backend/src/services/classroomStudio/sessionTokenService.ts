@@ -6,6 +6,7 @@
 import jwt from 'jsonwebtoken';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { JWT_SECRET } from '../../config/jwt.js';
+import { getFrontendUrl } from '../../utils/frontendUrl.js';
 
 const TOKEN_EXPIRY = '15m'; // Tokens expire in 15 minutes
 
@@ -73,7 +74,7 @@ export function generateSecureJoinURL(
   };
   
   const token = generateSessionJoinToken(payload);
-  const base = baseUrl || process.env.FRONTEND_URL || 'http://localhost:5173';
+  const base = baseUrl || getFrontendUrl();
   return `${base}/student/classroom/join-token/${token}`;
 }
 

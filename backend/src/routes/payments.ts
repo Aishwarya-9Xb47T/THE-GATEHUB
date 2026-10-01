@@ -15,6 +15,7 @@ import {
   verifyWebhookSignature,
   handleRazorpayWebhookEvent,
 } from "../services/razorpayWebhookService.js";
+import { getClientUrlSafe } from "../utils/frontendUrl.js";
 
 let stripeInstance: any = null;
 const getStripe = async () => {
@@ -44,6 +45,7 @@ paymentRouter.post("/create-checkout-session", authenticate, async (req: AuthReq
   });
   if (existingPayment) return res.json({ success: true, message: "Already paid" });
 
+  const clientOrigin = getClientUrlSafe();
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
     line_items: [
@@ -57,8 +59,8 @@ paymentRouter.post("/create-checkout-session", authenticate, async (req: AuthReq
       },
     ],
     mode: "payment",
-    success_url: `${process.env.CLIENT_URL}/course/${courseId}?success=true`,
-    cancel_url: `${process.env.CLIENT_URL}/course/${courseId}`,
+    success_url: `${clientOrigin}/course/${courseId}?success=true`,
+    cancel_url: `${clientOrigin}/course/${courseId}`,
     metadata: { userId: req.user.id, courseId: course.id, productType: "course" },
   });
 

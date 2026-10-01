@@ -28,6 +28,7 @@ import {
 } from "../utils/uploadMedia.js";
 import { classroomAssetLookupRelatives } from "../services/classroomStudio/classroomAssetUrls.js";
 import { isAllowedCorsOrigin } from "../config/corsOrigins.js";
+import { getClientUrlSafe } from "../utils/frontendUrl.js";
 
 export type { B2Prefix };
 export { isVideoUploadPath };
@@ -42,8 +43,8 @@ export function applyUploadCorsHeaders(res: Response, originHeader?: string): vo
   if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-  } else if (process.env.CLIENT_URL) {
-    res.setHeader("Access-Control-Allow-Origin", String(process.env.CLIENT_URL).replace(/\/$/, ""));
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", getClientUrlSafe());
   }
   res.setHeader(
     "Access-Control-Expose-Headers",

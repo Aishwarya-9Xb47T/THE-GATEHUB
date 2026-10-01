@@ -1,6 +1,7 @@
 /**
  * Canonical public frontend origin for email links and OAuth redirects.
- * Never emit localhost links when NODE_ENV=production.
+ * Default production origin is https://thegatehub.com.
+ * Never emit localhost links or old Render frontend subdomains when NODE_ENV=production.
  */
 export function getFrontendUrl(): string {
   const raw =
@@ -8,13 +9,19 @@ export function getFrontendUrl(): string {
     process.env.CLIENT_URL?.trim() ||
     "";
 
+  if (process.env.NODE_ENV === "production") {
+    // If empty or pointing to legacy Render frontend URL, always use the canonical custom domain
+    if (!raw || /gatehub-frontend\.onrender\.com/i.test(raw)) {
+      return "https://thegatehub.com";
+    }
+  }
+
   if (raw && !/localhost|127\.0\.0\.1/i.test(raw)) {
     return raw.replace(/\/+$/, "");
   }
 
   if (process.env.NODE_ENV === "production") {
-    if (raw) return raw.replace(/\/+$/, "");
-    return "https://gatehub-frontend.onrender.com";
+    return "https://thegatehub.com";
   }
 
   if (!raw) return "http://localhost:5173";
@@ -24,4 +31,3 @@ export function getFrontendUrl(): string {
 export function getClientUrlSafe(): string {
   return getFrontendUrl();
 }
-

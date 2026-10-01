@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { getAllowedCorsOrigins, isAllowedCorsOrigin } from "../corsOrigins.js";
 
 const REQUIRED_ORIGINS = [

@@ -1,6 +1,5 @@
 import nodemailer from "nodemailer";
-
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+import { getFrontendUrl } from "../utils/frontendUrl.js";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -53,7 +52,7 @@ export async function sendPurchaseSuccessEmail(params: {
       <p>Thank you for your purchase of <strong>${params.productTitle}</strong>.</p>
       <p>Order: <strong>${params.orderNumber}</strong><br/>
       Amount: <strong>${params.currency} ${params.amount.toFixed(2)}</strong></p>
-      <p><a href="${CLIENT_URL}/student/purchases">View purchase history</a></p>
+      <p><a href="${getFrontendUrl()}/student/purchases">View purchase history</a></p>
     `)
   );
 }
@@ -70,7 +69,7 @@ export async function sendInvoiceEmail(params: {
     wrap(`
       <p>Hi ${params.name},</p>
       <p>Your invoice <strong>${params.invoiceNumber}</strong> is ready.</p>
-      <p><a href="${CLIENT_URL}${params.invoiceUrl}">Download invoice</a></p>
+      <p><a href="${getFrontendUrl()}${params.invoiceUrl}">Download invoice</a></p>
     `)
   );
 }
@@ -87,7 +86,7 @@ export async function sendEnrollmentEmail(params: {
     wrap(`
       <p>Hi ${params.name},</p>
       <p>You're enrolled in <strong>${params.productTitle}</strong>.</p>
-      <p><a href="${CLIENT_URL}${params.accessUrl}">Start learning</a></p>
+      <p><a href="${getFrontendUrl()}${params.accessUrl}">Start learning</a></p>
     `)
   );
 }
@@ -127,7 +126,7 @@ export async function sendPaymentFailedEmail(params: {
     wrap(`
       <p>Hi ${params.name},</p>
       <p>Your payment for <strong>${params.productTitle}</strong> could not be completed.</p>
-      <p><a href="${CLIENT_URL}/student/cart">Try again</a></p>
+      <p><a href="${getFrontendUrl()}/student/cart">Try again</a></p>
     `)
   );
 }
@@ -145,7 +144,7 @@ export async function sendWishlistReminderEmail(params: {
       <p>Hi ${params.name},</p>
       <p>You saved these courses:</p>
       <ul>${params.items.map((i) => `<li>${i}</li>`).join("")}</ul>
-      <p><a href="${CLIENT_URL}/student/wishlist">View wishlist</a></p>
+      <p><a href="${getFrontendUrl()}/student/wishlist">View wishlist</a></p>
     `)
   );
 }

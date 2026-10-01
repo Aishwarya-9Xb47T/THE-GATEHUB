@@ -1,8 +1,9 @@
 import { prisma } from "../utils/prisma.js";
 import { getPlatformSettings } from "./platformSettingsService.js";
+import { getFrontendUrl } from "../utils/frontendUrl.js";
 
 export function getFrontendBaseUrl(): string {
-  return (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/$/, "");
+  return getFrontendUrl();
 }
 
 export function buildVerificationUrl(certificateId: string): string {

@@ -6,6 +6,7 @@ import { spawn, execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../utils/prisma.js";
+import { getFrontendUrl } from "../utils/frontendUrl.js";
 import { expandLearningUniverseForPdf } from "./latexPdfRenderer.js";
 import {
   buildLearningCommandStubs,
@@ -269,7 +270,7 @@ function physicalFilenameFromS3Url(s3Url: string): string {
 }
 
 export async function buildPdfLinkContext(projectId: string) {
-  const frontendBaseUrl = (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/$/, "");
+  const frontendBaseUrl = getFrontendUrl();
   const apiBaseUrl = (process.env.API_BASE_URL || process.env.BACKEND_URL || "http://localhost:5000").replace(/\/$/, "");
   try {
     const lu = await prisma.learningUniverse.findFirst({

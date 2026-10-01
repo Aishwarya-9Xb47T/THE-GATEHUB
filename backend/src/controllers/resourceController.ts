@@ -7,6 +7,7 @@ import { AuthRequest } from "../middlewares/auth.js";
 import { prisma } from "../utils/prisma.js";
 import { recordProjectVersion } from "../services/latexVersionService.js";
 import { generateStructuredContent, compileLatexToHtml } from "../services/contentBlockParser.js";
+import { getFrontendUrl } from "../utils/frontendUrl.js";
 
 // Create a new resource course
 export const createResourceCourse = async (req: AuthRequest, res: Response) => {
@@ -428,7 +429,7 @@ export const saveResourceContent = async (req: AuthRequest, res: Response) => {
         .replace(/VIDEO_START\s*([\s\S]*?)\s*VIDEO_END/gi, (match, filename) => {
           const file = filename.trim();
           const slug = file.split('.')[0].toLowerCase().replace(/[^a-z0-9]/g, '-');
-          const frontendBase = (process.env.FRONTEND_URL || process.env.CLIENT_URL || "").replace(/\/$/, "");
+          const frontendBase = getFrontendUrl();
           const videoBase = frontendBase || "";
           return `\\href{${videoBase}/resources/course/${courseId}/video/${slug}}{Watch Video: ${file}}`;
         })
@@ -459,7 +460,7 @@ export const saveResourceContent = async (req: AuthRequest, res: Response) => {
     });
 
     if (finalLatexContent.includes('\\video{') && !finalLatexContent.includes('\\newcommand{\\video}')) {
-      const frontendBase = (process.env.FRONTEND_URL || process.env.CLIENT_URL || "").replace(/\/$/, "");
+      const frontendBase = getFrontendUrl();
       definitionsNeeded += `\\ifdefined\\video\\else\\newcommand{\\video}[1]{\\href{${frontendBase}/resources/video/#1}{Watch Video}}\\fi\n`;
     }
 

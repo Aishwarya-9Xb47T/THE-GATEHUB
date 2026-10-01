@@ -3,6 +3,7 @@ import { prisma } from "../utils/prisma.js";
 import { AuthRequest, authenticate } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { isAdminRole } from "../utils/roles.js";
+import { getClientUrlSafe } from "../utils/frontendUrl.js";
 import {
   listProducts,
   getProductById,
@@ -314,7 +315,7 @@ commerceRouter.get("/referrals/mine", authenticate, async (req: AuthRequest, res
   res.json({
     success: true,
     code: code.code,
-    link: `${process.env.CLIENT_URL || "http://localhost:5173"}/register?ref=${code.code}`,
+    link: `${getClientUrlSafe()}/register?ref=${code.code}`,
     rewardPoints: code.rewardPoints,
     referrals,
     totalRevenue: referrals.reduce((s, r) => s + r.revenue, 0),
