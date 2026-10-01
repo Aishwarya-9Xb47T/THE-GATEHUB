@@ -9,6 +9,7 @@ import { UnifiedAvatar } from "@/components/common/UnifiedAvatar";
 import { GlobalFooter } from "@/components/common/GlobalFooter";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { BrandHomeButton } from "@/components/common/Logo";
+import { DevelopmentNoticeBanner } from "@/components/landing/DevelopmentNoticeBanner";
 import { cn } from "@/lib/utils";
 
 export function PublicLayout() {
@@ -65,6 +66,9 @@ export function PublicLayout() {
 
   return (
     <div className={cn("app-shell", isLearnExperience && "app-shell--immersive h-dvh min-h-0 overflow-hidden")}>
+      {/* Top Announcement Banner for Platform Development */}
+      {location.pathname === "/" && <DevelopmentNoticeBanner />}
+
       {/* Top Navigation */}
       <header
         data-floating-obstacle="site-header"
