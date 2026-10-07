@@ -78,9 +78,18 @@ export function BrowseCourses() {
   const { data: luData, isLoading: luLoading } = useQuery({
     queryKey: ["learning-universes", "browse", search, categoryId, difficulty, price],
     queryFn: async () => {
-      const res = await getPublishedLearningUniverses();
-      if (!res?.data) return [];
-      let items = (res.data || []) as any[];
+      const res = await getPublishedLearningUniverses({
+        categoryId: categoryId || undefined,
+      });
+      if (res.error) throw new Error(res.error);
+      const raw = res?.data;
+      let items: any[] = Array.isArray(raw)
+        ? raw
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : Array.isArray((raw as any)?.learningUniverses)
+            ? (raw as any).learningUniverses
+            : [];
       if (search) {
         const q = search.toLowerCase();
         items = items.filter((lu: any) =>
@@ -121,10 +130,22 @@ export function BrowseCourses() {
     enabled: !!token,
   });
 
-  const courses = data?.courses ?? [];
-  const learningUniverses = luData ?? [];
-  const enrollments = enrollmentsData?.enrollments ?? [];
-  const luEnrollments = luEnrollmentsData?.enrollments ?? [];
+  const courses: Course[] = Array.isArray(data?.courses)
+    ? data.courses
+    : Array.isArray(data)
+      ? (data as Course[])
+      : [];
+  const learningUniverses: any[] = Array.isArray(luData) ? luData : [];
+  const enrollments = Array.isArray(enrollmentsData?.enrollments)
+    ? enrollmentsData.enrollments
+    : Array.isArray(enrollmentsData)
+      ? (enrollmentsData as any[])
+      : [];
+  const luEnrollments = Array.isArray(luEnrollmentsData?.enrollments)
+    ? luEnrollmentsData.enrollments
+    : Array.isArray(luEnrollmentsData)
+      ? (luEnrollmentsData as any[])
+      : [];
   const exploreItems = mergeLandingExploreItems(learningUniverses, courses);
   const catalogLoading = isLoading || luLoading;
 

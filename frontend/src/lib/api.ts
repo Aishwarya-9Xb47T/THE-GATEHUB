@@ -333,10 +333,20 @@ export async function publishVisualLearningUniverse<T>(
   });
 }
 
-export async function getPublishedLearningUniverses<T>(options?: { categorySlug?: string }): Promise<{ data?: T; error?: string }> {
+export interface LearningUniversesApiResponse<T = any> {
+  success: boolean;
+  data: T[];
+  learningUniverses?: T[];
+}
+
+export async function getPublishedLearningUniverses<T = any>(options?: {
+  categorySlug?: string;
+  categoryId?: string;
+}): Promise<{ data?: LearningUniversesApiResponse<T>; error?: string }> {
   const params = new URLSearchParams();
   if (options?.categorySlug) params.set("categorySlug", options.categorySlug);
-  return api(`/learning-universes${params.toString() ? `?${params.toString()}` : ""}`, { method: "GET" });
+  if (options?.categoryId) params.set("categoryId", options.categoryId);
+  return api<LearningUniversesApiResponse<T>>(`/learning-universes${params.toString() ? `?${params.toString()}` : ""}`, { method: "GET" });
 }
 
 export async function getFeaturedLearningUniverses<T>(): Promise<{ data?: T; error?: string }> {

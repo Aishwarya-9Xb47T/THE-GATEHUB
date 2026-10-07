@@ -166,8 +166,23 @@ authRouter.get(
     }
     next();
   },
-  passport.authenticate("google", { session: false, failureRedirect: "/api/auth/google/failure" }),
-  authController.googleCallback
+  (req: Request, res: Response, next: NextFunction) => {
+    passport.authenticate(
+      "google",
+      { session: false },
+      (err: any, user: any, info: any) => {
+        if (err || !user) {
+          console.error("[Auth] Google OAuth Passport verification failed", {
+            error: err instanceof Error ? err.message : err,
+            info,
+          });
+          return res.redirect(`${getClientUrlSafe()}/auth/google/callback?error=google_auth_failed`);
+        }
+        (req as any).user = user;
+        return authController.googleCallback(req, res);
+      }
+    )(req, res, next);
+  }
 );
 
 authRouter.get("/google/failure", (_req: Request, res: Response) => {

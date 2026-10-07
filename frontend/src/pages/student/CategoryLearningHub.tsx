@@ -836,8 +836,17 @@ export function CategoryLearningHub() {
   const { data: learningUniversesData, isLoading: learningUniversesLoading } = useQuery({
     queryKey: ["published-learning-universes", slug],
     queryFn: async () => {
-      if (!slug) return null;
-      return getPublishedLearningUniverses({ categorySlug: slug }) as any;
+      if (!slug) return [];
+      const res = await getPublishedLearningUniverses({ categorySlug: slug });
+      if (res.error) throw new Error(res.error);
+      const raw = res?.data;
+      return Array.isArray(raw)
+        ? raw
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : Array.isArray((raw as any)?.learningUniverses)
+            ? (raw as any).learningUniverses
+            : [];
     },
     enabled: !!slug,
   });
@@ -874,7 +883,11 @@ export function CategoryLearningHub() {
   // Get category-specific learning tracks or fallback to default
   const learningTracks = CATEGORY_LEARNING_TRACKS[slug || ""] || DEFAULT_LEARNING_TRACKS;
 
-  const publishedUniverses = learningUniversesData?.data || [];
+  const publishedUniverses = Array.isArray(learningUniversesData)
+    ? learningUniversesData
+    : Array.isArray(learningUniversesData?.data)
+      ? (learningUniversesData as any).data
+      : [];
   const hasRealContent = publishedUniverses.length > 0;
 
   const categoryLuProgress = publishedUniverses.map((lu: any) => {

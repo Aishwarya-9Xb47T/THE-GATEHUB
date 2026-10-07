@@ -81,7 +81,17 @@ export function mergeLandingExploreItems<
   const seenIds = new Set<string>();
   const seenTitles = new Set<string>();
 
-  for (const universe of universes || []) {
+  const universeList: readonly TUniverse[] = Array.isArray(universes)
+    ? universes
+    : (normalizeLandingUniverses(universes) as TUniverse[]);
+
+  const courseList: readonly TCourse[] = Array.isArray(courses)
+    ? courses
+    : Array.isArray((courses as any)?.courses)
+      ? ((courses as any).courses as TCourse[])
+      : [];
+
+  for (const universe of universeList) {
     if (!universe?.id || seenIds.has(universe.id)) continue;
     const linkedId = universe.structuredData?.linkedCourseId;
     seenIds.add(universe.id);
@@ -91,7 +101,7 @@ export function mergeLandingExploreItems<
     items.push({ kind: "universe", id: universe.id, universe });
   }
 
-  for (const course of courses || []) {
+  for (const course of courseList) {
     if (!course?.id || seenIds.has(course.id)) continue;
     const title = normalizeCatalogTitle(course.title);
     if (title && seenTitles.has(title)) continue;

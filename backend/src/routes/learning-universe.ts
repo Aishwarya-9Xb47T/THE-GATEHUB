@@ -58,7 +58,7 @@ router.get("/", async (req, res) => {
     const categoryId =
       typeof req.query.categoryId === "string" ? req.query.categoryId : undefined;
     const universes = await getPublishedLearningUniverses({ categorySlug, categoryId });
-    res.json({ success: true, data: universes });
+    res.json({ success: true, data: universes, learningUniverses: universes });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: "Failed to get learning universes" });

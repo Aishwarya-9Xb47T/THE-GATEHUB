@@ -58,4 +58,72 @@ describe("mergeLandingExploreItems", () => {
     );
     expect(items.map((item) => item.id)).toEqual(["lu-1", "c-1"]);
   });
+
+  describe("regression tests: prevents '(e || []) is not iterable' crash", () => {
+    it("handles valid array responses without error", () => {
+      const universes = [{ id: "lu-1", title: "Universe 1" }];
+      const courses = [{ id: "c-1", title: "Course 1" }];
+      const items = mergeLandingExploreItems(universes, courses);
+      expect(items).toHaveLength(2);
+    });
+
+    it("handles empty array responses", () => {
+      const items = mergeLandingExploreItems([], []);
+      expect(items).toEqual([]);
+    });
+
+    it("handles null responses without throwing '(e || []) is not iterable'", () => {
+      expect(() => {
+        const items = mergeLandingExploreItems(null as any, null as any);
+        expect(items).toEqual([]);
+      }).not.toThrow();
+    });
+
+    it("handles undefined responses without throwing", () => {
+      expect(() => {
+        const items = mergeLandingExploreItems(undefined, undefined);
+        expect(items).toEqual([]);
+      }).not.toThrow();
+    });
+
+    it("handles wrapped backend responses ({ success: true, data: [...] } and { courses: [...] })", () => {
+      const wrappedUniverses = {
+        success: true,
+        data: [{ id: "lu-wrapped-1", title: "Wrapped Universe" }],
+      };
+      const wrappedCourses = {
+        success: true,
+        courses: [{ id: "c-wrapped-1", title: "Wrapped Course" }],
+      };
+
+      expect(() => {
+        const items = mergeLandingExploreItems(
+          wrappedUniverses as any,
+          wrappedCourses as any,
+        );
+        expect(items).toHaveLength(2);
+        expect(items[0].id).toBe("lu-wrapped-1");
+        expect(items[1].id).toBe("c-wrapped-1");
+      }).not.toThrow();
+    });
+
+    it("handles API error responses / error objects without crashing", () => {
+      const errorUniverseResponse = {
+        error: "Internal Server Error",
+        statusCode: 500,
+      };
+      const errorCoursesResponse = {
+        error: "Failed to fetch",
+        statusCode: 500,
+      };
+
+      expect(() => {
+        const items = mergeLandingExploreItems(
+          errorUniverseResponse as any,
+          errorCoursesResponse as any,
+        );
+        expect(items).toEqual([]);
+      }).not.toThrow();
+    });
+  });
 });
