@@ -228,3 +228,11 @@ export const WaygroundWorkspacePage = named(
   "WaygroundWorkspacePage"
 );
 
+export const LoginPage = named(() => import("@/pages/auth/LoginPage"), "LoginPage");
+export const RegisterPage = named(() => import("@/pages/auth/RegisterPage"), "RegisterPage");
+export const ForgotPasswordPage = named(() => import("@/pages/auth/ForgotPasswordPage"), "ForgotPasswordPage");
+export const ResetPasswordPage = named(() => import("@/pages/auth/ResetPasswordPage"), "ResetPasswordPage");
+export const GoogleCallbackPage = named(() => import("@/pages/auth/GoogleCallbackPage"), "GoogleCallbackPage");
+export const VerifyEmailPage = named(() => import("@/pages/auth/VerifyEmailPage"), "VerifyEmailPage");
+export const VerifyEmailChangePage = named(() => import("@/pages/auth/VerifyEmailChangePage"), "VerifyEmailChangePage");
+

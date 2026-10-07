@@ -628,36 +628,69 @@ export function filterFeaturedHomeUniverses<T extends { structuredData: unknown 
   return rows.filter((row) => isFeaturedOnHomepage(row.structuredData));
 }
 
+let lastEnsurePremiumPublishSync = 0;
+let cachedPremiumCourseIds: string[] | null = null;
+let cachedPremiumCourseIdsExpiresAt = 0;
+
+let isEnsurePremiumSyncRunning = false;
+
+export function invalidatePremiumCourseIdCache(): void {
+  cachedPremiumCourseIds = null;
+  cachedPremiumCourseIdsExpiresAt = 0;
+  lastEnsurePremiumPublishSync = 0;
+}
+
 /** Published premium courses — includes legacy standalone courses, excludes free-learning only. */
 export async function ensurePremiumLinkedCoursesPublished(): Promise<void> {
-  const publishedUniverses = await prisma.learningUniverse.findMany({
-    where: { status: "published" },
-    select: { structuredData: true, bannerUrl: true, thumbnail: true },
-  });
+  if (isEnsurePremiumSyncRunning) return;
+  isEnsurePremiumSyncRunning = true;
+  try {
+    const publishedUniverses = await prisma.learningUniverse.findMany({
+      where: { status: "published" },
+      select: { structuredData: true, bannerUrl: true, thumbnail: true },
+    });
 
-  const cardImage = (bannerUrl?: string | null, thumbnail?: string | null) =>
-    resolveProductCardImage(bannerUrl, thumbnail);
+    const cardImage = (bannerUrl?: string | null, thumbnail?: string | null) =>
+      resolveProductCardImage(bannerUrl, thumbnail);
 
-  for (const universe of publishedUniverses) {
-    if (inferProductType(universe.structuredData) !== PRODUCT_TYPES.PREMIUM_COURSE) continue;
-    const linkedCourseId = readStructuredRecord(universe.structuredData).linkedCourseId;
-    if (typeof linkedCourseId !== "string") continue;
-    const image = cardImage(universe.bannerUrl, universe.thumbnail);
-    await prisma.course
-      .updateMany({
-        where: { id: linkedCourseId, status: { not: "published" } },
-        data: {
-          status: "published",
-          publishedAt: new Date(),
-          ...(image ? { thumbnail: image, bannerUrl: universe.bannerUrl || image } : {}),
-        },
-      })
-      .catch(() => {});
+    for (const universe of publishedUniverses) {
+      if (inferProductType(universe.structuredData) !== PRODUCT_TYPES.PREMIUM_COURSE) continue;
+      const linkedCourseId = readStructuredRecord(universe.structuredData).linkedCourseId;
+      if (typeof linkedCourseId !== "string") continue;
+      const image = cardImage(universe.bannerUrl, universe.thumbnail);
+      await prisma.course
+        .updateMany({
+          where: { id: linkedCourseId, status: { not: "published" } },
+          data: {
+            status: "published",
+            publishedAt: new Date(),
+            ...(image ? { thumbnail: image, bannerUrl: universe.bannerUrl || image } : {}),
+          },
+        })
+        .catch((err) => {
+          console.error(`[ensurePremiumLinkedCoursesPublished] Failed to sync course ${linkedCourseId}:`, err);
+        });
+    }
+  } catch (err) {
+    console.error("[ensurePremiumLinkedCoursesPublished] Unexpected error during sync:", err);
+  } finally {
+    isEnsurePremiumSyncRunning = false;
   }
 }
 
-export async function resolvePublishedPremiumCourseIds(): Promise<string[]> {
-  await ensurePremiumLinkedCoursesPublished();
+export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Promise<string[]> {
+  const now = Date.now();
+  if (!forceRefresh && cachedPremiumCourseIds && now < cachedPremiumCourseIdsExpiresAt) {
+    return cachedPremiumCourseIds;
+  }
+
+  // Throttle database writes so GET requests never get blocked by sequential updateMany queries
+  if (now - lastEnsurePremiumPublishSync > 10 * 60 * 1000) {
+    lastEnsurePremiumPublishSync = now;
+    void ensurePremiumLinkedCoursesPublished().catch((err) => {
+      console.error("[resolvePublishedPremiumCourseIds] Background sync error:", err);
+    });
+  }
 
   const [allUniverses, publishedCourses] = await Promise.all([
     prisma.learningUniverse.findMany({
@@ -741,12 +774,15 @@ export async function resolvePublishedPremiumCourseIds(): Promise<string[]> {
     premiumIds.add(course.id);
   }
 
-  return [...premiumIds];
+  const result = [...premiumIds];
+  cachedPremiumCourseIds = result;
+  cachedPremiumCourseIdsExpiresAt = now + 30 * 1000; // 30s TTL
+  return result;
 }
 
 /** Course IDs flagged for homepage featured section (premium only, published LU). */
-export async function resolveFeaturedHomePremiumCourseIds(): Promise<string[]> {
-  const premiumIds = new Set(await resolvePublishedPremiumCourseIds());
+export async function resolveFeaturedHomePremiumCourseIds(precomputedPremiumIds?: string[]): Promise<string[]> {
+  const premiumIds = new Set(precomputedPremiumIds ?? (await resolvePublishedPremiumCourseIds()));
   const universes = await prisma.learningUniverse.findMany({
     where: { status: "published" },
     select: { structuredData: true },

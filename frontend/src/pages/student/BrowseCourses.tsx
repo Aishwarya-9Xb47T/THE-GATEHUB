@@ -80,6 +80,9 @@ export function BrowseCourses() {
     queryFn: async () => {
       const res = await getPublishedLearningUniverses({
         categoryId: categoryId || undefined,
+        search: search || undefined,
+        difficulty: difficulty || undefined,
+        price: price || undefined,
       });
       if (res.error) throw new Error(res.error);
       const raw = res?.data;
@@ -90,20 +93,6 @@ export function BrowseCourses() {
           : Array.isArray((raw as any)?.learningUniverses)
             ? (raw as any).learningUniverses
             : [];
-      if (search) {
-        const q = search.toLowerCase();
-        items = items.filter((lu: any) =>
-          lu.title?.toLowerCase().includes(q) || lu.description?.toLowerCase().includes(q)
-        );
-      }
-      if (categoryId) {
-        items = items.filter((lu: any) => lu.categoryRel?.id === categoryId || lu.categoryId === categoryId);
-      }
-      if (difficulty) {
-        items = items.filter((lu: any) => lu.difficulty?.toLowerCase() === difficulty.toLowerCase());
-      }
-      if (price === "free") items = items.filter((lu: any) => (lu.price ?? 0) === 0);
-      if (price === "paid") items = items.filter((lu: any) => (lu.price ?? 0) > 0);
       return items;
     },
   });
@@ -147,7 +136,8 @@ export function BrowseCourses() {
       ? (luEnrollmentsData as any[])
       : [];
   const exploreItems = mergeLandingExploreItems(learningUniverses, courses);
-  const catalogLoading = isLoading || luLoading;
+  const hasAnyCatalogData = exploreItems.length > 0;
+  const catalogLoading = !hasAnyCatalogData && (isLoading || luLoading);
 
   const getLuEnrollmentStatus = (luId: string) => {
     const enrollment = luEnrollments.find((e: any) => e.learningUniverseId === luId || e.learningUniverse?.id === luId);

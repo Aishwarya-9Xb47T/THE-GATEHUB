@@ -342,10 +342,16 @@ export interface LearningUniversesApiResponse<T = any> {
 export async function getPublishedLearningUniverses<T = any>(options?: {
   categorySlug?: string;
   categoryId?: string;
+  search?: string;
+  difficulty?: string;
+  price?: string;
 }): Promise<{ data?: LearningUniversesApiResponse<T>; error?: string }> {
   const params = new URLSearchParams();
   if (options?.categorySlug) params.set("categorySlug", options.categorySlug);
   if (options?.categoryId) params.set("categoryId", options.categoryId);
+  if (options?.search) params.set("search", options.search);
+  if (options?.difficulty) params.set("difficulty", options.difficulty);
+  if (options?.price) params.set("price", options.price);
   return api<LearningUniversesApiResponse<T>>(`/learning-universes${params.toString() ? `?${params.toString()}` : ""}`, { method: "GET" });
 }
 

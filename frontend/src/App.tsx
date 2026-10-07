@@ -12,13 +12,6 @@ bootstrapAssessmentPlatform();
 bootstrapAssessmentFeatureFlags();
 import { Loader2 } from "lucide-react";
 
-import { LoginPage } from "@/pages/auth/LoginPage";
-import { RegisterPage } from "@/pages/auth/RegisterPage";
-import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
-import { ResetPasswordPage } from "@/pages/auth/ResetPasswordPage";
-import { GoogleCallbackPage } from "@/pages/auth/GoogleCallbackPage";
-import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
-import { VerifyEmailChangePage } from "@/pages/auth/VerifyEmailChangePage";
 import { PublicLayout } from "@/layouts/PublicLayout";
 import { LandingRouteFallback } from "@/components/landing/LandingRouteFallback";
 import { RouteWarmup } from "@/components/navigation/RouteWarmup";
@@ -181,14 +174,14 @@ export default function App() {
           />
           <Route path="/resources/instructor" element={<Navigate to="/manage-courses" replace />} />
 
-          <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-          <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
-          <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
-          <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
-          <Route path="/verify-email" element={<PublicRoute><VerifyEmailPage /></PublicRoute>} />
-          <Route path="/verify-email-change" element={<PublicRoute><VerifyEmailChangePage /></PublicRoute>} />
+          <Route path="/login" element={<PublicRoute><Pages.LoginPage /></PublicRoute>} />
+          <Route path="/register" element={<PublicRoute><Pages.RegisterPage /></PublicRoute>} />
+          <Route path="/forgot-password" element={<PublicRoute><Pages.ForgotPasswordPage /></PublicRoute>} />
+          <Route path="/reset-password" element={<PublicRoute><Pages.ResetPasswordPage /></PublicRoute>} />
+          <Route path="/verify-email" element={<PublicRoute><Pages.VerifyEmailPage /></PublicRoute>} />
+          <Route path="/verify-email-change" element={<PublicRoute><Pages.VerifyEmailChangePage /></PublicRoute>} />
           {/* Google OAuth callback — must be public and unprotected */}
-          <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
+          <Route path="/auth/google/callback" element={<Pages.GoogleCallbackPage />} />
           {/* Public classroom join route for QR codes — handles auth redirect */}
           <Route path="/student/classroom/join-token/:token" element={<Pages.ClassroomTokenJoinPage />} />
 

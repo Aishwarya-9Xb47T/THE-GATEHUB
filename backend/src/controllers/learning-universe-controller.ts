@@ -43,6 +43,7 @@ import {
 import { buildScaffoldV2Files } from "../services/luProject/luProjectFileEmitter.js";
 import { buildMainTexFromProject } from "../services/luProject/luProjectMainTexBuilder.js";
 import { writeLuProjectToDb } from "../services/luProject/migrateSingleFileToProject.js";
+import { appCache } from "../utils/cache.js";
 
 /** Large LU republish deletes and recreates tracks/modules/lessons — needs more than Prisma's 5s default. */
 const LU_PUBLISH_TRANSACTION_OPTIONS = { maxWait: 20_000, timeout: 180_000 } as const;
@@ -563,6 +564,7 @@ export async function publishLearningUniverse(
         publishType: "republish",
       });
     }
+    appCache.invalidate("universes:");
     return universe;
   }
 
@@ -610,6 +612,7 @@ export async function publishLearningUniverse(
       publishType: "publish",
     });
   }
+  appCache.invalidate("universes:");
   return universe;
 }
 
@@ -777,39 +780,81 @@ async function excludeResourceBackedUniverses<T extends { id: string; structured
 export async function getPublishedLearningUniverses(options?: {
   categorySlug?: string;
   categoryId?: string;
+  search?: string;
+  difficulty?: string;
+  price?: string;
 }) {
-  const categoryFilter =
-    options?.categoryId
-      ? { categoryId: options.categoryId }
-      : options?.categorySlug
-        ? { categoryRel: { slug: options.categorySlug } }
-        : {};
+  const andFilters: Record<string, unknown>[] = [{ status: "published" }];
+
+  if (options?.categoryId) {
+    andFilters.push({ categoryId: options.categoryId });
+  } else if (options?.categorySlug) {
+    andFilters.push({ categoryRel: { slug: options.categorySlug } });
+  }
+
+  if (options?.search) {
+    andFilters.push({
+      OR: [
+        { title: { contains: options.search, mode: "insensitive" } },
+        { subtitle: { contains: options.search, mode: "insensitive" } },
+        { description: { contains: options.search, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  if (options?.difficulty) {
+    andFilters.push({ difficulty: { equals: options.difficulty, mode: "insensitive" } });
+  }
+
+  if (options?.price === "free") {
+    andFilters.push({ price: 0 });
+  } else if (options?.price === "paid") {
+    andFilters.push({ price: { gt: 0 } });
+  }
 
   const universes = await prisma.learningUniverse.findMany({
-    where: { status: "published", ...categoryFilter },
-    include: {
+    where: andFilters.length > 1 ? { AND: andFilters } : { status: "published" },
+    select: {
+      id: true,
+      title: true,
+      subtitle: true,
+      description: true,
+      thumbnail: true,
+      bannerUrl: true,
+      price: true,
+      difficulty: true,
+      status: true,
+      structuredData: true,
+      publishedAt: true,
       categoryRel: { select: { id: true, name: true, slug: true } },
+      instructor: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
       tracks: {
-        include: {
+        select: {
           modules: {
-            include: {
-              lessons: true,
+            select: {
+              estimatedHours: true,
+              lessons: { select: { id: true } },
             },
           },
         },
-      },
-      instructor: {
-        select: { id: true, firstName: true, lastName: true, avatar: true },
       },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return mapUniversesWithStats(await excludeResourceBackedUniverses(filterUniversesForLuListing(universes)));
+  return mapUniversesWithStats(await excludeResourceBackedUniverses(filterUniversesForLuListing(universes as any)));
 }
 
 /** Landing page — published learning universes only (never free/premium mini courses). */
 export async function getLandingShowcaseLearningUniverses() {
+  const cacheKey = "universes:landing:showcase";
+  const cached = appCache.get<any[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const universes = await prisma.learningUniverse.findMany({
     where: { status: "published" },
     select: {
@@ -846,33 +891,55 @@ export async function getLandingShowcaseLearningUniverses() {
   const filtered = await excludeResourceBackedUniverses(
     filterUniversesForLuListing(universes as Parameters<typeof filterUniversesForLuListing>[0])
   );
-  return mapUniversesWithStats(filtered as Parameters<typeof mapUniversesWithStats>[0]);
+  const result = mapUniversesWithStats(filtered as Parameters<typeof mapUniversesWithStats>[0]);
+  appCache.set(cacheKey, result, 30);
+  return result;
 }
 
 export async function getFeaturedHomeLearningUniverses() {
+  const cacheKey = "universes:catalog:featured";
+  const cached = appCache.get<any[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const universes = await prisma.learningUniverse.findMany({
     where: { status: "published" },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      subtitle: true,
+      description: true,
+      thumbnail: true,
+      bannerUrl: true,
+      price: true,
+      difficulty: true,
+      status: true,
+      structuredData: true,
+      publishedAt: true,
       categoryRel: { select: { id: true, name: true, slug: true } },
+      instructor: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
       tracks: {
-        include: {
+        select: {
           modules: {
-            include: {
-              lessons: true,
+            select: {
+              estimatedHours: true,
+              lessons: { select: { id: true } },
             },
           },
         },
-      },
-      instructor: {
-        select: { id: true, firstName: true, lastName: true, avatar: true },
       },
     },
     orderBy: { publishedAt: "desc" },
   });
 
   const { filterUniversesForLuListing, filterFeaturedHomeUniverses } = await import("../services/productRoutingService.js");
-  const luCatalog = filterUniversesForLuListing(universes);
-  return mapUniversesWithStats(filterFeaturedHomeUniverses(luCatalog));
+  const luCatalog = filterUniversesForLuListing(universes as any);
+  const result = mapUniversesWithStats(filterFeaturedHomeUniverses(luCatalog));
+  appCache.set(cacheKey, result, 30);
+  return result;
 }
 
 export async function getLearningUniverseById(id: string, userId?: string, userRole?: string) {

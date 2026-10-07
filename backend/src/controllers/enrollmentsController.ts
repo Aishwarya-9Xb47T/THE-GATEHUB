@@ -83,6 +83,33 @@ export async function myEnrollments(req: AuthRequest, res: Response) {
 
   const luByCourseId = await resolveCanonicalUniverseIds(enrollments.map((e) => e.course.id));
 
+  const relevantLuIds = Array.from(new Set(Array.from(luByCourseId.values()).filter(Boolean))) as string[];
+  const [luList, { getCanonicalLuProgressForUser, buildStudentLuLearnUrl }, { ensureLinkedLearningUniverseEnrollment }] =
+    await Promise.all([
+      relevantLuIds.length > 0
+        ? prisma.learningUniverse.findMany({
+            where: { id: { in: relevantLuIds } },
+            select: {
+              id: true,
+              tracks: {
+                select: {
+                  modules: {
+                    select: {
+                      estimatedHours: true,
+                      lessons: { select: { id: true } },
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : [],
+      import("../services/canonicalLuProgress.js"),
+      import("../services/enrollmentService.js"),
+    ]);
+
+  const luMap = new Map(luList.map((lu) => [lu.id, lu]));
+
   const enriched = await Promise.all(
     enrollments.map(async (e) => {
       const lectures = e.course.sections.flatMap((s) => s.lectures);
@@ -106,25 +133,9 @@ export async function myEnrollments(req: AuthRequest, res: Response) {
       if (luId) {
         learningUniverseId = luId;
         downloadTarget = "learning-universe";
-        const { getCanonicalLuProgressForUser } = await import("../services/canonicalLuProgress.js");
-        const { ensureLinkedLearningUniverseEnrollment } = await import("../services/enrollmentService.js");
         await ensureLinkedLearningUniverseEnrollment(req.user!.id, e.course.id);
 
-        const lu = await prisma.learningUniverse.findUnique({
-          where: { id: luId },
-          select: {
-            tracks: {
-              select: {
-                modules: {
-                  select: {
-                    estimatedHours: true,
-                    lessons: { select: { id: true } },
-                  },
-                },
-              },
-            },
-          },
-        });
+        const lu = luMap.get(luId);
         if (lu) {
           const modules = lu.tracks.flatMap((t) => t.modules);
           const lessons = modules.flatMap((m) => m.lessons);
@@ -147,10 +158,8 @@ export async function myEnrollments(req: AuthRequest, res: Response) {
             continueUrl = luProgress.continueUrl;
             hasCertificate = luProgress.hasActiveCertificate;
           } else if (lessons.length > 0) {
-            const { buildStudentLuLearnUrl } = await import("../services/canonicalLuProgress.js");
             continueUrl = buildStudentLuLearnUrl(luId, lessons[0].id);
           } else {
-            const { buildStudentLuLearnUrl } = await import("../services/canonicalLuProgress.js");
             continueUrl = buildStudentLuLearnUrl(luId);
           }
         }

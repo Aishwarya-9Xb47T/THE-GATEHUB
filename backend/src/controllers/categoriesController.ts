@@ -4,6 +4,8 @@ import { prisma } from "../utils/prisma.js";
 import { AuthRequest } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 
+import { appCache } from "../utils/cache.js";
+
 const createSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1),
@@ -12,11 +14,19 @@ const createSchema = z.object({
 });
 
 export async function list(_req: AuthRequest, res: Response) {
+  const cacheKey = "categories:all";
+  const cached = appCache.get<{ success: boolean; categories: any[] }>(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const categories = await prisma.category.findMany({
     orderBy: { name: "asc" },
     include: { _count: { select: { courses: true } } },
   });
-  res.json({ success: true, categories });
+  const payload = { success: true, categories };
+  appCache.set(cacheKey, payload, 300);
+  res.json(payload);
 }
 
 export async function getOne(req: AuthRequest, res: Response) {
@@ -33,6 +43,7 @@ export async function getOne(req: AuthRequest, res: Response) {
 export async function create(req: AuthRequest, res: Response) {
   const data = createSchema.parse(req.body);
   const category = await prisma.category.create({ data });
+  appCache.invalidate("categories:");
   res.status(201).json({ success: true, category });
 }
 
@@ -40,5 +51,6 @@ export async function update(req: AuthRequest, res: Response) {
   const id = req.params.id;
   const data = createSchema.partial().parse(req.body);
   const category = await prisma.category.update({ where: { id }, data });
+  appCache.invalidate("categories:");
   res.json({ success: true, category });
 }

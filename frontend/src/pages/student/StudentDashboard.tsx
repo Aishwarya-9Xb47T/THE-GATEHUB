@@ -37,17 +37,6 @@ export function StudentDashboard() {
     },
   });
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        queryClient.invalidateQueries({ queryKey: ["learning", "my"] });
-        queryClient.invalidateQueries({ queryKey: ["my-certificates"] });
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [queryClient]);
-
   const { data: certificatesData } = useQuery({
     queryKey: ["my-certificates"],
     queryFn: async () => {

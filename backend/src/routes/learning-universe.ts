@@ -57,7 +57,19 @@ router.get("/", async (req, res) => {
       typeof req.query.categorySlug === "string" ? req.query.categorySlug : undefined;
     const categoryId =
       typeof req.query.categoryId === "string" ? req.query.categoryId : undefined;
-    const universes = await getPublishedLearningUniverses({ categorySlug, categoryId });
+    const search =
+      typeof req.query.search === "string" ? req.query.search : undefined;
+    const difficulty =
+      typeof req.query.difficulty === "string" ? req.query.difficulty : undefined;
+    const price =
+      typeof req.query.price === "string" ? req.query.price : undefined;
+    const universes = await getPublishedLearningUniverses({
+      categorySlug,
+      categoryId,
+      search,
+      difficulty,
+      price,
+    });
     res.json({ success: true, data: universes, learningUniverses: universes });
   } catch (err) {
     console.error(err);

@@ -20,8 +20,9 @@ export function LandingExploreCoursesSection() {
   const coursesQuery = useQuery<LandingCoursesResponse>(landingCoursesQueryOptions);
 
   const items = mergeLandingExploreItems(universesQuery.data, coursesQuery.data?.courses);
-  const isLoading = universesQuery.isLoading || coursesQuery.isLoading;
-  const isError = universesQuery.isError && coursesQuery.isError;
+  const hasAnyData = items.length > 0;
+  const isInitialLoading = !hasAnyData && (universesQuery.isLoading || coursesQuery.isLoading);
+  const isError = !hasAnyData && universesQuery.isError && coursesQuery.isError;
 
   return (
     <section
@@ -39,7 +40,7 @@ export function LandingExploreCoursesSection() {
           </Link>
         </div>
 
-        {isLoading ? (
+        {isInitialLoading ? (
           <LandingCatalogSkeleton />
         ) : isError ? (
           <div className="text-center py-12 text-muted-foreground">

@@ -32,6 +32,21 @@ export default defineConfig({
           if (id.includes("node_modules/framer-motion")) {
             return "framer-motion";
           }
+          if (id.includes("node_modules/katex") || id.includes("react-katex")) {
+            return "katex";
+          }
+          if (id.includes("node_modules/highlight.js")) {
+            return "hljs";
+          }
+          if (id.includes("node_modules/marked") || id.includes("react-markdown")) {
+            return "markdown";
+          }
+          if (id.includes("node_modules/@tanstack/react-query")) {
+            return "tanstack-query";
+          }
+          if (id.includes("node_modules/lucide-react")) {
+            return "lucide";
+          }
         },
       },
     },

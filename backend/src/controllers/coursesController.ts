@@ -21,7 +21,9 @@ import {
   findPremiumUniverseForLinkedCourse,
   resolvePremiumCourseDisplayStatus,
   syncPremiumUniverseStatusFromCourse,
+  invalidatePremiumCourseIdCache,
 } from "../services/productRoutingService.js";
+import { appCache } from "../utils/cache.js";
 import fs from "fs";
 import path from "path";
 
@@ -244,6 +246,18 @@ export async function list(req: AuthRequest, res: Response) {
   const premiumCatalogOnly =
     catalogQuery === "premium" || featuredOnly || (!isAdminRole(role) && catalogQuery !== "all");
 
+  const cacheKey =
+    !role && !req.query.search
+      ? `courses:catalog:${featuredQuery || "none"}:${catalogQuery || "none"}:${req.query.category || "all"}:${req.query.categoryId || "all"}:${req.query.subcategory || "all"}:${req.query.difficulty || "all"}:${req.query.price || "all"}:${limit}`
+      : null;
+
+  if (cacheKey) {
+    const cached = appCache.get<{ success: boolean; courses: any[] }>(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+  }
+
   if (premiumCatalogOnly) {
     const {
       resolvePublishedPremiumCourseIds,
@@ -251,7 +265,7 @@ export async function list(req: AuthRequest, res: Response) {
     } = await import("../services/productRoutingService.js");
     let premiumCourseIds = await resolvePublishedPremiumCourseIds();
     if (featuredOnly) {
-      const featuredIds = await resolveFeaturedHomePremiumCourseIds();
+      const featuredIds = await resolveFeaturedHomePremiumCourseIds(premiumCourseIds);
       if (featuredIds.length) {
         const featuredSet = new Set(featuredIds);
         premiumCourseIds = premiumCourseIds.filter((id) => featuredSet.has(id));
@@ -274,7 +288,27 @@ export async function list(req: AuthRequest, res: Response) {
 
   const courses = await prisma.course.findMany({
     where,
-    include: {
+    select: {
+      id: true,
+      title: true,
+      subtitle: true,
+      price: true,
+      thumbnail: true,
+      bannerUrl: true,
+      bannerType: true,
+      difficulty: true,
+      language: true,
+      status: true,
+      averageRating: true,
+      reviewCount: true,
+      publishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      instructorId: true,
+      category: true,
+      subcategory: true,
+      categoryId: true,
+      subcategoryId: true,
       categoryRel: { select: { id: true, name: true, slug: true } },
       instructor: { select: { id: true, firstName: true, lastName: true, avatar: true } },
       _count: { select: { enrollments: true, reviews: true } },
@@ -283,17 +317,16 @@ export async function list(req: AuthRequest, res: Response) {
     take: limit,
   });
 
-  // 🚨 DEBUG: Log courses fetch details
-  console.log("🎯 COURSES FETCH DEBUG:", {
-    userRole: role,
-    statusFilter,
-    where,
-    totalCourses: courses.length,
-    courseStatuses: courses.map(c => ({ id: c.id, title: c.title, status: c.status })),
-    limit
-  });
+  const responsePayload = {
+    success: true,
+    courses: courses.map(normalizeCourseCategory),
+  };
 
-  res.json({ success: true, courses: courses.map(normalizeCourseCategory) });
+  if (cacheKey) {
+    appCache.set(cacheKey, responsePayload, 30);
+  }
+
+  res.json(responsePayload);
 }
 
 export async function listMyInstructor(req: AuthRequest, res: Response) {
@@ -892,6 +925,9 @@ export async function update(req: AuthRequest, res: Response) {
     }
   }
 
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+
   // Non-blocking auto-description generation if lectures or title changed
   triggerAutoDescription(id).catch(err => console.error("Auto-description failed", err));
 
@@ -1361,6 +1397,9 @@ export async function remove(req: AuthRequest, res: Response) {
   await prisma.$transaction(async (tx) => {
     await tx.course.delete({ where: { id } });
   });
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
 
   const { deleteStoredPublicPath } = await import("../middlewares/persistUpload.js");
   for (const stored of storedUrls) {
