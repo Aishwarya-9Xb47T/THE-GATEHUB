@@ -41,6 +41,13 @@ import { useDashboardSidebar } from "@/hooks/useDashboardSidebar";
 import { SidebarToggleButton } from "@/components/layout/SidebarToggleButton";
 import { DashboardSidebarProvider } from "@/contexts/DashboardSidebarContext";
 
+export function isStudentLessonRoute(pathname: string): boolean {
+  return (
+    /^\/student\/learning-universe\/[^/]+\/learn(\/|$)/.test(pathname) ||
+    /^\/student\/course\/[^/]+\/learn(\/|$)/.test(pathname)
+  );
+}
+
 interface DashboardLayoutProps {
   role: "instructor" | "student" | "admin";
 }
@@ -62,7 +69,7 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
   const role = user?.role || propRole;
   const layoutRole = isAdminRole(role) ? "admin" : role;
 
-  const isLearnExperience = /\/learn(\/|$)/.test(location.pathname);
+  const isLessonRoute = isStudentLessonRoute(location.pathname);
   const isImmersiveCoursePlayer = /\/course\/[^/]+\/learn/.test(location.pathname);
   const isQuizAuthoringStudio = /\/quiz-room\/quizzes\/[^/]+\/edit/.test(location.pathname);
   const isQuizRoomStudio = /\/quiz-room\/(create|templates)/.test(location.pathname);
@@ -73,27 +80,48 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
     /\/instructor\/interactive-classroom\/presentations\/[^/]+\/editor/.test(location.pathname) ||
     /\/instructor\/interactive-classroom\/[^/]+\/edit\/?$/.test(location.pathname);
   const isImmersiveWorkspace =
-    isLearnExperience || isImmersiveCoursePlayer || isQuizAuthoringStudio || isQuizRoomStudio || isInteractiveClassroomLive;
+    isLessonRoute || isImmersiveCoursePlayer || isQuizAuthoringStudio || isQuizRoomStudio || isInteractiveClassroomLive;
   const hideDashboardChrome = isImmersiveWorkspace;
   const fillRemainingViewport = isImmersiveWorkspace || isInteractiveClassroomEditor;
-  const sidebarBeforeImmersive = useRef<boolean | null>(null);
+
+  const wasInLessonRef = useRef<boolean>(isLessonRoute);
+  const sidebarBeforeLessonRef = useRef<boolean | null>(null);
 
   useLayoutEffect(() => {
-    if (hideDashboardChrome) {
-      if (sidebarBeforeImmersive.current === null) {
-        setIsSidebarOpen((open) => {
-          sidebarBeforeImmersive.current = open;
-          return false;
-        });
+    // Entering a lesson route from another page
+    if (isLessonRoute && !wasInLessonRef.current) {
+      wasInLessonRef.current = true;
+      sidebarBeforeLessonRef.current = isSidebarOpen;
+      closeSidebar({ persist: false });
+      return;
+    }
+
+    // Leaving a lesson route back to dashboard / my-courses / etc.
+    if (!isLessonRoute && wasInLessonRef.current) {
+      wasInLessonRef.current = false;
+      if (sidebarBeforeLessonRef.current !== null) {
+        const restore = sidebarBeforeLessonRef.current;
+        sidebarBeforeLessonRef.current = null;
+        setIsSidebarOpen(restore, { persist: false });
       }
       return;
     }
-    if (sidebarBeforeImmersive.current !== null) {
-      const restore = sidebarBeforeImmersive.current;
-      sidebarBeforeImmersive.current = null;
-      setIsSidebarOpen(restore);
+
+    // Direct mount or refresh on a lesson route
+    if (isLessonRoute && wasInLessonRef.current && isSidebarOpen && sidebarBeforeLessonRef.current === null) {
+      sidebarBeforeLessonRef.current = true;
+      closeSidebar({ persist: false });
+      return;
     }
-  }, [hideDashboardChrome, setIsSidebarOpen]);
+
+    // Other non-lesson immersive workspaces (classroom session, quiz editor)
+    if (!isLessonRoute && hideDashboardChrome) {
+      if (sidebarBeforeLessonRef.current === null && isSidebarOpen) {
+        sidebarBeforeLessonRef.current = true;
+        closeSidebar({ persist: false });
+      }
+    }
+  }, [isLessonRoute, isSidebarOpen, hideDashboardChrome, closeSidebar, setIsSidebarOpen]);
 
   const handleLogout = async () => {
     try {
@@ -179,8 +207,10 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
 
   return (
     <DashboardSidebarProvider
-      closeSidebar={() => closeSidebar({ persist: false })}
+      closeSidebar={closeSidebar}
       isSidebarOpen={isSidebarOpen}
+      toggleSidebar={toggleSidebar}
+      setIsSidebarOpen={setIsSidebarOpen}
     >
     <div
       className={cn(
@@ -189,9 +219,9 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
         isInteractiveClassroomEditor && "h-dvh max-h-dvh min-h-0 overflow-hidden",
       )}
     >
-      {/* Sidebar — hidden during immersive learn / workspace / quiz studio */}
+      {/* Sidebar — collapsible and toggleable */}
       <AnimatePresence>
-        {isSidebarOpen && !hideDashboardChrome && (
+        {isSidebarOpen && (
           <>
             {!isDesktop && (
               <motion.div
@@ -281,13 +311,11 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
       {/* Main content */}
       <main className={cn(
         "flex flex-col flex-1 min-h-0 w-full transition-all duration-300",
-        hideDashboardChrome
-          ? "h-dvh overflow-hidden pl-0"
-          : fillRemainingViewport
-            ? cn("h-dvh overflow-hidden", isSidebarOpen && isDesktop ? "pl-72" : "pl-0")
-            : isSidebarOpen && isDesktop
-              ? "pl-72"
-              : "pl-0"
+        fillRemainingViewport
+          ? cn("h-dvh overflow-hidden", isSidebarOpen && isDesktop ? "pl-72" : "pl-0")
+          : isSidebarOpen && isDesktop
+            ? "pl-72"
+            : "pl-0"
       )}>
         {/* Top bar — hidden during immersive learn / workspace so it cannot cut into course outline */}
         {!hideDashboardChrome && (

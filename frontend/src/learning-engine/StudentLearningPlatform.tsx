@@ -27,6 +27,8 @@ import { isWorkspaceStepKind } from "./workspaces/types";
 import { useToastStore } from "@/store/toastStore";
 import { publishLearningLessonContext } from "@/assistant/learningLessonContext";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
+import { useDashboardSidebarContext } from "@/contexts/DashboardSidebarContext";
+import { SidebarToggleButton } from "@/components/layout/SidebarToggleButton";
 
 function flattenLessons(pkg: LearnerExperiencePackage): Array<{ id: string; title: string; moduleTitle: string }> {
   const list: Array<{ id: string; title: string; moduleTitle: string }> = [];
@@ -88,6 +90,7 @@ export function StudentLearningPlatform(props?: { universeId?: string }) {
   const loadedUniverseRef = useRef<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const toast = useToastStore((s) => s.add);
+  const dashboardSidebar = useDashboardSidebarContext();
 
   const lessonList = useMemo(() => (experience ? flattenLessons(experience) : []), [experience]);
 
@@ -708,6 +711,15 @@ export function StudentLearningPlatform(props?: { universeId?: string }) {
         <header data-floating-obstacle="learn-header" className="shrink-0 z-20 border-b bg-background/95 backdrop-blur">
           {isPreviewMode && <InstructorPreviewBanner />}
           <div className="flex items-center gap-3 px-4 h-14">
+            {dashboardSidebar && (
+              <SidebarToggleButton
+                isOpen={dashboardSidebar.isSidebarOpen}
+                onToggle={dashboardSidebar.toggleSidebar}
+                size="icon"
+                showLabel={false}
+                className="shrink-0"
+              />
+            )}
             <Button
               type="button"
               size="icon"
