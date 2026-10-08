@@ -43,6 +43,7 @@ import { withUploadAuth } from "@/lib/courseMediaUrls";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateCourseContentCaches } from "@/lib/courseContentCache";
 import { BrandHomeButton } from "@/components/common/Logo";
+import { BRAND_NAME } from "@/lib/brand";
 import { AppAssistantFooter } from "@/assistant/AppAssistantFooter";
 import { buildInstructorLuPreviewPath } from "@/lib/instructorPreview";
 import { sanitizeColabUrlsInDsl } from "@/lib/colabUrlValidator";
@@ -1735,7 +1736,7 @@ export function EditorLayout({
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#1e1e1e] text-slate-200">
+    <div className="dark h-full w-full flex flex-col bg-[#1e1e1e] text-slate-200">
       {/* Top Header - Organized Left / Center / Right */}
       <div className="h-14 border-b border-slate-800 flex items-center justify-between px-3 md:px-4 bg-[#252526] shrink-0 gap-2 overflow-x-auto overflow-y-hidden">
         {/* LEFT: Back button, THE GATEHUB Branding, Studio name, Course name */}
@@ -1754,7 +1755,11 @@ export function EditorLayout({
           <div className="w-px h-5 bg-slate-700 hidden sm:block" />
 
           <div className="flex items-center gap-2 min-w-0">
-            <BrandHomeButton className="text-white hover:opacity-90 font-bold tracking-tight text-sm shrink-0" />
+            <BrandHomeButton className="shrink-0 flex items-center focus:outline-none">
+              <span className="font-display font-bold text-white hover:text-amber-300 transition-colors text-sm tracking-wider uppercase select-none drop-shadow-sm">
+                {BRAND_NAME}
+              </span>
+            </BrandHomeButton>
             <span className="text-slate-500 text-xs shrink-0">/</span>
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-xs font-semibold text-slate-200 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700/70 whitespace-nowrap shrink-0">

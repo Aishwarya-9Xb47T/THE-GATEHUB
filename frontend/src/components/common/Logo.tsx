@@ -75,6 +75,7 @@ interface BrandHomeButtonProps {
 /** Brand home control — wordmark text, no logo image. */
 export function BrandHomeButton({
   hideText,
+  size,
   className,
   children,
   markOnly = false,
@@ -119,9 +120,9 @@ export function BrandHomeButton({
       aria-label={`${BRAND_NAME} home`}
     >
       {hideText || markOnly ? (
-        <span className="brand-wordmark font-display text-sm">{BRAND_NAME}</span>
+        <span className={cn("brand-wordmark font-display text-sm", className)}>{BRAND_NAME}</span>
       ) : (
-        <Logo />
+        <Logo className={className} size={size} />
       )}
     </button>
   );

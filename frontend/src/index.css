@@ -2637,10 +2637,10 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
-  color: #111827;
+  color: currentColor;
 }
 
 .dark .brand-wordmark {
-  color: #f8fafc;
+  color: currentColor;
 }
 
