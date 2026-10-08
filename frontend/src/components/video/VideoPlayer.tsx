@@ -23,6 +23,7 @@ interface VideoPlayerProps {
   title?: string;
   className?: string;
   lectureId?: string;
+  variants?: import("@/lib/videoUtils").VideoVariant[];
   captions?: VideoCaptionTrack[] | unknown;
   onProgress?: (percent: number) => void;
   onTimeUpdate?: (seconds: number) => void;
@@ -78,6 +79,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     title,
     className = "",
     lectureId,
+    variants,
     captions,
     onProgress,
     onTimeUpdate,
@@ -202,6 +204,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       <UploadedVideoPlayer
         src={resolvedUrl}
         fallbackSrc={fallback}
+        variants={variants}
         mimeType={uploadMime}
         title={title}
         className="w-full h-full"

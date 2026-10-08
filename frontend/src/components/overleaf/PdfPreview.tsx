@@ -10,12 +10,14 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Minimize2,
   ChevronLeft,
   ChevronRight,
   Eye,
+  Printer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import type { CompileReport, EditorSettings, LatexCompileError } from "./types";
 import { CompileErrorPanel } from "./CompileErrorPanel";
 import { withUploadAuth } from "@/lib/courseMediaUrls";
@@ -77,6 +79,36 @@ export function PdfPreview({
   const [previewState, setPreviewState] = useState<PreviewLoadState>("idle");
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  const toggleFullscreen = () => {
+    if (!previewContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      void previewContainerRef.current.requestFullscreen?.();
+      setIsFullscreen(true);
+    } else {
+      void document.exitFullscreen?.();
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  const handlePrint = () => {
+    if (previewBlobUrl) {
+      const printWindow = window.open(previewBlobUrl);
+      printWindow?.addEventListener("load", () => {
+        printWindow.print();
+      });
+    }
+  };
 
   const hasErrors = errors.length > 0;
   const failed = hasErrors || (logs && !pdfUrl && !isCompiling);
@@ -183,7 +215,7 @@ export function PdfPreview({
                   : "No PDF";
 
   return (
-    <div className="h-full flex flex-col bg-slate-900 overflow-hidden relative border-l border-slate-800">
+    <div ref={previewContainerRef} className="h-full flex flex-col bg-slate-900 overflow-hidden relative border-l border-slate-800">
       <div className="flex items-center justify-between p-2 pl-4 border-b border-slate-800 bg-[#1e1e1e] shadow-sm z-10 w-full shrink-0 gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <span className="font-semibold text-xs tracking-wider uppercase text-slate-400 shrink-0">Output</span>
@@ -313,12 +345,32 @@ export function PdfPreview({
             <RefreshCw className={`w-4 h-4 ${isCompiling ? "animate-spin" : ""}`} />
           </Button>
           {resolvedPdfUrl && (
-            <Button variant="ghost" size="icon" asChild className="h-8 w-8 text-blue-400">
-              <a href={previewBlobUrl || `${resolvedPdfUrl}?t=${pdfCacheBust}`} download="compilation.pdf">
-                <FileDown className="w-4 h-4" />
-              </a>
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handlePrint}
+                className="h-8 w-8 text-slate-400 hover:text-slate-100"
+                title="Print PDF"
+              >
+                <Printer className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="icon" asChild className="h-8 w-8 text-blue-400 hover:text-blue-300" title="Download PDF">
+                <a href={previewBlobUrl || `${resolvedPdfUrl}?t=${pdfCacheBust}`} download="compilation.pdf">
+                  <FileDown className="w-4 h-4" />
+                </a>
+              </Button>
+            </>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleFullscreen}
+            className="h-8 w-8 text-slate-400 hover:text-slate-100"
+            title={isFullscreen ? "Exit fullscreen preview" : "Fullscreen preview"}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </Button>
         </div>
       </div>
 

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Maximize,
   Minimize,
@@ -24,6 +27,7 @@ import {
   readStoredVideoQuality,
   storeVideoQuality,
   type VideoQualityId,
+  type VideoVariant,
 } from "@/lib/videoUtils";
 import {
   parseVideoCaptions,
@@ -36,6 +40,7 @@ import {
 interface UploadedVideoPlayerProps {
   src: string;
   fallbackSrc?: string;
+  variants?: VideoVariant[];
   mimeType?: string;
   title?: string;
   className?: string;
@@ -48,6 +53,7 @@ interface UploadedVideoPlayerProps {
 export function UploadedVideoPlayer({
   src,
   fallbackSrc,
+  variants,
   mimeType,
   title,
   className = "",
@@ -60,6 +66,7 @@ export function UploadedVideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingResumeRef = useRef<{ time: number; play: boolean } | null>(null);
 
   const [activeSrc, setActiveSrc] = useState(src);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,6 +83,7 @@ export function UploadedVideoPlayer({
   const [sourceSize, setSourceSize] = useState({ w: 0, h: 0 });
   const [showControls, setShowControls] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsView, setSettingsView] = useState<"main" | "speed" | "quality" | "captions">("main");
   const [showCaptions, setShowCaptions] = useState(false);
   const [selectedCaption, setSelectedCaption] = useState(readStoredCaptionLanguage);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -84,8 +92,8 @@ export function UploadedVideoPlayer({
   const [didResume, setDidResume] = useState(false);
 
   const availableQualities = useMemo(
-    () => buildAvailableVideoQualities(sourceSize.w, sourceSize.h),
-    [sourceSize.w, sourceSize.h]
+    () => buildAvailableVideoQualities(sourceSize.w, sourceSize.h, variants),
+    [sourceSize.w, sourceSize.h, variants]
   );
   const sourceLabel = useMemo(
     () => (sourceSize.w && sourceSize.h ? formatVideoQualityLabel(sourceSize.w, sourceSize.h) : "Auto"),
@@ -231,6 +239,22 @@ export function UploadedVideoPlayer({
   const changeQuality = (qualityId: VideoQualityId) => {
     setSelectedQuality(qualityId);
     storeVideoQuality(qualityId);
+
+    if (variants && variants.length > 0) {
+      let targetSrc = src;
+      if (qualityId !== "auto") {
+        const match = variants.find(
+          (v) => v.quality === qualityId || String(v.height) === qualityId || v.label === qualityId
+        );
+        if (match?.src) targetSrc = match.src;
+      }
+      if (targetSrc && targetSrc !== activeSrc) {
+        const currentPos = videoRef.current?.currentTime || currentTime;
+        const wasPlaying = isPlaying;
+        pendingResumeRef.current = { time: currentPos, play: wasPlaying };
+        setActiveSrc(targetSrc);
+      }
+    }
   };
 
   const toggleFullscreen = async () => {
@@ -398,7 +422,14 @@ export function UploadedVideoPlayer({
               setDuration(v.duration || 0);
               setSourceSize({ w: v.videoWidth || 0, h: v.videoHeight || 0 });
               setIsPortrait(v.videoHeight > v.videoWidth * 1.05);
-              if (!didResume && resumeAt > 3 && v.duration > resumeAt) {
+
+              if (pendingResumeRef.current) {
+                const { time, play } = pendingResumeRef.current;
+                pendingResumeRef.current = null;
+                v.currentTime = time;
+                setCurrentTime(time);
+                if (play) void v.play();
+              } else if (!didResume && resumeAt > 3 && v.duration > resumeAt) {
                 v.currentTime = resumeAt;
                 setCurrentTime(resumeAt);
                 setDidResume(true);
@@ -633,7 +664,13 @@ export function UploadedVideoPlayer({
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowSettings((v) => !v)}
+                  onClick={() => {
+                    setShowSettings((v) => {
+                      if (!v) setSettingsView("main");
+                      return !v;
+                    });
+                    setShowCaptions(false);
+                  }}
                   className="p-1.5 hover:text-primary transition-colors"
                   aria-label="Settings"
                 >
@@ -641,83 +678,192 @@ export function UploadedVideoPlayer({
                 </button>
 
                 {showSettings && (
-                  <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl border border-white/10 bg-black/95 p-3 shadow-2xl backdrop-blur-md max-h-[70vh] overflow-y-auto">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">Playback speed</p>
-                    <div className="grid grid-cols-4 gap-1 mb-3">
-                      {PLAYBACK_SPEEDS.map((speed) => (
-                        <button
-                          key={speed}
-                          type="button"
-                          onClick={() => changeSpeed(speed)}
-                          className={cn(
-                            "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                            playbackRate === speed ? "bg-primary text-primary-foreground" : "text-white/80 hover:bg-white/10"
-                          )}
-                        >
-                          {speed === 1 ? "Normal" : `${speed}x`}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">Quality</p>
-                    <div className="grid grid-cols-3 gap-1 mb-1">
-                      {availableQualities.map((q) => {
-                        const isSource =
-                          q.id !== "auto" && q.height === Math.min(sourceSize.w, sourceSize.h);
-                        return (
-                          <button
-                            key={q.id}
-                            type="button"
-                            onClick={() => changeQuality(q.id)}
-                            className={cn(
-                              "rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
-                              selectedQuality === q.id
-                                ? "bg-primary text-primary-foreground"
-                                : "text-white/80 hover:bg-white/10"
-                            )}
-                            title={isSource ? "Original upload resolution" : q.label}
-                          >
-                            {q.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[10px] text-white/40 mb-3">
-                      {selectedQuality === "auto"
-                        ? `Playing at source ${sourceLabel}`
-                        : `Capped at ${activeQualityLabel}`}
-                    </p>
+                  <div className="absolute bottom-full right-0 mb-2 w-64 rounded-xl border border-white/10 bg-black/95 p-2 shadow-2xl backdrop-blur-md max-h-[75vh] overflow-y-auto">
+                    {settingsView === "main" && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 px-2.5 py-1 mb-1">
+                          Settings
+                        </p>
 
-                    {captionTracks.length > 0 && (
-                      <>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">Captions</p>
-                        <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsView("speed")}
+                          className="w-full flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-medium text-white/90 hover:bg-white/10 transition-colors"
+                        >
+                          <span>Playback speed</span>
+                          <span className="flex items-center gap-1 text-white/50 text-xs">
+                            {playbackRate === 1 ? "Normal" : `${playbackRate}x`}
+                            <ChevronRight className="w-3.5 h-3.5 text-white/40" />
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSettingsView("quality")}
+                          className="w-full flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-medium text-white/90 hover:bg-white/10 transition-colors"
+                        >
+                          <span>Quality</span>
+                          <span className="flex items-center gap-1 text-white/50 text-xs">
+                            {selectedQuality === "auto" ? `Auto (${sourceLabel})` : activeQualityLabel}
+                            <ChevronRight className="w-3.5 h-3.5 text-white/40" />
+                          </span>
+                        </button>
+
+                        {captionTracks.length > 0 && (
                           <button
                             type="button"
-                            onClick={() => changeCaption("off")}
+                            onClick={() => setSettingsView("captions")}
+                            className="w-full flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-medium text-white/90 hover:bg-white/10 transition-colors"
+                          >
+                            <span>Captions</span>
+                            <span className="flex items-center gap-1 text-white/50 text-xs">
+                              {selectedCaption === "off"
+                                ? "Off"
+                                : captionTracks.find((c) => c.language === selectedCaption)?.label || selectedCaption}
+                              <ChevronRight className="w-3.5 h-3.5 text-white/40" />
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {settingsView === "speed" && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsView("main")}
+                          className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white font-semibold px-1 pb-2 mb-1 border-b border-white/10 w-full"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span>Playback speed</span>
+                        </button>
+                        <div className="max-h-56 overflow-y-auto space-y-0.5">
+                          {PLAYBACK_SPEEDS.map((speed) => {
+                            const isSelected = playbackRate === speed;
+                            return (
+                              <button
+                                key={speed}
+                                type="button"
+                                onClick={() => {
+                                  changeSpeed(speed);
+                                  setSettingsView("main");
+                                }}
+                                className={cn(
+                                  "w-full flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-medium transition-colors",
+                                  isSelected ? "text-primary font-semibold bg-white/5" : "text-white/80 hover:bg-white/10"
+                                )}
+                              >
+                                <span className="w-3.5 flex items-center justify-center shrink-0">
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-primary" />}
+                                </span>
+                                <span>{speed === 1 ? "Normal" : `${speed}x`}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {settingsView === "quality" && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsView("main")}
+                          className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white font-semibold px-1 pb-2 mb-1 border-b border-white/10 w-full"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span>Quality</span>
+                        </button>
+                        <div className="max-h-56 overflow-y-auto space-y-0.5">
+                          {availableQualities.map((q) => {
+                            const isSelected = selectedQuality === q.id;
+                            const isSource = q.id !== "auto" && q.height === Math.min(sourceSize.w, sourceSize.h);
+                            return (
+                              <button
+                                key={q.id}
+                                type="button"
+                                onClick={() => {
+                                  changeQuality(q.id);
+                                  setSettingsView("main");
+                                }}
+                                className={cn(
+                                  "w-full flex items-center justify-between rounded-md px-2.5 py-2 text-left text-xs font-medium transition-colors",
+                                  isSelected ? "text-primary font-semibold bg-white/5" : "text-white/80 hover:bg-white/10"
+                                )}
+                                title={isSource ? "Original upload resolution" : q.label}
+                              >
+                                <span className="flex items-center gap-2.5">
+                                  <span className="w-3.5 flex items-center justify-center shrink-0">
+                                    {isSelected && <Check className="w-3.5 h-3.5 text-primary" />}
+                                  </span>
+                                  <span>{q.id === "auto" ? `Auto (${sourceLabel})` : q.label}</span>
+                                </span>
+                                {isSource && q.id !== "auto" && (
+                                  <span className="text-[10px] text-white/40 uppercase tracking-wider">Source</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[10px] text-white/40 px-2 pt-1 border-t border-white/10">
+                          {selectedQuality === "auto"
+                            ? `Playing at source ${sourceLabel}`
+                            : `Capped at ${activeQualityLabel}`}
+                        </p>
+                      </div>
+                    )}
+
+                    {settingsView === "captions" && (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsView("main")}
+                          className="flex items-center gap-1.5 text-xs text-white/80 hover:text-white font-semibold px-1 pb-2 mb-1 border-b border-white/10 w-full"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span>Captions</span>
+                        </button>
+                        <div className="max-h-56 overflow-y-auto space-y-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              changeCaption("off");
+                              setSettingsView("main");
+                            }}
                             className={cn(
-                              "w-full rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors",
-                              selectedCaption === "off" ? "bg-primary text-primary-foreground" : "text-white/80 hover:bg-white/10"
+                              "w-full flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-medium transition-colors",
+                              selectedCaption === "off" ? "text-primary font-semibold bg-white/5" : "text-white/80 hover:bg-white/10"
                             )}
                           >
-                            Off
+                            <span className="w-3.5 flex items-center justify-center shrink-0">
+                              {selectedCaption === "off" && <Check className="w-3.5 h-3.5 text-primary" />}
+                            </span>
+                            <span>Off</span>
                           </button>
-                          {captionTracks.map((cap) => (
-                            <button
-                              key={cap.language}
-                              type="button"
-                              onClick={() => changeCaption(cap.language)}
-                              className={cn(
-                                "w-full rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors",
-                                selectedCaption === cap.language
-                                  ? "bg-primary text-primary-foreground"
-                                  : "text-white/80 hover:bg-white/10"
-                              )}
-                            >
-                              {cap.label}
-                            </button>
-                          ))}
+                          {captionTracks.map((cap) => {
+                            const isSelected = selectedCaption === cap.language;
+                            return (
+                              <button
+                                key={cap.language}
+                                type="button"
+                                onClick={() => {
+                                  changeCaption(cap.language);
+                                  setSettingsView("main");
+                                }}
+                                className={cn(
+                                  "w-full flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs font-medium transition-colors",
+                                  isSelected ? "text-primary font-semibold bg-white/5" : "text-white/80 hover:bg-white/10"
+                                )}
+                              >
+                                <span className="w-3.5 flex items-center justify-center shrink-0">
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-primary" />}
+                                </span>
+                                <span>{cap.label}</span>
+                              </button>
+                            );
+                          })}
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
                 )}

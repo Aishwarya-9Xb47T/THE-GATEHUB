@@ -1646,6 +1646,11 @@ export function EditorLayout({
         ? "Course Notes Editor"
         : "GATEHUB Editor";
 
+  const activeCourseTitle =
+    luState?.project?.universe?.title ||
+    luState?.project?.metadata?.title ||
+    undefined;
+
   const operationStatus = useMemo(() => {
     if (isPublishingToLU) {
       return { tone: "progress" as const, text: "Publishing to Learning Universe... syncing, validating, and saving." };
@@ -1678,16 +1683,16 @@ export function EditorLayout({
             extraMax: 290,
             historyMin: 240,
             historyMax: 310,
-            treeMin: 220,
-            treeMax: 290,
+            treeMin: 240,
+            treeMax: 300,
           }
         : {
             extraMin: 280,
             extraMax: 350,
             historyMin: 300,
             historyMax: 380,
-            treeMin: 260,
-            treeMax: 340,
+            treeMin: 280,
+            treeMax: 360,
           },
     [isCompactViewport]
   );
@@ -1731,241 +1736,46 @@ export function EditorLayout({
 
   return (
     <div className="h-full w-full flex flex-col bg-[#1e1e1e] text-slate-200">
-      <div className="h-12 border-b border-slate-800 flex items-center justify-between px-4 bg-[#252526] shrink-0 overflow-hidden">
-        <div className="flex items-center gap-2 md:gap-4">
-          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-white" onClick={() => navigate(-1)}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <div className="w-px h-6 bg-slate-700 hidden md:block mx-1" />
-          {onToggleExtraLeftPanel && extraLeftPanel && (
-            <>
-              <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400" onClick={onToggleExtraLeftPanel}>
-                {showExtraLeftPanel ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
-              </Button>
-              <div className="w-px h-6 bg-slate-700 hidden md:block mx-1" />
-            </>
-          )}
-          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400" onClick={() => setShowFileTree(!showFileTree)}>
-            {showFileTree ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
-          </Button>
+      {/* Top Header - Organized Left / Center / Right */}
+      <div className="h-14 border-b border-slate-800 flex items-center justify-between px-3 md:px-4 bg-[#252526] shrink-0 gap-2 overflow-x-auto overflow-y-hidden">
+        {/* LEFT: Back button, THE GATEHUB Branding, Studio name, Course name */}
+        <div className="flex items-center gap-2 md:gap-3 shrink-0 min-w-0">
           <Button
-            size="icon"
+            size="sm"
             variant="ghost"
-            className={`h-8 w-8 ${showVersionHistory ? "text-primary" : "text-slate-400"}`}
-            onClick={() => setShowVersionHistory(!showVersionHistory)}
+            className="h-8 px-2 text-slate-400 hover:text-white gap-1.5 text-xs font-medium"
+            onClick={() => navigate(-1)}
+            title="Back to previous page"
           >
-            <History className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden xl:inline">Back</span>
           </Button>
-          <h1 className="font-bold text-sm tracking-tight text-white hidden md:flex items-center gap-2">
-            <BrandHomeButton className="text-white" />
-            <span className="text-slate-400">/</span>
-            {editorTitle}
-          </h1>
+
+          <div className="w-px h-5 bg-slate-700 hidden sm:block" />
+
+          <div className="flex items-center gap-2 min-w-0">
+            <BrandHomeButton className="text-white hover:opacity-90 font-bold tracking-tight text-sm shrink-0" />
+            <span className="text-slate-500 text-xs shrink-0">/</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-semibold text-slate-200 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700/70 whitespace-nowrap shrink-0">
+                {editorTitle}
+              </span>
+              {activeCourseTitle && (
+                <span
+                  className="text-xs font-medium text-slate-400 truncate max-w-[120px] md:max-w-[160px] lg:max-w-[220px] xl:max-w-[300px]"
+                  title={activeCourseTitle}
+                >
+                  {activeCourseTitle}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "hidden 2xl:flex items-center gap-1.5 text-xs rounded px-2 py-1 border",
-              autosaveStatus.tone === "progress" && "text-amber-300 border-amber-500/40 bg-amber-500/10",
-              autosaveStatus.tone === "warning" && "text-amber-300 border-amber-500/40 bg-amber-500/10",
-              autosaveStatus.tone === "error" && "text-red-300 border-red-500/40 bg-red-500/10",
-              autosaveStatus.tone === "success" && "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
-              autosaveStatus.tone === "info" && "text-slate-300 border-slate-600 bg-slate-700/30"
-            )}
-            role="status"
-            aria-live="polite"
-            title={autosaveStatus.text}
-          >
-            {(autosaveStatus.tone === "progress" || isSaving || fileSaveState === "saving") ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Save className="w-3 h-3" />
-            )}
-            <span>{autosaveStatus.text}</span>
-          </div>
-          {activeFile?.path.endsWith(".tex") && (
-            <div className="flex items-center gap-1 mr-1 hidden md:flex">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-slate-400 hover:text-white gap-2 h-8 px-2"
-                title="Add Video Content (YouTube or Local Upload)"
-                onClick={() => setShowVideoModal(true)}
-              >
-                <Video className="w-3.5 h-3.5 text-amber-400" /> Video
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-slate-400 hover:text-white gap-2 h-8 px-2"
-                title="Upload images and insert into LaTeX"
-                onClick={() => setShowAssetsDialog(true)}
-              >
-                <ImageIcon className="w-3.5 h-3.5" /> Images
-              </Button>
-            </div>
-          )}
-
-          {isLuAuthoringMode && !luDeveloperMode && luState && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-slate-400 hover:text-white gap-1.5 h-8 px-2 hidden md:flex"
-              title={`Project health: ${luState.health.score}%`}
-              onClick={() => setShowFileTree(true)}
-            >
-              <Activity className={cn("w-3.5 h-3.5", luState.health.score >= 80 ? "text-emerald-400" : "text-amber-400")} />
-              <span className="text-xs">{luState.health.score}%</span>
-            </Button>
-          )}
-
-          <Button
-            size="sm"
-            variant="ghost"
-            className={cn(
-              "gap-2 h-8",
-              fileSaveState === "dirty" ? "text-amber-400 hover:text-amber-300" : "text-slate-400 hover:text-white"
-            )}
-            onClick={saveCurrentFile}
-            disabled={isSaving || !activeFile?.path.endsWith(".tex")}
-            title="Save current file (Ctrl+S)"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {fileSaveState === "dirty" || dirtyFileCount > 0
-              ? dirtyFileCount > 1
-                ? `Save (${dirtyFileCount})*`
-                : "Save*"
-              : fileSaveState === "saved"
-                ? "Saved"
-                : "Save"}
-          </Button>
-          {isLuAuthoringMode && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-amber-400/90 hover:text-amber-300 gap-1.5 h-8"
-              onClick={() => setShowLatexGuide(true)}
-              title="AI LaTeX guide — paste your prompt to generate file codes"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span className="hidden lg:inline text-xs">AI Guide</span>
-            </Button>
-          )}
-          {isLuAuthoringMode && !luDeveloperMode && (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-slate-400 hover:text-white gap-1 h-8"
-                onClick={() => void handleLuUndo()}
-                disabled={!luCanUndo}
-                title="Undo (Ctrl+Z)"
-              >
-                <Undo2 className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-slate-400 hover:text-white gap-1 h-8"
-                onClick={() => void handleLuRedo()}
-                disabled={!luCanRedo}
-                title="Redo (Ctrl+Shift+Z)"
-              >
-                <Redo2 className="w-4 h-4" />
-              </Button>
-            </>
-          )}
-          {isLuAuthoringMode && !luDeveloperMode && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-slate-300 border-slate-600 hover:bg-slate-700 gap-2 h-8"
-              onClick={openFullCoursePreview}
-              title="Open full student course preview (W3Schools-style)"
-            >
-              <Eye className="w-4 h-4" />
-              Preview
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="default"
-            className="bg-slate-700 hover:bg-slate-600 text-white gap-2 font-semibold h-8 border border-slate-600"
-            onClick={triggerCompile}
-            disabled={isCompiling}
-            title="Compile project to PDF"
-          >
-            {isCompiling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {status === "queued" ? "Queued" : "Compile"}
-          </Button>
-
-          {isLuAuthoringMode && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-slate-400 hover:text-white gap-2 h-8 hidden sm:flex"
-              onClick={triggerEditorSearch}
-              disabled={!activeFile?.path.endsWith(".tex")}
-              title="Search in editor (Ctrl+F)"
-            >
-              <Search className="w-4 h-4" />
-            </Button>
-          )}
-
-          {mode === "resources" && (
-            <Button
-              size="sm"
-              variant="default"
-              className="bg-emerald-700 hover:bg-emerald-600 text-white gap-2 font-bold h-8"
-              onClick={publishToResources}
-              disabled={isPublishingResources}
-            >
-              {isPublishingResources ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadIcon className="w-4 h-4" />}
-              Publish
-            </Button>
-          )}
-
-          {mode === "learning-universe" && (
-            <Button
-              size="sm"
-              variant="default"
-              className="bg-primary hover:opacity-90 text-primary-foreground gap-2 font-bold h-8"
-              onClick={publishToLearningUniverse}
-              disabled={isPublishingToLU}
-            >
-              {isPublishingToLU ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
-              {publishLabel}
-            </Button>
-          )}
-
-          {mode === "academic-course" && (
-            <Button
-              size="sm"
-              variant="default"
-              className="bg-amber-600 hover:bg-amber-500 text-white gap-2 font-bold h-8"
-              onClick={publishToAcademicCourse}
-              disabled={isPublishingToCourse}
-            >
-              {isPublishingToCourse ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
-              Publish Course
-            </Button>
-          )}
-
-          {onBackToExperienceStudio && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-slate-300 border-slate-600 hidden sm:flex"
-              onClick={onBackToExperienceStudio}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              Experience Studio
-            </Button>
-          )}
-
+        {/* CENTER / MAIN WORKSPACE CONTROLS: Mode Toggle & Editing State */}
+        <div className="flex items-center justify-center gap-2 md:gap-3 shrink-0 mx-1">
           {mode === "learning-universe" && (isLuV2 || luState?.isV2) && !forceDeveloperMode && (
-            <div className="hidden lg:block w-[160px] xl:w-[200px] shrink-0 px-1">
+            <div className="w-[170px] sm:w-[190px] shrink-0">
               <LuModeToggle
                 developerMode={luDeveloperMode}
                 onSetDeveloperMode={setLuDeveloperModePersisted}
@@ -1975,8 +1785,262 @@ export function EditorLayout({
             </div>
           )}
 
-          <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-slate-700" onClick={() => setShowSettings(true)}>
-            <Settings className="w-4 h-4 text-slate-400" />
+          <div
+            className={cn(
+              "hidden md:flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 border transition-colors shrink-0",
+              autosaveStatus.tone === "progress" && "text-amber-300 border-amber-500/40 bg-amber-500/10",
+              autosaveStatus.tone === "warning" && "text-amber-300 border-amber-500/40 bg-amber-500/10",
+              autosaveStatus.tone === "error" && "text-red-300 border-red-500/40 bg-red-500/10",
+              autosaveStatus.tone === "success" && "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
+              autosaveStatus.tone === "info" && "text-slate-300 border-slate-700 bg-slate-800/40"
+            )}
+            role="status"
+            aria-live="polite"
+            title={autosaveStatus.text}
+          >
+            {autosaveStatus.tone === "progress" || isSaving || fileSaveState === "saving" ? (
+              <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+            ) : autosaveStatus.tone === "success" ? (
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            ) : (
+              <Save className="w-3 h-3 text-slate-400" />
+            )}
+            <span className="font-medium text-[11px] whitespace-nowrap">{autosaveStatus.text}</span>
+          </div>
+        </div>
+
+        {/* RIGHT: Functional actions (Video, Images, Health %, Save, AI Guide, Undo/Redo, Preview, Compile, Publish) */}
+        <div className="flex items-center gap-1.5 shrink-0 justify-end">
+          {activeFile?.path.endsWith(".tex") && (
+            <div className="flex items-center gap-1 hidden lg:flex">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-slate-300 hover:text-white gap-1.5 h-8 px-2 text-xs"
+                title="Add Video Content (YouTube or Local Upload)"
+                onClick={() => setShowVideoModal(true)}
+              >
+                <Video className="w-3.5 h-3.5 text-amber-400" />
+                <span>Video</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-slate-300 hover:text-white gap-1.5 h-8 px-2 text-xs"
+                title="Upload images and insert into LaTeX"
+                onClick={() => setShowAssetsDialog(true)}
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
+                <span>Images</span>
+              </Button>
+            </div>
+          )}
+
+          {isLuAuthoringMode && !luDeveloperMode && luState && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-slate-300 hover:text-white gap-1.5 h-8 px-2 hidden xl:flex text-xs"
+              title={`Project health: ${luState.health.score}%`}
+              onClick={() => setShowFileTree(true)}
+            >
+              <Activity className={cn("w-3.5 h-3.5", luState.health.score >= 80 ? "text-emerald-400" : "text-amber-400")} />
+              <span>{luState.health.score}%</span>
+            </Button>
+          )}
+
+          {isLuAuthoringMode && !luDeveloperMode && (
+            <div className="flex items-center gap-0.5 hidden xl:flex">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-slate-400 hover:text-white"
+                onClick={() => void handleLuUndo()}
+                disabled={!luCanUndo}
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-slate-400 hover:text-white"
+                onClick={() => void handleLuRedo()}
+                disabled={!luCanRedo}
+                title="Redo (Ctrl+Shift+Z)"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
+
+          <Button
+            size="sm"
+            variant="ghost"
+            className={cn(
+              "gap-1.5 h-8 px-2 text-xs",
+              fileSaveState === "dirty" ? "text-amber-400 hover:text-amber-300 bg-amber-500/10" : "text-slate-300 hover:text-white"
+            )}
+            onClick={saveCurrentFile}
+            disabled={isSaving || !activeFile?.path.endsWith(".tex")}
+            title="Save current file (Ctrl+S)"
+          >
+            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">
+              {fileSaveState === "dirty" || dirtyFileCount > 0
+                ? dirtyFileCount > 1
+                  ? `Save (${dirtyFileCount})*`
+                  : "Save*"
+                : fileSaveState === "saved"
+                  ? "Saved"
+                  : "Save"}
+            </span>
+          </Button>
+
+          {isLuAuthoringMode && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 gap-1.5 h-8 px-2 text-xs"
+              onClick={() => setShowLatexGuide(true)}
+              title="AI LaTeX guide — paste your prompt to generate file codes"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">AI Guide</span>
+            </Button>
+          )}
+
+          {isLuAuthoringMode && !luDeveloperMode && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-slate-200 border-slate-700 bg-slate-800/60 hover:bg-slate-700 gap-1.5 h-8 px-2 text-xs"
+              onClick={openFullCoursePreview}
+              title="Open full student course preview (W3Schools-style)"
+            >
+              <Eye className="w-3.5 h-3.5 text-blue-400" />
+              <span>Preview</span>
+            </Button>
+          )}
+
+          <Button
+            size="sm"
+            variant="default"
+            className="bg-slate-700 hover:bg-slate-600 text-white gap-1.5 font-semibold h-8 px-2.5 text-xs border border-slate-600"
+            onClick={triggerCompile}
+            disabled={isCompiling}
+            title="Compile project to PDF"
+          >
+            {isCompiling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+            <span>{status === "queued" ? "Queued" : "Compile"}</span>
+          </Button>
+
+          {mode === "resources" && (
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 font-bold h-8 px-3 text-xs shadow-sm"
+              onClick={publishToResources}
+              disabled={isPublishingResources}
+            >
+              {isPublishingResources ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadIcon className="w-3.5 h-3.5" />}
+              <span>Publish</span>
+            </Button>
+          )}
+
+          {mode === "learning-universe" && (
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-primary hover:opacity-90 text-primary-foreground gap-1.5 font-bold h-8 px-3 text-xs shadow-sm"
+              onClick={publishToLearningUniverse}
+              disabled={isPublishingToLU}
+            >
+              {isPublishingToLU ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span>{publishLabel}</span>
+            </Button>
+          )}
+
+          {mode === "academic-course" && (
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-amber-600 hover:bg-amber-500 text-white gap-1.5 font-bold h-8 px-3 text-xs shadow-sm"
+              onClick={publishToAcademicCourse}
+              disabled={isPublishingToCourse}
+            >
+              {isPublishingToCourse ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span>Publish Course</span>
+            </Button>
+          )}
+
+          {onBackToExperienceStudio && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-slate-300 border-slate-700 bg-slate-800/40 hidden sm:flex text-xs px-2"
+              onClick={onBackToExperienceStudio}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Experience</span>
+            </Button>
+          )}
+
+          <div className="w-px h-5 bg-slate-800 mx-0.5 hidden sm:block" />
+
+          {onToggleExtraLeftPanel && extraLeftPanel && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-slate-400 hover:text-white"
+              onClick={onToggleExtraLeftPanel}
+              title={showExtraLeftPanel ? "Hide extra panel" : "Show extra panel"}
+            >
+              {showExtraLeftPanel ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+            </Button>
+          )}
+
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 text-slate-400 hover:text-white"
+            onClick={() => setShowFileTree(!showFileTree)}
+            title={showFileTree ? "Hide sidebar" : "Show sidebar"}
+          >
+            {showFileTree ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+          </Button>
+
+          <Button
+            size="icon"
+            variant="ghost"
+            className={`h-8 w-8 ${showVersionHistory ? "text-primary" : "text-slate-400 hover:text-white"}`}
+            onClick={() => setShowVersionHistory(!showVersionHistory)}
+            title="Version history"
+          >
+            <History className="w-4 h-4" />
+          </Button>
+
+          {isLuAuthoringMode && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-slate-400 hover:text-white hidden md:flex"
+              onClick={triggerEditorSearch}
+              disabled={!activeFile?.path.endsWith(".tex")}
+              title="Search in editor (Ctrl+F)"
+            >
+              <Search className="w-4 h-4" />
+            </Button>
+          )}
+
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 text-slate-400 hover:text-white"
+            onClick={() => setShowSettings(true)}
+            title="Editor settings"
+          >
+            <Settings className="w-4 h-4" />
           </Button>
         </div>
       </div>
@@ -2035,6 +2099,7 @@ export function EditorLayout({
                 onMutate={handleLuMutate}
                 onOpenFile={openFileByPath}
                 activeFilePath={activeFile?.path}
+                hideModeToggle={true}
               />
             ) : (
               <FileTree

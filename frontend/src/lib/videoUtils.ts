@@ -31,17 +31,25 @@ export function formatVideoQualityLabel(width: number, height: number): string {
   if (shortSide >= 480) return "480p";
   if (shortSide >= 360) return "360p";
   if (shortSide >= 240) return "240p";
+  if (shortSide >= 144) return "144p";
   return `${width}×${height}`;
 }
 
 /** YouTube-style quality tiers (height = max short-side pixels). */
-export type VideoQualityId = "auto" | "2160" | "1440" | "1080" | "720" | "480" | "360" | "240";
+export type VideoQualityId = "auto" | "2160" | "1440" | "1080" | "720" | "480" | "360" | "240" | "144";
 
 export interface VideoQualityOption {
   id: VideoQualityId;
   label: string;
   /** 0 = Auto (use full source). Otherwise max short-side height in px. */
   height: number;
+}
+
+export interface VideoVariant {
+  quality: VideoQualityId | string;
+  label?: string;
+  src: string;
+  height?: number;
 }
 
 export const VIDEO_QUALITY_TIERS: readonly VideoQualityOption[] = [
@@ -53,10 +61,34 @@ export const VIDEO_QUALITY_TIERS: readonly VideoQualityOption[] = [
   { id: "480", label: "480p", height: 480 },
   { id: "360", label: "360p", height: 360 },
   { id: "240", label: "240p", height: 240 },
+  { id: "144", label: "144p", height: 144 },
 ] as const;
 
 /** Qualities available for a progressive local file (Auto + tiers ≤ source). */
-export function buildAvailableVideoQualities(sourceWidth: number, sourceHeight: number): VideoQualityOption[] {
+export function buildAvailableVideoQualities(
+  sourceWidth: number,
+  sourceHeight: number,
+  variants?: VideoVariant[]
+): VideoQualityOption[] {
+  if (variants && variants.length > 0) {
+    const list: VideoQualityOption[] = [{ id: "auto", label: "Auto", height: 0 }];
+    for (const v of variants) {
+      const rawId = v.quality.replace(/p$/i, "");
+      const id = (rawId as VideoQualityId) || "auto";
+      const height = v.height || (Number(rawId) ? Number(rawId) : 0);
+      list.push({
+        id,
+        label: v.label || (id === "auto" ? "Auto" : `${rawId}p`),
+        height,
+      });
+    }
+    return list.sort((a, b) => {
+      if (a.id === "auto") return -1;
+      if (b.id === "auto") return 1;
+      return b.height - a.height;
+    });
+  }
+
   const shortSide = Math.min(sourceWidth || 0, sourceHeight || 0);
   if (!shortSide) return [{ id: "auto", label: "Auto", height: 0 }];
 

@@ -88,6 +88,7 @@ interface LuAuthoringPanelProps {
   onOpenFile: (filePath: string) => void | Promise<void>;
   activeFilePath?: string | null;
   experienceStudioMode?: boolean;
+  hideModeToggle?: boolean;
   onSelectNode?: (node: LuExplorerNode) => void;
 }
 
@@ -135,6 +136,7 @@ export function LuAuthoringPanel({
   onOpenFile,
   activeFilePath,
   experienceStudioMode = false,
+  hideModeToggle = false,
   onSelectNode,
 }: LuAuthoringPanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => loadLuExplorerExpanded(projectId));
@@ -646,7 +648,7 @@ export function LuAuthoringPanel({
         experienceStudioMode ? "bg-card text-foreground border-r" : "bg-[#181818] text-slate-200"
       )}
     >
-      {!experienceStudioMode && (
+      {!experienceStudioMode && !hideModeToggle && (
         <LuModeToggle developerMode={developerMode} onSetDeveloperMode={onSetDeveloperMode} compact />
       )}
 
@@ -675,54 +677,83 @@ export function LuAuthoringPanel({
       ) : (
         <>
       <div className="p-3 border-b border-slate-800 bg-[#1f1f1f] space-y-2 shrink-0">
-        <div className="font-semibold text-white truncate">
-          {NODE_ICONS.universe} {state.project?.universe.title || state.project?.metadata.title}
+        <div
+          className="font-semibold text-slate-100 text-sm truncate flex items-center gap-2"
+          title={state.project?.universe.title || state.project?.metadata.title}
+        >
+          <span className="text-primary shrink-0">{NODE_ICONS.universe}</span>
+          <span className="truncate">{state.project?.universe.title || state.project?.metadata.title}</span>
         </div>
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] text-slate-400 uppercase tracking-wide">
-          <span>v{state.version}</span>
-          <span className="text-right capitalize">{state.publishStatus}</span>
-          <span>{p.tracks} tracks</span>
-          <span>{p.modules} modules</span>
-          <span>{p.lessons} lessons</span>
-          <span>{p.estimatedHours}h est.</span>
-          <span>{p.quizzes} quizzes</span>
-          <span>{p.projects} projects</span>
+        <div className="flex items-center justify-between text-[11px] font-medium">
+          <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-300 font-mono text-[10px]">
+            v{state.version}
+          </span>
+          <span className="capitalize px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
+            {state.publishStatus}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-800/70">
+          <div className="bg-slate-800/60 px-1.5 py-1 rounded text-center">
+            <div className="text-white font-semibold text-xs leading-tight">{p.tracks}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Tracks</div>
+          </div>
+          <div className="bg-slate-800/60 px-1.5 py-1 rounded text-center">
+            <div className="text-white font-semibold text-xs leading-tight">{p.modules}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Modules</div>
+          </div>
+          <div className="bg-slate-800/60 px-1.5 py-1 rounded text-center">
+            <div className="text-white font-semibold text-xs leading-tight">{p.lessons}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Lessons</div>
+          </div>
+          <div className="bg-slate-800/60 px-1.5 py-1 rounded text-center">
+            <div className="text-white font-semibold text-xs leading-tight">{p.estimatedHours}h</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Est.</div>
+          </div>
+          <div className="bg-slate-800/60 px-1.5 py-1 rounded text-center">
+            <div className="text-white font-semibold text-xs leading-tight">{p.quizzes}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Quizzes</div>
+          </div>
+          <div className="bg-slate-800/60 px-1.5 py-1 rounded text-center">
+            <div className="text-white font-semibold text-xs leading-tight">{p.projects}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-400 font-medium">Projects</div>
+          </div>
         </div>
       </div>
 
-      <div className="p-3 border-b border-slate-800 shrink-0">
-        <div className="flex items-center justify-between mb-2">
+      <div className="p-3 border-b border-slate-800 shrink-0 bg-[#1a1a1c] space-y-2">
+        <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-300">Project Health</span>
           <span
             className={cn(
-              "text-xs font-bold",
+              "text-xs font-bold flex items-center gap-1",
               h.score >= 80 ? "text-emerald-400" : h.score >= 50 ? "text-amber-400" : "text-red-400"
             )}
           >
-            {h.readyToPublish ? <CheckCircle2 className="w-3.5 h-3.5 inline" /> : null}{" "}
-            {h.score}%
+            {h.readyToPublish ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : null}
+            <span>{h.score}%</span>
           </span>
         </div>
-        <div className="h-1.5 rounded-full bg-slate-700 overflow-hidden mb-2">
+        <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
           <div
             className={cn(
-              "h-full transition-all",
+              "h-full transition-all duration-300 rounded-full",
               h.score >= 80 ? "bg-emerald-500" : h.score >= 50 ? "bg-amber-500" : "bg-red-500"
             )}
-            style={{ width: `${h.score}%` }}
+            style={{ width: `${Math.max(4, h.score)}%` }}
           />
         </div>
-        <div className="text-[10px] text-slate-500 mb-1">
-          Course progress: {p.completionPercent}% ({p.completeNodes}/{p.totalNodes} nodes)
+        <div className="flex items-center justify-between text-[10px] text-slate-400">
+          <span>Course progress</span>
+          <span className="font-medium text-slate-300">{p.completionPercent}% ({p.completeNodes}/{p.totalNodes})</span>
         </div>
-        {h.issues.slice(0, 4).map((issue, i) => (
+        {h.issues.slice(0, 3).map((issue, i) => (
           <button
             key={`${issue.code}-${i}`}
             type="button"
-            className="w-full text-left text-[11px] text-amber-400/90 hover:text-amber-300 flex items-start gap-1 py-0.5"
+            className="w-full text-left text-[11px] text-amber-400/90 hover:text-amber-300 flex items-start gap-1.5 py-0.5 rounded hover:bg-amber-500/10 px-1 transition-colors"
             onClick={() => issue.file && onOpenFile(issue.file)}
           >
-            <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+            <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-amber-400" />
             <span className="line-clamp-2">{issue.message}</span>
           </button>
         ))}
@@ -962,7 +993,7 @@ function ExplorerBranch({
           ) : null}
         </span>
         <span className="text-xs">{NODE_ICONS[node.kind]}</span>
-        <span className="truncate flex-1 text-xs min-w-0">{node.title}</span>
+        <span className="truncate flex-1 text-xs min-w-0" title={node.title}>{node.title}</span>
         {quickAddItems.length > 0 && (
           <InlineQuickAdd
             node={node}
