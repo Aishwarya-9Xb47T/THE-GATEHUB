@@ -876,8 +876,18 @@ export async function update(req: AuthRequest, res: Response) {
   if (data.subtitle !== undefined) updateData.subtitle = data.subtitle;
   if (data.description !== undefined) updateData.description = data.description;
   if (data.price !== undefined) updateData.price = data.price;
-  if (data.thumbnail !== undefined) updateData.thumbnail = data.thumbnail;
-  if (data.bannerUrl !== undefined) updateData.bannerUrl = data.bannerUrl;
+  if (data.thumbnail !== undefined) {
+    updateData.thumbnail = data.thumbnail;
+    if (data.bannerUrl === undefined && (!existing.bannerUrl || existing.bannerUrl === existing.thumbnail)) {
+      updateData.bannerUrl = data.thumbnail;
+    }
+  }
+  if (data.bannerUrl !== undefined) {
+    updateData.bannerUrl = data.bannerUrl;
+    if (data.thumbnail === undefined && (!existing.thumbnail || existing.thumbnail === existing.bannerUrl)) {
+      updateData.thumbnail = data.bannerUrl;
+    }
+  }
   if (data.bannerType !== undefined) updateData.bannerType = data.bannerType;
   if (data.difficulty !== undefined) updateData.difficulty = data.difficulty;
   if (data.language !== undefined) updateData.language = data.language;

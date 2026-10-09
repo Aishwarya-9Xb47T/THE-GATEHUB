@@ -54,6 +54,7 @@ export function CourseCard({
       <CourseCardBanner
         bannerUrl={course.bannerUrl}
         thumbnailUrl={course.thumbnail}
+        category={categoryLabel}
         alt={course.title}
         placeholderSeed={categoryLabel}
       >

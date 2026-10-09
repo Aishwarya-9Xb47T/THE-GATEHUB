@@ -166,6 +166,15 @@ const CODE_INDENT_RE   = /^( {4}|\t)/;
 const CODE_SYNTAX_START_RE =
   /^\s*(?:def\s+\w+\s*\(|class\s+\w+[\s:(]|from\s+\w+\s+import|import\s+\w+|#include\s*<|function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|console\.log\(|print\(|\w+\s*=\s*\[|\w+\s*=\s*\{|if\s+.*:\s*$|for\s+.*:\s*$|while\s+.*:\s*$|return\s+)/;
 
+export function inferCodeLanguage(code: string): string | undefined {
+  if (/\b(def\s+\w+|elif\b|import\s+[a-zA-Z0-9_]+|from\s+[a-zA-Z0-9_]+\s+import|print\(|self\.)\b/.test(code)) return 'python';
+  if (/\b(console\.log|const\s+[a-zA-Z0-9_]+\s*=|let\s+[a-zA-Z0-9_]+\s*=|function\s*\w*\(|=>|async\s+function)\b/.test(code)) return 'javascript';
+  if (/\b(public\s+class|System\.out\.println|public\s+static\s+void\s+main)\b/.test(code)) return 'java';
+  if (/\b(SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM|CREATE\s+TABLE)\b/i.test(code)) return 'sql';
+  if (/<(html|div|span|p|body|head|table|tr|td|script|style)[\s>]/i.test(code)) return 'html';
+  return undefined;
+}
+
 function isQuestionLikeLine(line: string): boolean {
   const t = line.trim();
   if (/^(?:Q\.?\s*\d+|Question\s*\d+|\d{1,3}[.)])/i.test(t)) return true;
@@ -285,7 +294,7 @@ export class PdfLayoutNormalizer {
             type: 'code',
             raw: codeFenceLines.join('\n'),
             text: codeFenceLines.join('\n'),
-            language: codeFenceLanguage || undefined,
+            language: codeFenceLanguage || inferCodeLanguage(codeFenceLines.join('\n')) || undefined,
             page: codeFenceStartPage,
           });
           inCodeFence = false;
@@ -393,7 +402,13 @@ export class PdfLayoutNormalizer {
             break;
           }
         }
-        blocks.push({ type: 'code', raw: codeLines.join('\n'), text: codeLines.join('\n'), page });
+        blocks.push({
+          type: 'code',
+          raw: codeLines.join('\n'),
+          text: codeLines.join('\n'),
+          language: inferCodeLanguage(codeLines.join('\n')),
+          page,
+        });
         continue;
       }
 
@@ -427,7 +442,7 @@ export class PdfLayoutNormalizer {
         type: 'code',
         raw: codeFenceLines.join('\n'),
         text: codeFenceLines.join('\n'),
-        language: codeFenceLanguage || undefined,
+        language: codeFenceLanguage || inferCodeLanguage(codeFenceLines.join('\n')) || undefined,
         page: codeFenceStartPage,
       });
     }

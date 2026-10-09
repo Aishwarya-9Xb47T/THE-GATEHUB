@@ -165,6 +165,7 @@ export async function persistLocalPathToB2(params: {
   extraPath?: string;
   contentType?: string;
   originalName?: string;
+  keepLocal?: boolean;
 }): Promise<string> {
   const fileName = params.fileName || path.basename(params.localPath);
   if (!isB2Configured()) {
@@ -197,7 +198,21 @@ export async function persistLocalPathToB2(params: {
       (confirmed.bytes ?? uploaded.bytes) +
       (confirmed.permissionDenied ? " head=403" : ""),
   );
-  await unlinkQuietly(params.localPath);
+  if (params.keepLocal) {
+    try {
+      const destDir = path.join(getUploadRoot(), params.prefix, params.extraPath || "");
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+      const destPath = path.join(destDir, fileName);
+      if (path.resolve(params.localPath) !== path.resolve(destPath)) {
+        fs.copyFileSync(params.localPath, destPath);
+        await unlinkQuietly(params.localPath);
+      }
+    } catch (copyErr) {
+      console.warn("[persistLocalPathToB2] Failed to copy local cache file:", copyErr);
+    }
+  } else {
+    await unlinkQuietly(params.localPath);
+  }
   return publicPathFromKey(key);
 }
 
@@ -207,8 +222,12 @@ export async function persistGeneratedFile(params: {
   fileName: string;
   extraPath?: string;
   contentType?: string;
+  keepLocal?: boolean;
 }): Promise<string> {
-  return persistLocalPathToB2(params);
+  return persistLocalPathToB2({
+    ...params,
+    keepLocal: params.keepLocal ?? true,
+  });
 }
 
 /** Persist a temp file at an exact /uploads/<relative> contract path (nested keys allowed). */

@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveCourseBannerUrl, placeholderHueFromSeed } from "@/lib/courseBanner";
+import { matchTemplateToCategory } from "@/lib/courseBranding/templates";
 
 export interface CourseCardBannerProps {
   src?: string | null;
   bannerUrl?: string | null;
   thumbnailUrl?: string | null;
+  category?: string | null;
   alt: string;
   placeholderSeed?: string;
   className?: string;
@@ -39,6 +41,7 @@ export function CourseCardBanner({
   src,
   bannerUrl,
   thumbnailUrl,
+  category,
   alt,
   placeholderSeed,
   className,
@@ -47,10 +50,12 @@ export function CourseCardBanner({
   zoomOnHover = false,
   children,
 }: CourseCardBannerProps) {
-  const sourceKey = `${bannerUrl ?? ""}|${thumbnailUrl ?? ""}|${src ?? ""}`;
+  const sourceKey = `${bannerUrl ?? ""}|${thumbnailUrl ?? ""}|${src ?? ""}|${category ?? ""}`;
   const candidates = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
+
+    // 1. Primary authored / uploaded assets
     for (const candidate of [bannerUrl ?? src, thumbnailUrl, src]) {
       if (!candidate) continue;
       const resolved = resolveCourseBannerUrl(candidate);
@@ -59,8 +64,20 @@ export function CourseCardBanner({
         out.push(resolved);
       }
     }
+
+    // 2. Deliberate, curated category template fallback
+    const catQuery = category || placeholderSeed || alt;
+    if (catQuery) {
+      const template = matchTemplateToCategory(catQuery);
+      const fallbackUrl = template?.thumbnailUrl || template?.previewUrl;
+      if (fallbackUrl && !seen.has(fallbackUrl)) {
+        seen.add(fallbackUrl);
+        out.push(fallbackUrl);
+      }
+    }
+
     return out;
-  }, [bannerUrl, thumbnailUrl, src]);
+  }, [bannerUrl, thumbnailUrl, src, category, placeholderSeed, alt]);
 
   const [candidateIndex, setCandidateIndex] = useState(0);
   const [gaveUp, setGaveUp] = useState(false);
@@ -71,7 +88,7 @@ export function CourseCardBanner({
   }, [sourceKey]);
 
   const currentSrc = candidates[Math.min(candidateIndex, Math.max(0, candidates.length - 1))] || null;
-  const seed = placeholderSeed || alt || "course";
+  const seed = placeholderSeed || category || alt || "course";
 
   const handleImageError = () => {
     if (gaveUp) return;
@@ -86,7 +103,7 @@ export function CourseCardBanner({
     <div
       className={cn("course-card__banner", zoomOnHover && "course-card__banner--zoom", className)}
     >
-      {currentSrc ? (
+      {currentSrc && !gaveUp ? (
         <img
           key={currentSrc}
           src={currentSrc}

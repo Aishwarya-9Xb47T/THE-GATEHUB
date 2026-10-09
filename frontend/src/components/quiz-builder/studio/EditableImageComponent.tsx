@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Image as ImageIcon, Trash2, Maximize2, Crop, Upload, Link as LinkIcon } from "lucide-react";
+import { Image as ImageIcon, Trash2, Maximize2, Crop, Upload, Link as LinkIcon, AlertTriangle } from "lucide-react";
 import { QuizSection } from "@/components/quiz-builder/studio/QuizSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,16 +46,19 @@ export function EditableImageComponent({ question, meta, updateMeta }: EditableI
   const [caption, setCaption] = useState<string>(initialCaption);
   const [widthPct, setWidthPct] = useState<number>(initialWidth);
   const [altText, setAltText] = useState<string>(meta.altText || "Question Image");
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
 
   useEffect(() => {
     setImageUrl(resolvedUrl);
     setCaption(initialCaption);
     setWidthPct(initialWidth);
     if (meta.altText) setAltText(meta.altText);
+    setImageLoadFailed(false);
   }, [resolvedUrl, initialCaption, initialWidth, meta.altText]);
 
   const saveImage = (url: string, cap: string, width: number, alt: string) => {
     setImageUrl(url);
+    setImageLoadFailed(false);
     setCaption(cap);
     setWidthPct(width);
     setAltText(alt);
@@ -89,6 +92,7 @@ export function EditableImageComponent({ question, meta, updateMeta }: EditableI
 
   const deleteImage = () => {
     setImageUrl("");
+    setImageLoadFailed(false);
     updateMeta({ mediaUrl: null, media: null, images: null, diagram: null });
   };
 
@@ -113,13 +117,48 @@ export function EditableImageComponent({ question, meta, updateMeta }: EditableI
         {/* Image Display & Controls */}
         {imageUrl ? (
           <div className="space-y-3 rounded-xl border border-border/60 bg-card p-4">
+            {imageLoadFailed ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-amber-600 dark:text-amber-400">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-xs">
+                    <p className="font-semibold">Review Warning: Image asset could not be loaded from storage</p>
+                    <p className="opacity-90">
+                      The remote asset may be unavailable or storage quota exceeded. You can replace it using "Replace / Upload File" below or update the Image URL.
+                    </p>
+                    <code className="inline-block mt-1 px-1.5 py-0.5 rounded bg-amber-500/20 font-mono text-[11px] break-all">
+                      {imageUrl}
+                    </code>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex items-center justify-center rounded-lg bg-muted/20 p-2 overflow-hidden border border-border/40 min-h-[160px]">
-              <img
-                src={displayUrl}
-                alt={altText || "Attached component"}
-                style={{ width: `${widthPct}%`, maxHeight: "400px", objectFit: "contain" }}
-                className="rounded transition-all duration-200"
-              />
+              {imageLoadFailed ? (
+                <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground gap-2">
+                  <ImageIcon className="h-10 w-10 stroke-[1.25] opacity-50" />
+                  <p className="text-xs">Image preview unavailable from storage</p>
+                  <label htmlFor="replace-file-upload-failed" className="cursor-pointer text-xs font-medium text-primary hover:underline">
+                    Upload replacement image
+                  </label>
+                  <input
+                    id="replace-file-upload-failed"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                </div>
+              ) : (
+                <img
+                  src={displayUrl}
+                  alt={altText || "Attached component"}
+                  style={{ width: `${widthPct}%`, maxHeight: "400px", objectFit: "contain" }}
+                  className="rounded transition-all duration-200"
+                  onError={() => setImageLoadFailed(true)}
+                />
+              )}
             </div>
 
             {/* Sizing presets */}

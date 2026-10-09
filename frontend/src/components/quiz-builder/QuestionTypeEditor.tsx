@@ -133,9 +133,10 @@ export function hasValidCodeData(question: any, meta: any): boolean {
     fromChildren ||
     fromMetaChildren;
   const isCodingType = question?.type === "coding" || question?.type === "code_question" || question?.type === "coding_question" || question?.type === "sql";
+  const fromTextCode = question?.text && /```[a-zA-Z]*\n?[\s\S]*?```/.test(String(question.text));
 
   // Keep the code editor mounted while the slot exists, even if the source is temporarily empty.
-  return hasCodeSlot || starterCode.length > 0 || isCodingType;
+  return hasCodeSlot || starterCode.length > 0 || isCodingType || Boolean(fromTextCode);
 }
 
 export function hasValidLinkData(question: any, meta: any): boolean {
@@ -654,10 +655,16 @@ function resolveQuestionCodeSource(meta: Record<string, unknown>, questionId: st
     .map((c: any) => String(c.code || c.content || "").replace(/\n$/, ""))
     .filter(Boolean)
     .join("\n\n");
+
+  const textFenceMatch = (topQ?.text && typeof topQ.text === "string") ? /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/.exec(topQ.text) : null;
+  const langFromText = textFenceMatch?.[1] || "";
+  const codeFromText = textFenceMatch?.[2] || "";
+
   const lang = String(
     codeObj?.language ||
       meta.language ||
       childCodeBlocks[0]?.language ||
+      langFromText ||
       "python",
   ).toLowerCase();
   const code = String(
@@ -669,6 +676,7 @@ function resolveQuestionCodeSource(meta: Record<string, unknown>, questionId: st
       fromChildren ||
       (Array.isArray(meta.codeBlocks) ? meta.codeBlocks.map((c: any) => (typeof c === "string" ? c : c.code || c.content)).join("\n") : "") ||
       (Array.isArray(topQ?.codeBlocks) ? topQ.codeBlocks.map((c: any) => (typeof c === "string" ? c : c.code || c.content)).join("\n") : "") ||
+      codeFromText ||
       "",
   );
   return { lang, code };
@@ -698,7 +706,7 @@ function CodingEditor({
           value={lang}
           onChange={(e) => updateMeta({ language: e.target.value })}
         >
-          {["javascript", "typescript", "python", "java", "cpp", "c", "go", "rust", "kotlin", "sql"].map((l) => (
+          {["javascript", "typescript", "python", "java", "cpp", "c", "go", "rust", "kotlin", "sql", "html", "css", "json"].map((l) => (
             <option key={l} value={l}>{l}</option>
           ))}
         </select>

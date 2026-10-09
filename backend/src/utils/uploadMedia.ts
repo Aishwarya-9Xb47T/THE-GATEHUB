@@ -35,6 +35,15 @@ export function isVideoUploadPath(filePath: string): boolean {
   return VIDEO_EXT.has(path.extname(filePath.split("?")[0]).toLowerCase());
 }
 
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp", ".ico", ".avif"]);
+
+export function isImageUploadPath(filePath: string): boolean {
+  const p = filePath.split("?")[0].toLowerCase();
+  const ext = path.extname(p);
+  if (IMAGE_EXT.has(ext)) return true;
+  return p.includes("/banners/") || p.includes("/images/") || p.startsWith("banners/") || p.startsWith("images/");
+}
+
 /** RFC 7233 byte-range inspection. Unsatisfiable ranges must yield HTTP 416, not 200. */
 export function inspectByteRange(
   rangeHeader: string | undefined,

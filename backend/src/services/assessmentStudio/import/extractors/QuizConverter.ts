@@ -36,8 +36,16 @@ function persistImageAsset(dataUrl?: string): string | undefined {
     const filename = `import-img-${randomUUID()}.${ext}`;
     const uploadRoot = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
     if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
+    const imagesDir = path.join(uploadRoot, 'images');
+    if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+
     const filePath = path.join(uploadRoot, filename);
+    const imagesFilePath = path.join(imagesDir, filename);
     fs.writeFileSync(filePath, buffer);
+    try {
+      fs.writeFileSync(imagesFilePath, buffer);
+    } catch {}
+
     return `/uploads/${filename}`;
   } catch (err) {
     console.warn('[QuizConverter] Failed to save base64 image to file:', err);
@@ -51,12 +59,14 @@ async function persistImageAssetToStorage(dataUrl?: string): Promise<string | un
   try {
     const { persistGeneratedFile } = await import('../../../../middlewares/persistUpload.js');
     const filename = path.basename(localUrl);
-    const localPath = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads', filename);
+    const uploadRoot = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
+    const localPath = path.join(uploadRoot, filename);
     if (!fs.existsSync(localPath)) return localUrl;
     return await persistGeneratedFile({
       localPath,
       prefix: 'images',
       fileName: filename,
+      keepLocal: true,
     });
   } catch (err) {
     console.warn('[QuizConverter] B2 persist skipped:', err);
@@ -99,6 +109,29 @@ function collectImageSources(metaObj: Record<string, unknown>, draft: ValidatedQ
 
 function cleanExtractedText(str?: string): string {
   if (!str) return '';
+  // If the text contains code fences (```), preserve code fences intact without prose collapsing
+  if (str.includes('```')) {
+    const parts = str.split(/(```[\s\S]*?```)/g);
+    return parts
+      .map((part) => {
+        if (part.startsWith('```')) {
+          return part; // keep code block indentation, linebreaks, and syntax intact
+        }
+        return part
+          .replace(/--?\s*\d+\s*(?:of|to|-|\/|—)?\s*\d*--?/gi, '')
+          .replace(/\bPage\s+\d+\s*(?:of|to|-|\/|—)\s*\d+\b/gi, '')
+          .replace(/\bPage\s+\d+\b/gi, '')
+          .replace(/\b\d+\s+of\s+\d+\b/gi, '')
+          .replace(/\[\s*EQUATION\s*\]/gi, '')
+          .replace(/\[\s*ANSWER\s*\]/gi, '')
+          .replace(/\[\s*QUESTION\s*\]/gi, '')
+          .replace(/[ \t]{2,}/g, ' ')
+          .trim();
+      })
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+  }
   return str
     .replace(/--?\s*\d+\s*(?:of|to|-|\/|—)?\s*\d*--?/gi, '')
     .replace(/\bPage\s+\d+\s*(?:of|to|-|\/|—)\s*\d+\b/gi, '')
@@ -107,7 +140,7 @@ function cleanExtractedText(str?: string): string {
     .replace(/\[\s*EQUATION\s*\]/gi, '')
     .replace(/\[\s*ANSWER\s*\]/gi, '')
     .replace(/\[\s*QUESTION\s*\]/gi, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
 
