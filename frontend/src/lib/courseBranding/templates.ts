@@ -280,6 +280,16 @@ export const BANNER_TEMPLATES: BannerTemplate[] = [
     gradient: "from-blue-600/80 to-indigo-900/90",
     theme: { primary: "#2563eb", accent: "#312e81", mood: "enterprise" },
   },
+  {
+    id: "computer-networking",
+    label: "Computer Networking",
+    category: "Computer Networking",
+    templateCategory: "Security",
+    previewUrl: "/banners/categories/computer-networking.svg",
+    thumbnailUrl: "/banners/categories/computer-networking.svg",
+    gradient: "from-sky-700/80 to-slate-900/90",
+    theme: { primary: "#0284c7", accent: "#0c4a6e", mood: "infrastructure" },
+  },
 ];
 
 export function findTemplateById(id: string): BannerTemplate | undefined {
@@ -297,6 +307,17 @@ const CATEGORY_TEMPLATE_ALIASES: Record<string, string> = {
   "career preparation": "product-management",
   "research & innovation": "research-innovation",
   "machine learning": "machine-learning",
+  "deep learning": "deep-learning",
+  "computer networking": "computer-networking",
+  "networking": "computer-networking",
+  "computer networks": "computer-networking",
+  "aiml": "artificial-intelligence",
+  "ai/ml": "artificial-intelligence",
+  "ai & ml": "artificial-intelligence",
+  "ai": "artificial-intelligence",
+  "ml": "machine-learning",
+  "cv": "deep-learning",
+  "computer vision": "deep-learning",
   "web development": "web-development",
   programming: "software-engineering",
   devops: "devops",
@@ -308,15 +329,90 @@ const CATEGORY_TEMPLATE_ALIASES: Record<string, string> = {
 
 export function matchTemplateToCategory(categoryName: string): BannerTemplate | undefined {
   const key = categoryName.toLowerCase().trim();
+  const direct = findTemplateById(key);
+  if (direct) return direct;
+
   const aliasId = CATEGORY_TEMPLATE_ALIASES[key];
   if (aliasId) return findTemplateById(aliasId);
 
   return BANNER_TEMPLATES.find(
     (t) =>
+      t.id.toLowerCase() === key ||
       t.category.toLowerCase() === key ||
       t.label.toLowerCase() === key ||
       key.includes(t.id.replace(/-/g, " ")) ||
       t.category.toLowerCase().includes(key) ||
       key.includes(t.category.toLowerCase())
   );
+}
+
+/**
+ * Returns a guaranteed, durable, locally bundled SVG banner for courses & quizzes.
+ * Zero external network calls, zero quota limits, instant load in any environment.
+ */
+export function getCategoryDurableBanner(categoryOrTitle?: string | null): string {
+  if (!categoryOrTitle?.trim()) return "/banners/categories/gatehub-default.svg";
+  const s = categoryOrTitle.toLowerCase().trim();
+
+  if (s.includes("cyber") || s.includes("security") || s.includes("hacking")) {
+    return "/banners/categories/cyber-security.svg";
+  }
+  if (
+    s.includes("network") ||
+    s.includes("routing") ||
+    s.includes("protocol") ||
+    s.includes("tcp") ||
+    s.includes("ip") ||
+    s.includes("osi")
+  ) {
+    return "/banners/categories/computer-networking.svg";
+  }
+  if (
+    s.includes("deep learn") ||
+    s.includes("neural") ||
+    s.includes("vision") ||
+    s === "cv" ||
+    s.includes("transformer") ||
+    s.includes("llm")
+  ) {
+    return "/banners/categories/deep-learning.svg";
+  }
+  if (
+    s.includes("aiml") ||
+    s.includes("ai/ml") ||
+    s.includes("machine learn") ||
+    s.includes("artificial") ||
+    s.includes("ai & ml") ||
+    s === "ml" ||
+    s === "ai"
+  ) {
+    return "/banners/categories/aiml.svg";
+  }
+  if (
+    s.includes("cloud") ||
+    s.includes("devops") ||
+    s.includes("docker") ||
+    s.includes("kubernetes") ||
+    s.includes("aws")
+  ) {
+    return "/banners/categories/cloud-devops.svg";
+  }
+  if (
+    s.includes("data science") ||
+    s.includes("analytics") ||
+    s.includes("statistic")
+  ) {
+    return "/banners/categories/data-science.svg";
+  }
+  if (
+    s.includes("software") ||
+    s.includes("program") ||
+    s.includes("code") ||
+    s.includes("develop") ||
+    s.includes("algorithm")
+  ) {
+    return "/banners/categories/software-engineering.svg";
+  }
+
+  return "/banners/categories/gatehub-default.svg";
 }

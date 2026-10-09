@@ -86,6 +86,7 @@ export function PremiumQuizCard({
         coverGradient={quiz.coverGradient}
         theme={quiz.theme}
         alt={quiz.title}
+        subject={quiz.subject}
         zoomOnHover
         className={cn(isList ? "w-48 shrink-0" : "h-32 w-full")}
       >

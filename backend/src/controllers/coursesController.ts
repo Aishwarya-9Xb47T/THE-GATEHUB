@@ -446,6 +446,70 @@ export async function getAIDetails(req: AuthRequest, res: Response) {
   }
 }
 
+export function resolveDefaultCourseBanner(category?: string | null, title?: string | null): string {
+  const s = `${category || ""} ${title || ""}`.toLowerCase().trim();
+  if (s.includes("cyber") || s.includes("security") || s.includes("hacking")) {
+    return "/banners/categories/cyber-security.svg";
+  }
+  if (
+    s.includes("network") ||
+    s.includes("routing") ||
+    s.includes("protocol") ||
+    s.includes("tcp") ||
+    s.includes("ip") ||
+    s.includes("osi")
+  ) {
+    return "/banners/categories/computer-networking.svg";
+  }
+  if (
+    s.includes("deep learn") ||
+    s.includes("neural") ||
+    s.includes("vision") ||
+    /\bcv\b/.test(s) ||
+    s.includes("transformer") ||
+    s.includes("llm")
+  ) {
+    return "/banners/categories/deep-learning.svg";
+  }
+  if (
+    s.includes("aiml") ||
+    s.includes("ai/ml") ||
+    s.includes("machine learn") ||
+    s.includes("artificial") ||
+    s.includes("ai & ml") ||
+    /\bml\b/.test(s) ||
+    /\bai\b/.test(s)
+  ) {
+    return "/banners/categories/aiml.svg";
+  }
+  if (
+    s.includes("cloud") ||
+    s.includes("devops") ||
+    s.includes("docker") ||
+    s.includes("kubernetes") ||
+    s.includes("aws")
+  ) {
+    return "/banners/categories/cloud-devops.svg";
+  }
+  if (
+    s.includes("data science") ||
+    s.includes("analytics") ||
+    s.includes("statistic")
+  ) {
+    return "/banners/categories/data-science.svg";
+  }
+  if (
+    s.includes("software") ||
+    s.includes("program") ||
+    s.includes("code") ||
+    s.includes("develop") ||
+    s.includes("algorithm")
+  ) {
+    return "/banners/categories/software-engineering.svg";
+  }
+  return "/banners/categories/gatehub-default.svg";
+}
+
 export async function create(req: AuthRequest, res: Response) {
   if (!req.user) throw new AppError(401, "Unauthorized");
   const data = createSchema.parse(req.body);
@@ -457,6 +521,9 @@ export async function create(req: AuthRequest, res: Response) {
     subcategoryId: data.subcategoryId,
   });
 
+  const defaultBanner = resolveDefaultCourseBanner(resolvedCategory.categoryName || data.category, data.title);
+  const canonicalCover = data.thumbnail || data.bannerUrl || defaultBanner;
+
   const course = await prisma.course.create({
     data: {
       title: data.title,
@@ -467,8 +534,8 @@ export async function create(req: AuthRequest, res: Response) {
       subcategory: resolvedCategory.subcategoryName,
       categoryId: resolvedCategory.categoryId,
       subcategoryId: resolvedCategory.subcategoryId,
-      thumbnail: data.thumbnail || data.bannerUrl,
-      bannerUrl: data.bannerUrl || data.thumbnail,
+      thumbnail: canonicalCover,
+      bannerUrl: canonicalCover,
       bannerType: data.bannerType,
       difficulty: data.difficulty,
       language: data.language || "en",
@@ -489,11 +556,14 @@ export async function generateAICourse(req: AuthRequest, res: Response) {
 
   const aiData = await generateCourseContent(title);
 
+  const defaultBanner = resolveDefaultCourseBanner(null, title);
   const course = await prisma.course.create({
     data: {
       title,
       description: aiData.description,
       instructorId: req.user.id,
+      thumbnail: defaultBanner,
+      bannerUrl: defaultBanner,
       status: "draft",
       sections: {
         create: aiData.curriculum.map((section, sIndex) => ({
@@ -747,6 +817,9 @@ export async function createCourseWithAuthoring(req: AuthRequest, res: Response)
 
   const sectionsCreate = buildSectionsFromAuthoringPackage(pkg);
 
+  const defaultBanner = resolveDefaultCourseBanner(resolvedCategory.categoryName || data.category, data.title);
+  const canonicalCover = data.thumbnail || defaultBanner;
+
   const course = await prisma.course.create({
     data: {
       title: data.title,
@@ -757,7 +830,8 @@ export async function createCourseWithAuthoring(req: AuthRequest, res: Response)
       subcategory: resolvedCategory.subcategoryName,
       categoryId: resolvedCategory.categoryId,
       subcategoryId: resolvedCategory.subcategoryId,
-      thumbnail: data.thumbnail,
+      thumbnail: canonicalCover,
+      bannerUrl: canonicalCover,
       difficulty: data.difficulty,
       language: data.language || "en",
       status: data.status || "draft",

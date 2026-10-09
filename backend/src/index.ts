@@ -372,38 +372,21 @@ async function serveAnyUpload(req: Request, res: Response, next: () => void) {
           : null;
 
     const code = classified?.code || "NETWORK_ERROR";
-    const status = classified?.httpStatus || 500;
+    const status = classified?.httpStatus || (code === "BANDWIDTH_LIMIT" ? 503 : 500);
     console.error(
       `[MEDIA_STREAM_ERROR] path=${relativePath} range=${range || "none"} status=${status} storageErrorCode=${code} storageErrorMessage=${err instanceof Error ? err.message : String(err)}`
     );
     applyUploadCorsHeaders(res, origin);
-
-    if (isImageUploadPath(relativePath)) {
-      res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
-      res.setHeader("Cache-Control", "public, max-age=60");
-      const label = relativePath.includes("banner") ? "THE GATEHUB" : "Image Asset";
-      const sub = classified?.code === "BANDWIDTH_LIMIT" ? "Storage quota limit reached" : "Asset unavailable";
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
-  <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#0f172a"/>
-    </linearGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#g)"/>
-  <circle cx="400" cy="190" r="44" fill="#334155"/>
-  <path d="M380 205 L420 205 L410 185 L395 200 L388 192 Z" fill="#94a3b8"/>
-  <circle cx="392" cy="180" r="5" fill="#f8fafc"/>
-  <text x="400" y="270" text-anchor="middle" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600">${label}</text>
-  <text x="400" y="298" text-anchor="middle" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="13">${sub}</text>
-</svg>`;
-      return res.status(200).send(svg);
+    res.setHeader("X-Storage-Error", code);
+    res.setHeader("X-GateHub-Asset-Status", "unavailable");
+    if (code === "BANDWIDTH_LIMIT") {
+      res.setHeader("Retry-After", "300");
     }
 
     if (!res.headersSent) {
       return res.status(status).json({
         success: false,
-        error: classified?.message || "Failed to stream media",
+        error: classified?.message || (code === "BANDWIDTH_LIMIT" ? "Storage quota limit reached" : "Failed to stream media"),
         code,
       });
     }

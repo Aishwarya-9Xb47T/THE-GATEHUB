@@ -55,3 +55,17 @@ if (fs.existsSync(harnessSrc)) {
   fs.copyFileSync(harnessSrc, path.join(harnessDestDir, "pptxRenderHarness.html"));
   console.log("[BUILD] Copied pptxRenderHarness.html");
 }
+
+const bannersSrcDir = path.join("src", "assets", "banners", "categories");
+const bannersDestDir = path.join("dist", "assets", "banners", "categories");
+const uploadsDestDir = path.join("uploads", "banners", "categories");
+if (fs.existsSync(bannersSrcDir)) {
+  fs.mkdirSync(bannersDestDir, { recursive: true });
+  fs.mkdirSync(uploadsDestDir, { recursive: true });
+  const svgs = fs.readdirSync(bannersSrcDir);
+  for (const svg of svgs) {
+    fs.copyFileSync(path.join(bannersSrcDir, svg), path.join(bannersDestDir, svg));
+    fs.copyFileSync(path.join(bannersSrcDir, svg), path.join(uploadsDestDir, svg));
+  }
+  console.log(`[BUILD] Seeded ${svgs.length} category banner SVGs to dist and uploads.`);
+}

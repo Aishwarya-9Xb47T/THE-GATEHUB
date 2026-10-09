@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <defs>
+    <linearGradient id="ghBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="bookGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="100%" height="100%" fill="url(#ghBg)"/>
+
+  <!-- Academic Crest / Book Emblem -->
+  <g transform="translate(640, 260)">
+    <!-- Hexagon Frame -->
+    <polygon points="0,-100 86,-50 86,50 0,100 -86,50 -86,-50" fill="#1e293b" stroke="#38bdf8" stroke-width="3" stroke-opacity="0.8"/>
+    <!-- Open Book -->
+    <path d="M -45 -15 Q -20 -30 0 -15 Q 20 -30 45 -15 L 45 35 Q 20 20 0 35 Q -20 20 -45 35 Z" fill="url(#bookGrad)"/>
+    <line x1="0" y1="-15" x2="0" y2="35" stroke="#ffffff" stroke-width="2.5"/>
+  </g>
+
+  <text x="640" y="475" text-anchor="middle" fill="#93c5fd" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" letter-spacing="6">ADVANCED ENGINEERING & COMPUTER SCIENCE</text>
+  <text x="640" y="535" text-anchor="middle" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="800" letter-spacing="1">THE GATEHUB</text>
+  <text x="640" y="575" text-anchor="middle" fill="#cbd5e1" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="500" letter-spacing="2">EXCELLENCE IN COMPUTER SCIENCE & GATE PREPARATION</text>
+</svg>

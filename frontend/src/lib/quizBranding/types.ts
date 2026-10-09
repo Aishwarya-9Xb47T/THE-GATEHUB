@@ -135,6 +135,21 @@ export function resolveIconEmoji(b: Pick<QuizBrandingData, "icon" | "customIcon"
   return QUIZ_ICON_OPTIONS.find((o) => o.id === b.icon)?.emoji ?? "📚";
 }
 
+export function inferSubjectEmoji(titleOrSubject?: string | null): string {
+  if (!titleOrSubject?.trim()) return "📚";
+  const s = titleOrSubject.toLowerCase().trim();
+  if (s === "ml" || s.includes("machine learn") || s.includes("aiml")) return "🧠";
+  if (s === "cv" || s.includes("computer vision") || s.includes("image")) return "👁️";
+  if (s.includes("ai") || s.includes("intelligence")) return "✨";
+  if (s.includes("cyber") || s.includes("security")) return "🛡️";
+  if (s.includes("network") || s.includes("tcp") || s.includes("ip") || s.includes("osi")) return "🌐";
+  if (s.includes("code") || s.includes("program") || s.includes("python") || s.includes("java")) return "💻";
+  if (s.includes("cloud") || s.includes("devops") || s.includes("docker")) return "☁️";
+  if (s.includes("gate") || s.includes("exam") || s.includes("test")) return "🎓";
+  if (s.includes("math") || s.includes("calculus") || s.includes("discrete")) return "🔢";
+  return "📚";
+}
+
 export function themeToGradient(theme: QuizThemeId): string {
   const map: Record<QuizThemeId, string> = {
     light: "from-slate-200 via-slate-100 to-white",

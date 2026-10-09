@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveCourseBannerUrl, placeholderHueFromSeed } from "@/lib/courseBanner";
-import { matchTemplateToCategory } from "@/lib/courseBranding/templates";
+import { matchTemplateToCategory, getCategoryDurableBanner } from "@/lib/courseBranding/templates";
 
 export interface CourseCardBannerProps {
   src?: string | null;
@@ -73,6 +73,13 @@ export function CourseCardBanner({
       if (fallbackUrl && !seen.has(fallbackUrl)) {
         seen.add(fallbackUrl);
         out.push(fallbackUrl);
+      }
+
+      // 3. Guaranteed durable locally-stored category artwork
+      const localDurable = getCategoryDurableBanner(catQuery);
+      if (localDurable && !seen.has(localDurable)) {
+        seen.add(localDurable);
+        out.push(localDurable);
       }
     }
 

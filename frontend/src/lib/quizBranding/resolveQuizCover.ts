@@ -10,6 +10,7 @@ export interface QuizCoverFields {
   coverImageUrl?: string | null;
   coverGradient?: string | null;
   theme?: QuizThemeId | string | null;
+  subject?: string | null;
 }
 
 export function isCssGradient(value: string): boolean {
