@@ -2,6 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "../utils/prisma.js";
+import { appCache } from "../utils/cache.js";
 import { AuthRequest } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { isSuperAdminRole, ROLES } from "../utils/roles.js";
@@ -38,6 +39,12 @@ function assertCanManageUser(actor: AuthRequest["user"], targetRole: string, new
 }
 
 export async function dashboard(_req: AuthRequest, res: Response) {
+  const cacheKey = "admin:dashboard:summary";
+  const cached = appCache.get(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -114,7 +121,7 @@ export async function dashboard(_req: AuthRequest, res: Response) {
     }),
   ]);
 
-  res.json({
+  const payload = {
     success: true,
     stats: {
       userCount: totalUsers,
@@ -146,7 +153,10 @@ export async function dashboard(_req: AuthRequest, res: Response) {
     },
     recentUsers,
     recentCourses,
-  });
+  };
+
+  appCache.set(cacheKey, payload, 30);
+  res.json(payload);
 }
 
 export async function listUsers(req: AuthRequest, res: Response) {

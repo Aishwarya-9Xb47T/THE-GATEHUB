@@ -18,14 +18,14 @@ import { AuthRequest } from "../middlewares/auth.js";
 import { authenticate, requireRole, optionalAuthenticate } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { upload } from "../middlewares/upload.js";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../utils/prisma.js";
+import { appCache } from "../utils/cache.js";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import mime from "mime-types";
 import { downloadCompleteLearningUniverse } from "../controllers/enhancedCourseDownloadController.js";
 
-const prisma = new PrismaClient();
 const router = express.Router();
 const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 const ASSETS_DIR = path.join(UPLOAD_DIR, "learning-universes");
@@ -763,6 +763,7 @@ router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (r
       } catch (syncErr) {
         console.warn("[LU delete] catalog sync after archive failed:", syncErr);
       }
+      appCache.invalidate("universes:");
 
       return res.json({
         success: true,
@@ -821,6 +822,7 @@ router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (r
       }
     }
 
+    appCache.invalidate("universes:");
     res.json({ success: true, action: "deleted" });
   } catch (err) {
     console.error(err);

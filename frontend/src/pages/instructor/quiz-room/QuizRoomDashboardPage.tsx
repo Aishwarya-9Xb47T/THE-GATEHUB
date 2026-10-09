@@ -145,12 +145,14 @@ function MyQuizzesTab() {
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.add);
 
-  const { data: quizzes, isLoading } = useQuery({
+  const { data: quizzes, isLoading, isError, error, refetch: queryRefetch } = useQuery({
     queryKey: ["my-quizzes", search, sort],
     queryFn: async () => {
       const res = await listMyQuizzes({ q: search, sort });
+      if (res.error) throw new Error(res.error);
       return res.data?.data || [];
     },
+    staleTime: 30 * 1000,
   });
 
   const sorted = useMemo(() => {
@@ -231,7 +233,36 @@ function MyQuizzesTab() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading quizzes…</p>
+        <div className={cn("grid gap-4", view === "grid" ? "sm:grid-cols-2 xl:grid-cols-3" : "grid-cols-1")}>
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="rounded-xl border border-border/50 bg-card p-5 space-y-4 animate-pulse">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2 flex-1">
+                  <div className="h-5 w-3/4 bg-muted/60 rounded" />
+                  <div className="h-3 w-1/2 bg-muted/40 rounded" />
+                </div>
+                <div className="h-6 w-16 bg-muted/50 rounded-full" />
+              </div>
+              <div className="h-16 bg-muted/20 rounded-lg" />
+              <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                <div className="h-3 w-24 bg-muted/40 rounded" />
+                <div className="h-8 w-20 bg-muted/60 rounded-md" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : isError ? (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+            <p className="font-medium text-destructive">Failed to load quizzes</p>
+            <p className="text-sm text-muted-foreground max-w-md">
+              {error instanceof Error ? error.message : "Unable to reach the server. Please try again."}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void queryRefetch()}>
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
       ) : sorted.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center gap-4 py-12 text-center">

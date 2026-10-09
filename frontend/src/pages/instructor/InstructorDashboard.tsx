@@ -58,6 +58,7 @@ export function InstructorDashboard() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
+    staleTime: 30 * 1000,
   });
 
   const {
@@ -72,6 +73,7 @@ export function InstructorDashboard() {
       if (res.error) throw new Error(res.error);
       return res.data?.data ?? [];
     },
+    staleTime: 30 * 1000,
   });
 
   const { data: earningsData } = useQuery({
@@ -81,6 +83,7 @@ export function InstructorDashboard() {
       if (res.error) return null;
       return res.data?.summary;
     },
+    staleTime: 30 * 1000,
   });
 
   const deleteLuMutation = useMutation({

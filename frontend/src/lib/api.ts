@@ -154,10 +154,29 @@ export async function api<T>(
     ...(init.headers as Record<string, string>),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const hasExternalSignal = !!init.signal;
+  const customTimeout = (init as any)?.timeout as number | undefined;
+  const timeoutMs =
+    customTimeout ??
+    (path.includes("/compile") ||
+    path.includes("/generate-ai") ||
+    path.includes("/publish") ||
+    path.includes("/ai-architect") ||
+    path.includes("/upload") ||
+    path.includes("/video") ||
+    path.includes("/payments") ||
+    path.includes("/checkout")
+      ? 120_000
+      : 30_000);
+  const timeoutController = hasExternalSignal ? null : new AbortController();
+  const timeoutId = timeoutController ? setTimeout(() => timeoutController.abort(), timeoutMs) : null;
+  const signal = init.signal || timeoutController?.signal;
   
   try {
     const res = await fetch(apiUrl(path), {
       ...init,
+      signal,
       headers,
       body: sanitizedBody !== undefined ? JSON.stringify(sanitizedBody) : undefined,
     });
@@ -204,13 +223,15 @@ export async function api<T>(
     return { data: json as T };
   } catch (err: any) {
     if (err?.name === "AbortError") {
-      return { error: "Request cancelled" };
+      return { error: "Request timed out or was cancelled. Please try again." };
     }
     console.error("API Call failed:", err);
     if (err.message === "Failed to fetch") {
       return { error: "Backend server is unreachable. Please ensure the backend is running on port 5000." };
     }
     return { error: err.message || "Network error occurred. Please check your connection." };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
   };
 

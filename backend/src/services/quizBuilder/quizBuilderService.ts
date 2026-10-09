@@ -199,9 +199,13 @@ export async function listInstructorQuizzes(
     }),
   ]);
 
-  [...authored, ...fromSessions.map((s) => ({ id: s.quizId })), ...fromCourses].forEach((q) =>
-    quizIds.add(q.id)
-  );
+  [...authored, ...fromSessions.map((s) => ({ id: s.quizId })), ...fromCourses].forEach((q) => {
+    if (q?.id) quizIds.add(q.id);
+  });
+
+  if (quizIds.size === 0) {
+    return [];
+  }
 
   const where: Record<string, unknown> = { id: { in: [...quizIds] } };
   if (filters?.archived) where.archivedAt = { not: null };
@@ -223,9 +227,10 @@ export async function listInstructorQuizzes(
   const quizzes = await prisma.quiz.findMany({
     where,
     orderBy,
+    take: 100,
     include: {
       questions: { select: { type: true, difficulty: true, metadata: true } },
-      attempts: { select: { score: true, totalMarks: true, answers: true } },
+      attempts: { select: { score: true, totalMarks: true } },
       liveSessions: { where: { hostUserId: userId }, select: { id: true, status: true } },
       lectures: {
         take: 1,
@@ -242,12 +247,6 @@ export async function listInstructorQuizzes(
     const avgScore =
       quiz.attempts.length > 0
         ? quiz.attempts.reduce((s, a) => {
-            const payload = typeof a.answers === "string" ? JSON.parse(a.answers) : a.answers;
-            const isLive = payload && typeof payload === "object" && "liveSessionId" in payload;
-            if (isLive && payload.correctCount != null && payload.wrongCount != null) {
-              const attempted = Number(payload.correctCount) + Number(payload.wrongCount);
-              return s + (attempted > 0 ? (Number(payload.correctCount) / attempted) * 100 : 0);
-            }
             return s + (Number(a.score) / Math.max(a.totalMarks, 1)) * 100;
           }, 0) / quiz.attempts.length
         : 0;

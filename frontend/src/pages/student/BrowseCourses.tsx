@@ -57,6 +57,7 @@ export function BrowseCourses() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -71,11 +72,12 @@ export function BrowseCourses() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
-    retry: 2,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 30000),
+    staleTime: 60 * 1000,
+    retry: 1,
+    retryDelay: 1000,
   });
 
-  const { data: luData, isLoading: luLoading } = useQuery({
+  const { data: luData, isLoading: luLoading, isError: luIsError } = useQuery({
     queryKey: ["learning-universes", "browse", search, categoryId, difficulty, price],
     queryFn: async () => {
       const res = await getPublishedLearningUniverses({
@@ -95,6 +97,9 @@ export function BrowseCourses() {
             : [];
       return items;
     },
+    staleTime: 60 * 1000,
+    retry: 1,
+    retryDelay: 1000,
   });
 
   const { data: luEnrollmentsData } = useQuery({
@@ -106,6 +111,7 @@ export function BrowseCourses() {
       return res.data!;
     },
     enabled: !!token,
+    staleTime: 30 * 1000,
   });
 
   const { data: enrollmentsData, refetch: refetchEnrollments } = useQuery({
@@ -117,6 +123,7 @@ export function BrowseCourses() {
       return res.data!;
     },
     enabled: !!token,
+    staleTime: 30 * 1000,
   });
 
   const courses: Course[] = Array.isArray(data?.courses)
@@ -137,7 +144,8 @@ export function BrowseCourses() {
       : [];
   const exploreItems = mergeLandingExploreItems(learningUniverses, courses);
   const hasAnyCatalogData = exploreItems.length > 0;
-  const catalogLoading = !hasAnyCatalogData && (isLoading || luLoading);
+  const isStillWaiting = isLoading || luLoading;
+  const catalogLoading = !hasAnyCatalogData && isStillWaiting && (!data || !luData);
 
   const getLuEnrollmentStatus = (luId: string) => {
     const enrollment = luEnrollments.find((e: any) => e.learningUniverseId === luId || e.learningUniverse?.id === luId);

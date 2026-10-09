@@ -42,13 +42,12 @@ import {
 } from "../services/aiCourseArchitect/videoAssignmentEngine.js";
 import { buildScaffoldV2Files } from "../services/luProject/luProjectFileEmitter.js";
 import { buildMainTexFromProject } from "../services/luProject/luProjectMainTexBuilder.js";
-import { writeLuProjectToDb } from "../services/luProject/migrateSingleFileToProject.js";
+import { prisma } from "../utils/prisma.js";
 import { appCache } from "../utils/cache.js";
 
 /** Large LU republish deletes and recreates tracks/modules/lessons — needs more than Prisma's 5s default. */
 const LU_PUBLISH_TRANSACTION_OPTIONS = { maxWait: 20_000, timeout: 180_000 } as const;
 
-const prisma = new PrismaClient();
 const UPLOAD_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads");
 const ASSETS_DIR = path.join(UPLOAD_DIR, "learning-universes");
 const PROJECTS_DIR = path.join(UPLOAD_DIR, "projects");
@@ -783,7 +782,14 @@ export async function getPublishedLearningUniverses(options?: {
   search?: string;
   difficulty?: string;
   price?: string;
+  limit?: number;
 }) {
+  const cacheKey = `universes:published:${options?.categorySlug || "all"}:${options?.categoryId || "all"}:${options?.search || "all"}:${options?.difficulty || "all"}:${options?.price || "all"}:${options?.limit || 60}`;
+  const cached = appCache.get<any[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const andFilters: Record<string, unknown>[] = [{ status: "published" }];
 
   if (options?.categoryId) {
@@ -811,6 +817,8 @@ export async function getPublishedLearningUniverses(options?: {
   } else if (options?.price === "paid") {
     andFilters.push({ price: { gt: 0 } });
   }
+
+  const takeLimit = Math.min(200, Math.max(1, options?.limit || 100));
 
   const universes = await prisma.learningUniverse.findMany({
     where: andFilters.length > 1 ? { AND: andFilters } : { status: "published" },
@@ -842,9 +850,12 @@ export async function getPublishedLearningUniverses(options?: {
       },
     },
     orderBy: { createdAt: "desc" },
+    take: takeLimit,
   });
 
-  return mapUniversesWithStats(await excludeResourceBackedUniverses(filterUniversesForLuListing(universes as any)));
+  const result = mapUniversesWithStats(await excludeResourceBackedUniverses(filterUniversesForLuListing(universes as any)));
+  appCache.set(cacheKey, result, 30);
+  return result;
 }
 
 /** Landing page — published learning universes only (never free/premium mini courses). */

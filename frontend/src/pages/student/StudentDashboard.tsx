@@ -35,6 +35,7 @@ export function StudentDashboard() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
+    staleTime: 30 * 1000,
   });
 
   const { data: certificatesData } = useQuery({
@@ -44,6 +45,7 @@ export function StudentDashboard() {
       if (res.error) return { certificates: [] };
       return res.data!;
     },
+    staleTime: 60 * 1000,
   });
 
   const items = data?.items ?? [];

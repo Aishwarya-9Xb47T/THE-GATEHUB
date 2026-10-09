@@ -776,7 +776,7 @@ export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Pr
 
   const result = [...premiumIds];
   cachedPremiumCourseIds = result;
-  cachedPremiumCourseIdsExpiresAt = now + 30 * 1000; // 30s TTL
+  cachedPremiumCourseIdsExpiresAt = now + 120 * 1000; // 120s TTL (invalidated on publish/save)
   return result;
 }
 
