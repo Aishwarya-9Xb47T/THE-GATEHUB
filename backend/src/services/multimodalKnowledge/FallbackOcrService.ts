@@ -15,6 +15,14 @@ export class FallbackOcrService {
   /**
    * Run Fallback OCR strictly when content is rasterized or unparseable.
    */
+  public static async runOcr(
+    imageBuffer: Buffer,
+    _mimeType?: string,
+    options?: { isHandwritten?: boolean; language?: string }
+  ): Promise<OcrOutput> {
+    return this.processRasterizedContent(imageBuffer, options);
+  }
+
   public static async processRasterizedContent(
     imageBuffer: Buffer,
     options?: { isHandwritten?: boolean; language?: string }

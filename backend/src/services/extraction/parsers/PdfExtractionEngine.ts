@@ -15,46 +15,37 @@ export class PdfExtractionEngine {
 
     try {
       // Import pdf-parse safely with ESM/CJS interop fallback
-      const pdfParseModule = await import('pdf-parse');
-      const pdfParse = (pdfParseModule as any).default || pdfParseModule;
-      const pdfData = await pdfParse(buffer);
-      rawText = pdfData.text || '';
+      const pdfParseModule: any = await import('pdf-parse');
+      if (pdfParseModule.PDFParse) {
+        const parser = new pdfParseModule.PDFParse({ data: buffer });
+        const textObj = await parser.getText();
+        rawText = typeof textObj === 'string' ? textObj : textObj?.text || '';
+      } else {
+        const pdfParse = pdfParseModule.default || pdfParseModule;
+        if (typeof pdfParse === 'function') {
+          const pdfData = await pdfParse(buffer);
+          rawText = pdfData.text || '';
+        }
+      }
     } catch (err) {
       console.warn('[PdfExtractionEngine] Standard pdf-parse failed or non-searchable PDF, attempting OCR fallback:', err);
       isScanned = true;
     }
 
-    // Extract native images (JPEG, PNG, FlateDecode streams) directly from PDF binary buffer
+    // Extract native images (JPEG, PNG, FlateDecode/ASCII85 streams) directly from PDF binary buffer
     try {
-      let pos = 0;
-      let imgIndex = 0;
-      while (pos < buffer.length - 4) {
-        if (buffer[pos] === 0xFF && buffer[pos + 1] === 0xD8 && buffer[pos + 2] === 0xFF) {
-          const start = pos;
-          let end = -1;
-          for (let j = start + 3; j < buffer.length - 1; j++) {
-            if (buffer[j] === 0xFF && buffer[j + 1] === 0xD9) {
-              end = j + 2;
-              break;
-            }
-          }
-          if (end > start + 100) {
-            const jpegBuf = buffer.subarray(start, end);
-            imgIndex++;
-            media.push({
-              id: `pdf_img_${imgIndex}`,
-              fileName: `image_${imgIndex}.jpg`,
-              mimeType: 'image/jpeg',
-              dataUrl: `data:image/jpeg;base64,${jpegBuf.toString('base64')}`,
-              buffer: jpegBuf,
-              byteSize: jpegBuf.length,
-            });
-            pos = end;
-            continue;
-          }
-        }
-        pos++;
-      }
+      const { extractPdfImages } = await import('../../assessmentStudio/import/parsers/pdfImageExtract.js');
+      const extractedImages = extractPdfImages(buffer);
+      extractedImages.forEach((img, idx) => {
+        media.push({
+          id: img.id || `pdf_img_${idx + 1}`,
+          fileName: `image_${idx + 1}.${img.mimeType === 'image/jpeg' ? 'jpg' : img.mimeType === 'image/png' ? 'png' : 'bmp'}`,
+          mimeType: img.mimeType,
+          dataUrl: img.dataUrl,
+          buffer: img.buffer,
+          byteSize: img.buffer?.length || 0,
+        });
+      });
       console.log(`[PdfExtractionEngine] Extracted ${media.length} image(s) from PDF binary stream.`);
     } catch (imgErr) {
       console.warn('[PdfExtractionEngine] Image extraction from PDF buffer warning:', imgErr);

@@ -205,7 +205,14 @@ export class QuizConverter {
   ): Promise<GateHubQuiz['questions'][number]> {
     const hintVal = (draft.metadata as any)?.hint || undefined;
     const sectionVal = (draft.metadata as any)?.section || undefined;
-    const marksVal = typeof (draft.metadata as any)?.marks === 'number' ? (draft.metadata as any).marks : 1;
+    const marksVal =
+      typeof (draft.metadata as any)?.marks === 'number'
+        ? (draft.metadata as any).marks
+        : typeof draft.marks === 'number'
+        ? draft.marks
+        : typeof (draft as any).points === 'number'
+        ? (draft as any).points
+        : 1;
 
     const metaObj = (draft.metadata as any) || {};
     const sourceUrls = collectImageSources(metaObj, draft);
@@ -239,6 +246,7 @@ export class QuizConverter {
       text: questionText,
       type: draft.type,
       marks: marksVal,
+      points: marksVal,
       order: index,
       difficulty: draft.difficulty,
       negativeMarks: 0,
@@ -283,7 +291,11 @@ export class QuizConverter {
     const raw = (draft as any).correctAnswer ?? (draft.metadata as any)?.correctAnswer;
     if (!raw) return options;
 
-    const answers = Array.isArray(raw) ? raw.map(String) : [String(raw)];
+    const answers = Array.isArray(raw)
+      ? raw.map(String)
+      : typeof raw === 'string' && raw.includes(',')
+      ? raw.split(/,\s*/).map((s) => s.trim())
+      : [String(raw)];
     const labels = (draft.metadata as any)?.optionLabels as string[] | undefined;
 
     return options.map((opt, index) => {

@@ -17,12 +17,14 @@ import {
   Loader2, 
   AlertCircle, 
   Lock,
+  Presentation,
   X
 } from 'lucide-react';
 import { analyzeGoogleContent } from '@/lib/contentBuilder/api';
 import {
   parseGoogleDocsUrl,
   parseGoogleFormsUrl,
+  parseGoogleSlidesUrl,
   mapGoogleImportError,
   isGoogleAuthRequiredError,
 } from '@/lib/contentBuilder/googleResource';
@@ -45,10 +47,12 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
   // Inputs
   const [docsUrl, setDocsUrl] = useState('');
   const [formsUrl, setFormsUrl] = useState('');
+  const [slidesUrl, setSlidesUrl] = useState('');
 
   // Inline Validation Errors
   const [docsError, setDocsError] = useState<string | null>(null);
   const [formsError, setFormsError] = useState<string | null>(null);
+  const [slidesError, setSlidesError] = useState<string | null>(null);
 
   // State
   const [importPhase, setImportPhase] = useState<ImportPhase>('idle');
@@ -57,10 +61,11 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
   // Auth Modal State (Triggered ONLY when 401/AUTH_REQUIRED is returned)
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
-  const [pendingUrl, setPendingUrl] = useState<{ url: string; type: 'docs' | 'forms' } | null>(null);
+  const [pendingUrl, setPendingUrl] = useState<{ url: string; type: 'docs' | 'forms' | 'slides' } | null>(null);
 
   const validateDocsUrl = (url: string) => parseGoogleDocsUrl(url);
   const validateFormsUrl = (url: string) => parseGoogleFormsUrl(url);
+  const validateSlidesUrl = (url: string) => parseGoogleSlidesUrl(url);
 
   const handleDocsSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +95,21 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
     executeImport(formsUrl.trim(), 'forms');
   };
 
-  const executeImport = async (url: string, type: 'docs' | 'forms') => {
+  const handleSlidesSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSlidesError(null);
+    setGeneralError(null);
+
+    const validation = validateSlidesUrl(slidesUrl);
+    if (!validation.valid) {
+      setSlidesError(validation.error || 'Invalid URL');
+      return;
+    }
+
+    executeImport(slidesUrl.trim(), 'slides');
+  };
+
+  const executeImport = async (url: string, type: 'docs' | 'forms' | 'slides') => {
     setGeneralError(null);
     setPendingUrl({ url, type });
 
@@ -203,7 +222,7 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
           Import from Google Workspace
         </h2>
         <p className="text-sm text-white/45 max-w-lg mx-auto">
-          Paste a Google Docs or Google Forms link below to extract questions, equations, images, and tables directly into Quiz Builder.
+          Paste a Google Docs, Google Forms, or Google Slides link below to extract questions, equations, images, and tables directly into Quiz Builder.
         </p>
       </div>
 
@@ -268,9 +287,9 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
         </div>
       )}
 
-      {/* Two Cards Grid */}
+      {/* Three Cards Grid */}
       {importPhase === 'idle' && (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-3">
           {/* Card 1: Google Docs */}
           <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 hover:border-blue-500/40 hover:bg-white/[0.05] transition-all flex flex-col justify-between space-y-6 group">
             <div className="space-y-4">
@@ -390,6 +409,66 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
               </button>
             </form>
           </div>
+
+          {/* Card 3: Google Slides */}
+          <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 hover:border-amber-500/40 hover:bg-white/[0.05] transition-all flex flex-col justify-between space-y-6 group">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="h-12 w-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
+                  <Presentation className="h-6 w-6" />
+                </div>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                  Slides Engine
+                </span>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-bold text-white group-hover:text-amber-300 transition-colors">
+                  Google Slides
+                </h3>
+                <p className="text-xs text-white/50 leading-relaxed mt-1">
+                  Import directly from a Google Slides link. Slide sequence, speaker notes, diagrams, formulas, and visual choices preserved.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSlidesSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-white/70 block">
+                  Google Slides Share Link
+                </label>
+                <input
+                  type="url"
+                  value={slidesUrl}
+                  onChange={(e) => {
+                    setSlidesUrl(e.target.value);
+                    if (slidesError) setSlidesError(null);
+                  }}
+                  placeholder="https://docs.google.com/presentation/d/..."
+                  className={cn(
+                    'w-full px-4 py-3 rounded-xl bg-black/40 border text-white text-xs placeholder:text-white/25 focus:outline-none transition-all',
+                    slidesError
+                      ? 'border-red-500/60 focus:ring-1 focus:ring-red-500'
+                      : 'border-white/10 focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/60'
+                  )}
+                />
+                {slidesError && (
+                  <p className="text-[11px] text-red-400 flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    {slidesError}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-lg shadow-amber-600/20 transition-all flex items-center justify-center gap-2 group-hover:shadow-amber-500/30"
+              >
+                <Sparkles className="h-4 w-4" />
+                Import Slides
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
@@ -411,7 +490,7 @@ export function GoogleWorkspaceFlow({ onImportComplete, onCancel }: GoogleWorksp
             <div className="space-y-1">
               <h3 className="text-xl font-bold text-white">Permission Required</h3>
               <p className="text-xs text-white/50 leading-relaxed max-w-xs mx-auto">
-                Google couldn&apos;t provide access with the current connection. Sign in with the Google account that can view this Docs or Forms link, then we&apos;ll retry automatically.
+                Google couldn&apos;t provide access with the current connection. Sign in with the Google account that can view this Docs, Forms, or Slides link, then we&apos;ll retry automatically.
               </p>
             </div>
 

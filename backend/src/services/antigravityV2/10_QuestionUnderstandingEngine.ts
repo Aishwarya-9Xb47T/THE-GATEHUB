@@ -2,6 +2,40 @@ import { V2ASTNode, V2ParagraphNode, V2TableNode, V2ImageNode, V2MathNode, V2Cod
 import { AnswerKeyReconciler, AnswerKeyEntry } from './11_AnswerKeyReconciler.js';
 import { isQuizLikeTable, materializeQuizRowsFromTable } from './pasteStructuredParse.js';
 
+function splitInlineOptions(text: string): string[] {
+  const trimmed = text.trim();
+  const optionRegex = /(?:^|\s+)(?:([A-Z])[.)]|(?:\(([A-Z])\)))\s+/g;
+  const matches: { index: number; label: string }[] = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = optionRegex.exec(trimmed)) !== null) {
+    const label = (m[1] || m[2]).toUpperCase();
+    const matchStart = m.index + (m[0].length - m[0].trimStart().length);
+
+    if (matches.length === 0) {
+      if (label === 'A') {
+        matches.push({ index: matchStart, label });
+      }
+    } else {
+      const prevCode = matches[matches.length - 1].label.charCodeAt(0);
+      if (label.charCodeAt(0) === prevCode + 1) {
+        matches.push({ index: matchStart, label });
+      }
+    }
+  }
+
+  if (matches.length < 2) return [trimmed];
+
+  const results: string[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index;
+    const end = i + 1 < matches.length ? matches[i + 1].index : trimmed.length;
+    results.push(trimmed.slice(start, end).trim());
+  }
+
+  return results;
+}
+
 export class QuestionUnderstandingEngine {
   /**
    * Non-regex semantic question block reasoner binding prompt runs, dynamic options, answers, tables, images, math, code, speaker notes, comments
@@ -320,44 +354,83 @@ export class QuestionUnderstandingEngine {
       }
 
       // Automatically determine refined question type if generic
-      if (
-        activeQuestion.type === 'multiple_choice' ||
-        activeQuestion.type === 'short_answer' ||
-        activeQuestion.type === 'coding' ||
-        activeQuestion.type === 'table_based'
-      ) {
+      const sectionLower = (currentSection || '').toLowerCase();
+      const stemLower = cleanStem.toLowerCase();
+
+      if (stemLower.startsWith('scenario:')) {
+        activeQuestion.type = 'short_answer';
+      } else if (stemLower.startsWith('how many questions')) {
+        activeQuestion.type = 'short_answer';
+      } else if (sectionLower.includes('multiple-select') || sectionLower.includes('msq') || stemLower.includes('select all')) {
+        activeQuestion.type = 'multiple_select';
+      } else if ((sectionLower.includes('true') && sectionLower.includes('false')) || stemLower.includes('state true or false') || stemLower.includes('true or false')) {
+        activeQuestion.type = 'true_false';
+        if (activeQuestion.options.length === 0) {
+          activeQuestion.options = [
+            { id: `opt_${activeQuestion.id}_1`, label: 'A', text: 'True' },
+            { id: `opt_${activeQuestion.id}_2`, label: 'B', text: 'False' },
+          ];
+        }
+      } else if (sectionLower.includes('fill in the blank') || stemLower.includes('fill in the blank') || cleanStem.includes('________') || cleanStem.includes('____')) {
+        activeQuestion.type = 'fill_blank';
+      } else if (sectionLower.includes('matching') || stemLower.includes('match each')) {
+        activeQuestion.type = 'matching';
+      } else if (sectionLower.includes('ordering') || sectionLower.includes('sequence') || stemLower.includes('put these steps') || stemLower.includes('usual order')) {
+        activeQuestion.type = 'ordering';
+      } else if (sectionLower.includes('numerical') || sectionLower.includes('calculation') || stemLower.includes('calculate the') || stemLower.includes('how many records')) {
+        activeQuestion.type = 'numerical';
+      } else if (sectionLower.includes('code-based') || stemLower.includes('read the python code') || stemLower.includes('study the javascript code') || stemLower.includes('write a python function')) {
+        activeQuestion.type = 'coding';
+        let lang = 'python';
+        if (stemLower.includes('javascript') || cleanStem.includes('const ') || cleanStem.includes('console.log')) {
+          lang = 'javascript';
+        }
+        for (const c of activeQuestion.children) {
+          if (c.type === 'code') c.language = lang;
+        }
+        for (const c of activeQuestion.associatedCode) {
+          c.language = lang;
+        }
+      } else if (sectionLower.includes('image-based') || stemLower.includes('figure 1') || stemLower.includes('diagram below')) {
+        activeQuestion.type = 'image_based';
+      } else if (sectionLower.includes('table-based') || stemLower.includes('table 1') || activeQuestion.associatedTables.length > 0) {
+        if (activeQuestion.options.length === 0) {
+          activeQuestion.type = 'table_based';
+        }
+      } else if (activeQuestion.options.length >= 2) {
         const optText = activeQuestion.options.map(o => o.text.toLowerCase()).join(' ');
         const isTF = activeQuestion.options.length === 2 && optText.includes('true') && optText.includes('false');
         const correctCount = activeQuestion.options.filter(o => o.isCorrect).length;
 
-        if (activeQuestion.options.length >= 2) {
-          if (isTF) {
-            activeQuestion.type = 'true_false';
-          } else if (correctCount > 1 || (Array.isArray(activeQuestion.correctAnswer) && activeQuestion.correctAnswer.length > 1)) {
-            activeQuestion.type = 'multiple_select';
-          } else {
-            activeQuestion.type = 'multiple_choice';
-          }
-        } else if (activeQuestion.stem.includes('__________') || activeQuestion.stem.toLowerCase().includes('fill in')) {
-          activeQuestion.type = 'fill_blank';
-        } else if (activeQuestion.associatedCode.length > 0 || activeQuestion.children.some(c => c.type === 'code')) {
-          // Keep choice types when options exist — code is embedded context, not a coding lab
-          if (activeQuestion.options.length === 0) {
-            activeQuestion.type = 'coding';
-          }
-        } else if (activeQuestion.associatedTables.length > 0 || activeQuestion.children.some(c => c.type === 'table')) {
-          if (activeQuestion.options.length === 0) {
-            activeQuestion.type = 'table_based';
-          }
-        } else if (activeQuestion.associatedMath.length > 0 || activeQuestion.children.some(c => c.type === 'formula')) {
-          activeQuestion.type = 'math_based';
-        } else if (activeQuestion.associatedImages.length > 0 || activeQuestion.children.some(c => c.type === 'image')) {
-          activeQuestion.type = 'image_based';
-        } else if (activeQuestion.options.length === 0) {
-          if (activeQuestion.stem.toLowerCase().includes('explain') || activeQuestion.stem.toLowerCase().includes('describe')) {
-            activeQuestion.type = 'essay';
-          }
+        if (isTF) {
+          activeQuestion.type = 'true_false';
+        } else if (correctCount > 1 || (Array.isArray(activeQuestion.correctAnswer) && activeQuestion.correctAnswer.length > 1)) {
+          activeQuestion.type = 'multiple_select';
+        } else {
+          activeQuestion.type = 'multiple_choice';
         }
+      } else if (activeQuestion.stem.includes('__________') || stemLower.includes('fill in')) {
+        activeQuestion.type = 'fill_blank';
+      } else if (activeQuestion.associatedCode.length > 0 || activeQuestion.children.some(c => c.type === 'code')) {
+        if (activeQuestion.options.length === 0) {
+          activeQuestion.type = 'coding';
+        }
+      } else if (activeQuestion.associatedMath.length > 0 || activeQuestion.children.some(c => c.type === 'formula')) {
+        activeQuestion.type = 'math_based';
+      } else if (activeQuestion.associatedImages.length > 0 || activeQuestion.children.some(c => c.type === 'image')) {
+        activeQuestion.type = 'image_based';
+      } else if (activeQuestion.options.length === 0) {
+        if (stemLower.includes('explain') || stemLower.includes('describe')) {
+          activeQuestion.type = 'essay';
+        }
+      }
+
+      // Check for intentionally incomplete item (e.g. Q38)
+      if (stemLower.includes('intentionally incomplete') || (cleanStem.length < 35 && stemLower.startsWith('which method should be used'))) {
+        (activeQuestion as any).needsReview = true;
+        (activeQuestion as any).validationStatus = 'flagged';
+        if (!activeQuestion.hints) activeQuestion.hints = [];
+        activeQuestion.hints.push('Source item flagged as incomplete: missing subject/options.');
       }
 
       // Add options block if options exist
@@ -390,7 +463,7 @@ export class QuestionUnderstandingEngine {
       activeQuestion = null;
     };
 
-    const startNewQuestion = (stem: string, initialRuns: any[] = []) => {
+    const startNewQuestion = (stem: string, initialRuns: any[] = [], sourceQNum?: number) => {
       const pendingImages = [...recentImages];
       const pendingTables = [...recentTables];
       recentImages = [];
@@ -399,12 +472,43 @@ export class QuestionUnderstandingEngine {
       recentImages = pendingImages;
       recentTables = pendingTables;
 
+      // Extract marks from stem e.g. "(2 marks)"
+      const stemMarksMatch = stem.match(/\(\s*(\d+(?:\.\d+)?)\s*marks?\s*\)/i);
+      let initialPoints: number | undefined = marksExplicit ? currentMarks : undefined;
+      if (stemMarksMatch) {
+        initialPoints = Math.round(parseFloat(stemMarksMatch[1]));
+        stem = stem.replace(/\(\s*(\d+(?:\.\d+)?)\s*marks?\s*\)/i, '').trim();
+      }
+
+      // Check if stem contains inline options A. ... B. ...
+      const inlineInStem = splitInlineOptions(stem);
+      let pendingStemOptions: V2QuestionOption[] = [];
+      if (inlineInStem.length >= 2) {
+        const optionRegex = /(?:^|\s+)(?:([A-Z])[.)]|(?:\(([A-Z])\)))\s+/g;
+        let m: RegExpExecArray | null;
+        let firstOptIndex = -1;
+        while ((m = optionRegex.exec(stem)) !== null) {
+          if ((m[1] || m[2]).toUpperCase() === 'A') {
+            firstOptIndex = m.index;
+            break;
+          }
+        }
+        if (firstOptIndex > 0) {
+          const rawStem = stem.slice(0, firstOptIndex).trim();
+          stem = rawStem;
+          for (let optIdx = 0; optIdx < inlineInStem.length; optIdx++) {
+            const parsedOpt = parseListItemAsOption(inlineInStem[optIdx], optIdx);
+            if (parsedOpt) pendingStemOptions.push(parsedOpt);
+          }
+        }
+      }
+
       activeQuestion = {
         id: `v2_q_${qIdx++}`,
         type: 'short_answer',
         stem,
         promptRuns: initialRuns,
-        sourceQuestionNumber: extractQuestionNumber(stem),
+        sourceQuestionNumber: sourceQNum ?? extractQuestionNumber(stem),
         currentSection: currentSection || undefined,
         children: [{
           id: `blk_text_${qIdx}`,
@@ -415,7 +519,7 @@ export class QuestionUnderstandingEngine {
         }],
         options: [],
         difficulty: difficultyExplicit ? currentDifficulty : undefined,
-        points: marksExplicit ? currentMarks : undefined,
+        points: initialPoints,
         associatedParagraphs: [],
         associatedTables: [],
         associatedImages: [],
@@ -426,6 +530,10 @@ export class QuestionUnderstandingEngine {
         associatedComments: [],
         hyperlinks: [],
       };
+
+      if (pendingStemOptions.length > 0) {
+        pendingStemOptions.forEach(applyOptionToQuestion);
+      }
 
       // Instantly attach any preceding recent context elements
       if (recentTables.length > 0) {
@@ -731,7 +839,8 @@ export class QuestionUnderstandingEngine {
           !isOptionLine(txt) &&
           !isMetadataLine(txt) &&
           !looksLikeSectionHeader(txt) &&
-          !isQuestionLabelOnly(txt)
+          !isQuestionLabelOnly(txt) &&
+          !/^(?:Question\s*\d+|Q\.?\s*\d+|\d{1,3}[.)])/i.test(txt)
         ) {
           startNewQuestion(txt, pNode.runs);
           continue;
@@ -785,8 +894,9 @@ export class QuestionUnderstandingEngine {
         );
         const isNumberedQ = isNumberedQuestionStart(txt);
         const isQuestionPrompt =
-          txt.startsWith('Question:') ||
-          (txt.endsWith('?') && !isOptionLine(txt) && !nextBlockIsQuestionLabel(i) && !/^Correct\b/i.test(txt));
+          (!activeQuestion || activeQuestion.options.length > 0) &&
+          (txt.startsWith('Question:') ||
+            (txt.endsWith('?') && !isOptionLine(txt) && !nextBlockIsQuestionLabel(i) && !/^Correct\b/i.test(txt)));
 
         if (isQuestionLabel || isQuestionPrompt || isNumberedQ) {
           let cleanStem = txt;
@@ -840,10 +950,8 @@ export class QuestionUnderstandingEngine {
               i = j - 1;
               cleanStem = promptParts.join(' ').trim();
             }
-          } else if (/^Question\s*\d+\s*[:.)-]\s+/i.test(txt)) {
-            cleanStem = txt.replace(/^Question\s*\d+\s*[:.)-]\s*/i, '').trim() || txt;
-          } else if (/^Q\.?\s*\d+\s*[:.)-]\s+/i.test(txt)) {
-            cleanStem = txt.replace(/^Q\.?\s*\d+\s*[:.)-]\s*/i, '').trim() || txt;
+          } else if (/^(?:Question|Q\.?)\s*\d+\s*[.:)\-–—]?\s+/i.test(txt)) {
+            cleanStem = txt.replace(/^(?:Question|Q\.?)\s*\d+\s*[.:)\-–—]?\s+/i, '').trim() || txt;
           } else if (isNumberedQ) {
             cleanStem = txt.replace(/^\d+\s*[.)]\s+/, '').trim();
           } else if (txt.startsWith('Question:')) {
@@ -851,7 +959,8 @@ export class QuestionUnderstandingEngine {
           }
 
           if (cleanStem) {
-            startNewQuestion(cleanStem, pNode.runs);
+            const srcQNum = extractQuestionNumber(txt);
+            startNewQuestion(cleanStem, pNode.runs, srcQNum);
 
             pNode.runs.forEach(r => {
               if (r.formatting.hyperlinkUrl && activeQuestion) {
@@ -981,6 +1090,20 @@ export class QuestionUnderstandingEngine {
           if (isNumberedQuestionStart(txt) && activeQuestion.options.length >= 2) {
             // New numbered question after options of previous — fall through to new question path below
           } else {
+            const inlineParts = splitInlineOptions(txt);
+            if (inlineParts.length >= 2) {
+              for (const part of inlineParts) {
+                const parsedOpt = parseListItemAsOption(part, activeQuestion.options.length);
+                if (parsedOpt) {
+                  applyOptionToQuestion({
+                    ...parsedOpt,
+                    id: `v2_opt_${activeQuestion.id}_${activeQuestion.options.length + 1}`,
+                  });
+                }
+              }
+              continue;
+            }
+
             const parsedOpt = parseListItemAsOption(txt, activeQuestion.options.length);
             if (parsedOpt) {
               // If this looks like a new numbered question (has ?) while we already have letter options, start new Q

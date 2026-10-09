@@ -66,6 +66,8 @@ const RE_PAGE_BREAK_DASH = /^--\s*--$/;
 function stripInlinePageDecorations(str: string): string {
   if (!str) return '';
   return str
+    .replace(/THE\s+GATEHUB\s*\|\s*Quiz\s+Extraction\s+Test\s+Material(?:\s+Page\s+\d+)?/gi, '')
+    .replace(/THE\s+GATEHUB\s*\|\s*[^\n\r|]+Page\s+\d+/gi, '')
     .replace(/--?\s*\d+\s*(?:of|to|-|\/|—)?\s*\d*--?/gi, '')
     .replace(/\bPage\s+\d+\s*(?:of|to|-|\/|—)\s*\d+\b/gi, '')
     .replace(/\bPage\s+\d+\b/gi, '')
@@ -89,6 +91,9 @@ function isPageDecoration(line: string): boolean {
     RE_COPYRIGHT.test(t)     ||
     RE_PAGE_BAR.test(t)      ||
     RE_PAGE_BREAK_DASH.test(t) ||
+    /THE\s+GATEHUB\s*\|\s*/i.test(t) ||
+    /^THE\s+GATEHUB$/i.test(t) ||
+    /^QUIZ\s+EXTRACTION\s+TEST\s+MATERIAL$/i.test(t) ||
     /^(Header|Footer)\s*:?\s*$/i.test(t) ||
     /^(Word\s+Import\s+Test|Page\s+\d+|Verify\s+these\s+are\s+ignored\s+during\s+import\.?)\s*$/i.test(t) ||
     /^(Correct\s+Answer|Correct\s+Answers)\s*:?\s*$/i.test(t) ||
@@ -141,9 +146,14 @@ function parseTableRow(line: string): string[] | null {
     const cells = line.split('|').map(c => c.trim()).filter(Boolean);
     if (cells.length >= 2) return cells;
   }
+  // API endpoint table row: /api/courses 180
+  const apiRow = line.match(/^(\/[a-zA-Z0-9_\-\/]+)\s+(\d+(?:\.\d+)?)$/);
+  if (apiRow) {
+    return [apiRow[1], apiRow[2]];
+  }
   // Multi-space separated columns (2+ spaces between tokens)
   const cols = line.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
-  if (cols.length >= 2 && !/^\d+[.)]/.test(line) && !/^(Question|Section|Which|What|Who|When|Where|Why|How)\b/i.test(line)) return cols;
+  if (cols.length >= 2 && !/^(?:Q\.?\s*\d+|\d+[.)])/i.test(line) && !/^(Question|Section|Which|What|Who|When|Where|Why|How)\b/i.test(line)) return cols;
   return null;
 }
 
@@ -153,8 +163,17 @@ function parseTableRow(line: string): string[] | null {
 
 const CODE_FENCE_RE    = /^```(\w*)$/;
 const CODE_INDENT_RE   = /^( {4}|\t)/;
-const CODE_PATTERN_RE  =
-  /(?:def |class |import |#include|function |const |let |var |return |if\b|for\b|while\b)/;
+const CODE_SYNTAX_START_RE =
+  /^\s*(?:def\s+\w+\s*\(|class\s+\w+[\s:(]|from\s+\w+\s+import|import\s+\w+|#include\s*<|function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|console\.log\(|print\(|\w+\s*=\s*\[|\w+\s*=\s*\{|if\s+.*:\s*$|for\s+.*:\s*$|while\s+.*:\s*$|return\s+)/;
+
+function isQuestionLikeLine(line: string): boolean {
+  const t = line.trim();
+  if (/^(?:Q\.?\s*\d+|Question\s*\d+|\d{1,3}[.)])/i.test(t)) return true;
+  if (/\(\s*\d+(?:\.\d+)?\s*marks?\s*\)/i.test(t)) return true;
+  if (/^(?:Which|What|Who|When|Where|Why|How|State|Explain|Calculate|Give|Complete|Put|Match|Write a)\b/i.test(t)) return true;
+  if (t.endsWith('?')) return true;
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // Equation detection
@@ -300,16 +319,18 @@ export class PdfLayoutNormalizer {
       }
 
       // ── table section tracking
-      if (/^Section\s+\d+:\s*Table/i.test(trimmed) || /^Table\s*\d*:/i.test(trimmed)) {
+      if (/^Section\s+\d+:\s*Table/i.test(trimmed) || /^Table\s*\d*[:.]/i.test(trimmed)) {
         inTableSection = true;
-        blocks.push({ type: 'heading', raw, text: trimmed, page });
+        const rowCells = parseTableRow(trimmed) || [trimmed];
+        blocks.push({ type: 'table_row', raw, text: trimmed, cells: rowCells, page });
         continue;
       }
       if (inTableSection) {
-        if (/^(Question|Section|Which|What|Who|When|Where|Why|How)\b/i.test(trimmed)) {
+        if (/^(?:Q\.?\s*\d+|Question|Section|Which|What|Who|When|Where|Why|How)\b/i.test(trimmed)) {
           inTableSection = false;
         } else {
-          blocks.push({ type: 'table_row', raw, text: trimmed, cells: [trimmed], page });
+          const rowCells = parseTableRow(trimmed) || [trimmed];
+          blocks.push({ type: 'table_row', raw, text: trimmed, cells: rowCells, page });
           continue;
         }
       }
@@ -347,15 +368,24 @@ export class PdfLayoutNormalizer {
         continue;
       }
 
-      // ── code (indent-based or keyword-based)
-      if ((CODE_INDENT_RE.test(raw) || CODE_PATTERN_RE.test(trimmed)) && !isHeading(trimmed, 0) && !/^\d+[.)]/.test(trimmed) && !/^(Question|Section|Which|What|Who|When|Where|Why|How)\b/i.test(trimmed)) {
+      // ── code (syntax-based or indent-based; never match questions)
+      if (
+        !isQuestionLikeLine(trimmed) &&
+        (CODE_INDENT_RE.test(raw) || CODE_SYNTAX_START_RE.test(trimmed)) &&
+        !isHeading(trimmed, 0)
+      ) {
         const codeLines: string[] = [raw];
         while (i + 1 < lines.length) {
-          const nextTrim = lines[i + 1].trim();
+          const nextRaw = lines[i + 1];
+          const nextTrim = nextRaw.trim();
+          if (isQuestionLikeLine(nextTrim) || isHeading(nextTrim, 0) || isPageDecoration(nextTrim)) {
+            break;
+          }
           if (
-            CODE_INDENT_RE.test(lines[i + 1]) ||
-            CODE_PATTERN_RE.test(nextTrim) ||
-            /^(return|if|else|def|class|for|while|const|let|var|import)\b/.test(nextTrim)
+            CODE_INDENT_RE.test(nextRaw) ||
+            CODE_SYNTAX_START_RE.test(nextTrim) ||
+            /^(return|if|else|def|class|for|while|const|let|var|import|console\.log|print)\b/.test(nextTrim) ||
+            /^[a-zA-Z0-9_]+\s*(\+=|-=|=|\()\s*.+/.test(nextTrim)
           ) {
             i++;
             if (lines[i].trim()) codeLines.push(lines[i]);

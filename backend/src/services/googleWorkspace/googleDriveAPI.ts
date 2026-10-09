@@ -4,7 +4,12 @@
  */
 
 import { google } from 'googleapis';
-import type { GoogleOAuthTokens } from './googleOAuth.js';
+import {
+  getGoogleClientId,
+  getGoogleClientSecret,
+  getGoogleRedirectUri,
+  type GoogleOAuthTokens,
+} from './googleOAuth.js';
 
 export interface GoogleDriveFile {
   id: string;
@@ -37,9 +42,9 @@ export interface GoogleDriveListResult {
  */
 export function createDriveClient(tokens: GoogleOAuthTokens) {
   const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+    getGoogleClientId(),
+    getGoogleClientSecret(),
+    getGoogleRedirectUri()
   );
   
   oauth2Client.setCredentials({

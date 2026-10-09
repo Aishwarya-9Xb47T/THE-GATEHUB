@@ -226,4 +226,25 @@ check('empty html', () => {
   );
 });
 
+check('slides /edit + /present + /preview', () => {
+  const SLIDES_ID = '1s2d3f4g5h6j7k8l9z0x_presentation_12345';
+  const pEdit = parseGoogleResourceUrl(`https://docs.google.com/presentation/d/${SLIDES_ID}/edit`);
+  assert.equal(pEdit?.resourceId, SLIDES_ID);
+  assert.equal(pEdit?.resourceType, 'google_slides');
+  assert.equal(pEdit?.normalizedUrl, `https://docs.google.com/presentation/d/${SLIDES_ID}`);
+
+  const pPresent = parseGoogleResourceUrl(`https://docs.google.com/presentation/d/${SLIDES_ID}/present?usp=sharing`);
+  assert.equal(pPresent?.resourceId, SLIDES_ID);
+  assert.equal(pPresent?.resourceType, 'google_slides');
+
+  const pPreview = parseGoogleResourceUrl(`https://docs.google.com/presentation/u/1/d/${SLIDES_ID}/preview`);
+  assert.equal(pPreview?.resourceId, SLIDES_ID);
+  assert.equal(pPreview?.resourceType, 'google_slides');
+
+  assert.equal(
+    normalizeGoogleResourceKey(`https://docs.google.com/presentation/d/${SLIDES_ID}/edit`),
+    normalizeGoogleResourceKey(`https://docs.google.com/presentation/d/${SLIDES_ID}/present`),
+  );
+});
+
 console.log(`\n${passed} checks passed`);

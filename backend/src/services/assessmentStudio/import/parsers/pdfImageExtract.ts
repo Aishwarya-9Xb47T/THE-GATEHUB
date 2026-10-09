@@ -37,6 +37,43 @@ function rgbToBmpDataUrl(width: number, height: number, rgbBuffer: Buffer): stri
   return `data:image/bmp;base64,${buf.toString('base64')}`;
 }
 
+function decodeAscii85(str: string): Buffer {
+  let clean = str.replace(/\s+/g, '');
+  if (clean.startsWith('<~')) clean = clean.slice(2);
+  if (clean.endsWith('~>')) clean = clean.slice(0, -2);
+
+  const out: number[] = [];
+  let tuple = 0;
+  let count = 0;
+
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean.charCodeAt(i);
+    if (c === 122 && count === 0) { // 'z'
+      out.push(0, 0, 0, 0);
+      continue;
+    }
+    if (c < 33 || c > 117) continue; // '!' to 'u'
+    tuple = tuple * 85 + (c - 33);
+    count++;
+    if (count === 5) {
+      out.push((tuple >> 24) & 255, (tuple >> 16) & 255, (tuple >> 8) & 255, tuple & 255);
+      tuple = 0;
+      count = 0;
+    }
+  }
+
+  if (count > 0) {
+    for (let i = count; i < 5; i++) {
+      tuple = tuple * 85 + 84;
+    }
+    for (let i = 0; i < count - 1; i++) {
+      out.push((tuple >> (24 - i * 8)) & 255);
+    }
+  }
+
+  return Buffer.from(out);
+}
+
 export interface ExtractedPdfImage {
   id: string;
   mimeType: string;
@@ -51,6 +88,7 @@ export function extractPdfImages(buffer: Buffer): ExtractedPdfImage[] {
   let pos = 0;
   let imgIndex = 0;
 
+  // 1. Scan for embedded standalone JPEGs
   while (pos < buffer.length - 4) {
     if (buffer[pos] === 0xff && buffer[pos + 1] === 0xd8 && buffer[pos + 2] === 0xff) {
       const start = pos;
@@ -77,6 +115,7 @@ export function extractPdfImages(buffer: Buffer): ExtractedPdfImage[] {
       }
     }
 
+    // 2. Scan for embedded standalone PNGs
     if (buffer[pos] === 0x89 && buffer[pos + 1] === 0x50 && buffer[pos + 2] === 0x4e && buffer[pos + 3] === 0x47) {
       const start = pos;
       const iend = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
@@ -100,32 +139,79 @@ export function extractPdfImages(buffer: Buffer): ExtractedPdfImage[] {
     pos++;
   }
 
-  if (images.length === 0) {
-    const pdfStr = buffer.toString('latin1');
-    const imgRegex =
-      /\/Type\s*\/XObject[\s\S]*?\/Subtype\s*\/Image[\s\S]*?\/Width\s*(\d+)[\s\S]*?\/Height\s*(\d+)[\s\S]*?stream[\r\n]+([\s\S]*?)endstream/g;
-    let match;
-    while ((match = imgRegex.exec(pdfStr)) !== null) {
-      const width = parseInt(match[1], 10);
-      const height = parseInt(match[2], 10);
-      const streamBuf = Buffer.from(match[3], 'latin1');
-      try {
-        const inflated = zlib.inflateSync(streamBuf);
-        if (inflated.length >= width * height * 3) {
-          const dataUrl = rgbToBmpDataUrl(width, height, inflated);
-          imgIndex++;
-          images.push({
-            id: `pdf_img_${imgIndex}`,
-            mimeType: 'image/bmp',
-            dataUrl,
-            buffer: inflated,
-            width,
-            height,
-          });
-        }
-      } catch {
-        /* skip invalid stream */
+  // 3. Scan for PDF XObject Image stream dictionaries
+  const pdfStr = buffer.toString('latin1');
+  const dictRegex = /<<([^>]*\/Subtype\s*\/Image[^>]*)>>\s*stream[\r\n]+([\s\S]*?)endstream/g;
+  let match;
+
+  while ((match = dictRegex.exec(pdfStr)) !== null) {
+    const dict = match[1];
+    const rawStream = match[2];
+
+    const widthMatch = dict.match(/\/Width\s+(\d+)/);
+    const heightMatch = dict.match(/\/Height\s+(\d+)/);
+    const width = widthMatch ? parseInt(widthMatch[1], 10) : 600;
+    const height = heightMatch ? parseInt(heightMatch[1], 10) : 400;
+
+    let streamBuf: Buffer;
+    const isAscii85 = /\/ASCII85Decode|\/A85/i.test(dict);
+    const isFlate = /\/FlateDecode|\/Fl/i.test(dict);
+    const isDct = /\/DCTDecode/i.test(dict);
+
+    try {
+      if (isAscii85) {
+        streamBuf = decodeAscii85(rawStream);
+      } else {
+        streamBuf = Buffer.from(rawStream, 'latin1');
       }
+
+      if (isFlate) {
+        streamBuf = zlib.inflateSync(streamBuf);
+      }
+
+      if (isDct) {
+        imgIndex++;
+        images.push({
+          id: `pdf_img_${imgIndex}`,
+          mimeType: 'image/jpeg',
+          dataUrl: `data:image/jpeg;base64,${streamBuf.toString('base64')}`,
+          buffer: streamBuf,
+          width,
+          height,
+        });
+      } else if (streamBuf.length >= width * height * 3) {
+        const dataUrl = rgbToBmpDataUrl(width, height, streamBuf);
+        imgIndex++;
+        images.push({
+          id: `pdf_img_${imgIndex}`,
+          mimeType: 'image/bmp',
+          dataUrl,
+          buffer: streamBuf,
+          width,
+          height,
+        });
+      } else if (streamBuf.length >= width * height) {
+        // Grayscale image: convert to 24-bit RGB
+        const rgbBuf = Buffer.alloc(width * height * 3);
+        for (let p = 0; p < width * height; p++) {
+          const v = streamBuf[p] ?? 0;
+          rgbBuf[p * 3] = v;
+          rgbBuf[p * 3 + 1] = v;
+          rgbBuf[p * 3 + 2] = v;
+        }
+        const dataUrl = rgbToBmpDataUrl(width, height, rgbBuf);
+        imgIndex++;
+        images.push({
+          id: `pdf_img_${imgIndex}`,
+          mimeType: 'image/bmp',
+          dataUrl,
+          buffer: streamBuf,
+          width,
+          height,
+        });
+      }
+    } catch {
+      // Ignore corrupt or unsupported streams
     }
   }
 

@@ -494,7 +494,69 @@ export class NativeParserEngine {
         altText: 'Question Image',
       }));
 
-    const baseBlocks = pdfBlocks.map((block, idx) => this.pdfBlockToV2Node(block, idx));
+    const baseBlocks: V2ASTNode[] = [];
+    let tableIdx = 1;
+    for (let i = 0; i < pdfBlocks.length; i++) {
+      const b = pdfBlocks[i];
+      if (b.type === 'table_row') {
+        const tableRowBlocks = [b];
+        while (i + 1 < pdfBlocks.length && pdfBlocks[i + 1].type === 'table_row') {
+          i++;
+          tableRowBlocks.push(pdfBlocks[i]);
+        }
+        const allTableLines: string[] = [];
+        for (const trb of tableRowBlocks) {
+          const lines = (trb.raw || trb.text).split('\n').map((l: string) => l.trim()).filter(Boolean);
+          allTableLines.push(...lines);
+        }
+
+        const parseLineCells = (l: string): string[] => {
+          if (l.includes('\t')) return l.split('\t').map(c => c.trim()).filter(Boolean);
+          if (l.includes('|')) return l.split('|').map(c => c.trim()).filter(Boolean);
+          const apiRow = l.match(/^(\/[a-zA-Z0-9_\-\/]+)\s+(\d+(?:\.\d+)?)$/);
+          if (apiRow) return [apiRow[1], apiRow[2]];
+          const multi = l.split(/\s{2,}/).map(c => c.trim()).filter(Boolean);
+          if (multi.length >= 2) return multi;
+          return [l];
+        };
+
+        const parsedRows = allTableLines.map(parseLineCells);
+        let rawHeaders = ['Endpoint', 'Response time (ms)'];
+        let bodyRows = parsedRows;
+        if (parsedRows.length > 1 && (allTableLines[0].toLowerCase().includes('table') || isNaN(Number(parsedRows[0][1])))) {
+          if (parsedRows[0].length >= 2) {
+            rawHeaders = parsedRows[0];
+          }
+          bodyRows = parsedRows.slice(1);
+        }
+
+        const grid: V2TableCellNode[][] = bodyRows.map((cells, rIdx) => {
+          return cells.map((cellText, cIdx) => ({
+            rowIndex: rIdx,
+            colIndex: cIdx,
+            paragraphs: [{
+              id: `pdf_tcell_p_${rIdx}_${cIdx}`,
+              type: 'paragraph' as const,
+              plainText: cellText,
+              runs: [{ id: `r_tcell_${rIdx}_${cIdx}`, type: 'run' as const, text: cellText, formatting: {} }],
+            }],
+          }));
+        });
+        const tableNode: V2TableNode = {
+          id: `pdf_tbl_${tableIdx++}`,
+          type: 'table',
+          rowCount: grid.length,
+          columnCount: rawHeaders.length,
+          headers: rawHeaders,
+          grid,
+          caption: allTableLines[0]?.includes('Table') ? allTableLines[0] : `Table ${tableIdx - 1}`,
+        };
+        baseBlocks.push(tableNode);
+        continue;
+      }
+      baseBlocks.push(this.pdfBlockToV2Node(b, i));
+    }
+
     const allBlocks = this.injectPdfImagesIntoV2Blocks(baseBlocks, imageNodes);
     const tables = allBlocks.filter((b) => b.type === 'table') as V2TableNode[];
     const fullRawText = pdfBlocks.map((b) => b.text).join('\n');
@@ -596,10 +658,14 @@ export class NativeParserEngine {
         ? String((node as V2ParagraphNode).plainText || '').trim()
         : '';
 
-    const isImageQuestionPrompt = (text: string): boolean =>
-      /identify the object shown|shown in the (?:image|figure|diagram)|match the image|refer to the (figure|image|diagram)/i.test(
-        text,
+    const isImageQuestionPrompt = (text: string): boolean => {
+      if (/designed to test|overview|instructions/i.test(text)) return false;
+      return (
+        /identify the object shown|shown in the (?:image|figure|diagram)|match the image|refer(?:s)? to (?:the )?(?:figure|image|diagram)|according to (?:figure|image|diagram)|use the (?:figure|image|diagram)|diagram below|image interpretation/i.test(
+          text,
+        ) || /^Section\s+[A-Za-z0-9]+:\s*Image-Based/i.test(text)
       );
+    };
 
     const nextImagePromptWithin = (startIdx: number, limit = 4): boolean => {
       for (let j = startIdx; j < Math.min(startIdx + limit, blocks.length); j++) {

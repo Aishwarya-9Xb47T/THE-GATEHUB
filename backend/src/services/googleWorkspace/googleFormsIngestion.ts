@@ -114,6 +114,8 @@ function baseDraft(
     text: item.title,
     statement: item.title,
     type: item.type,
+    marks: item.points ?? 1,
+    points: item.points ?? 1,
     options: item.options?.map((o) => ({
       id: o.id,
       text: o.text,

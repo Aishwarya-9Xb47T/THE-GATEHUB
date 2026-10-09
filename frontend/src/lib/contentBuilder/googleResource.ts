@@ -1,4 +1,4 @@
-export type GoogleResourceType = 'google_docs' | 'google_forms' | 'google_drive';
+export type GoogleResourceType = 'google_docs' | 'google_forms' | 'google_slides' | 'google_drive';
 
 export interface ParsedGoogleResourceClient {
   resourceType: GoogleResourceType;
@@ -52,6 +52,11 @@ export function parseGoogleResourceUrl(rawInput: string): ParsedGoogleResourceCl
   const docMatch = haystack.match(/docs\.google\.com\/document\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/i);
   if (docMatch?.[1] && isValidGoogleResourceId(docMatch[1])) {
     return { resourceType: 'google_docs', resourceId: docMatch[1] };
+  }
+
+  const slideMatch = haystack.match(/docs\.google\.com\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/i);
+  if (slideMatch?.[1] && isValidGoogleResourceId(slideMatch[1])) {
+    return { resourceType: 'google_slides', resourceId: slideMatch[1] };
   }
 
   const publishedForm =
@@ -125,9 +130,25 @@ export function parseGoogleFormsUrl(url: string): { valid: boolean; formId?: str
   };
 }
 
+export function parseGoogleSlidesUrl(url: string): { valid: boolean; slideId?: string; error?: string } {
+  const trimmed = url.trim();
+  if (!trimmed) return { valid: false, error: 'Please enter a Google Slides URL' };
+  const parsed = parseGoogleResourceUrl(trimmed);
+  if (parsed?.resourceType === 'google_slides') {
+    return { valid: true, slideId: parsed.resourceId };
+  }
+  if (parsed?.resourceType === 'google_drive') {
+    return { valid: true, slideId: parsed.resourceId };
+  }
+  return {
+    valid: false,
+    error: 'Invalid Google Slides URL. Example: https://docs.google.com/presentation/d/PRESENTATION_ID/edit',
+  };
+}
+
 const ERROR_MESSAGES: Record<string, string> = {
-  INVALID_GOOGLE_URL: 'Invalid Google link. Paste a valid Google Docs or Google Forms URL.',
-  INVALID_URL: 'Invalid Google link. Paste a valid Google Docs or Google Forms URL.',
+  INVALID_GOOGLE_URL: 'Invalid Google link. Paste a valid Google Docs, Google Forms, or Google Slides URL.',
+  INVALID_URL: 'Invalid Google link. Paste a valid Google Docs, Google Forms, or Google Slides URL.',
   AUTH_REQUIRED:
     "Google couldn't provide access to this document. Please make sure you have permission to view it and that the correct Google account is connected.",
   GOOGLE_AUTH_REQUIRED:
@@ -135,17 +156,17 @@ const ERROR_MESSAGES: Record<string, string> = {
   GOOGLE_AUTH_EXPIRED:
     'Your Google connection has expired. Sign in with Google again, then retry the import.',
   GOOGLE_PERMISSION_DENIED:
-    "Google Form or Doc found, but this account doesn't have access to it. Open it with the connected Google account and try again.",
+    "Google Form, Doc, or Slide found, but this account doesn't have access to it. Open it with the connected Google account and try again.",
   PERMISSION_DENIED:
-    "Google Form or Doc found, but this account doesn't have access to it. Open it with the connected Google account and try again.",
+    "Google Form, Doc, or Slide found, but this account doesn't have access to it. Open it with the connected Google account and try again.",
   DOCUMENT_NOT_FOUND:
     'Google resource not found. Check the link, or confirm the file was not deleted.',
   GOOGLE_RESOURCE_NOT_FOUND:
     'Google resource not found. Check the link, or confirm the file was not deleted.',
   GOOGLE_RESOURCE_TYPE_UNSUPPORTED:
-    'Unsupported Google resource. Only Google Docs and Google Forms are supported for Quiz Builder import.',
+    'Unsupported Google resource. Google Docs, Google Forms, and Google Slides are supported for Quiz Builder import.',
   UNSUPPORTED_TYPE:
-    'Unsupported Google resource. Only Google Docs and Google Forms are supported for Quiz Builder import.',
+    'Unsupported Google resource. Google Docs, Google Forms, and Google Slides are supported for Quiz Builder import.',
   GOOGLE_QUOTA_ERROR: 'Google API quota exceeded. Wait a moment and try again.',
   QUOTA_EXCEEDED: 'Google API quota exceeded. Wait a moment and try again.',
   NO_QUESTIONS: 'The Google resource was reachable, but no quiz-usable content was found.',

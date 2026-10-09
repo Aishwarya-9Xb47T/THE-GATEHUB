@@ -30,6 +30,7 @@ import { computeGoogleFormsStatistics } from '../services/googleWorkspace/google
 import {
   ingestGoogleForm,
   ingestGoogleDoc,
+  ingestGoogleSlide,
   resolveGoogleDriveResource,
 } from '../services/googleWorkspace/GoogleWorkspaceOrchestrator.js';
 import {
@@ -112,7 +113,7 @@ function mapQuestionForReview(q: ValidatedQuestionDraft) {
 }
 
 interface GoogleSourceMeta {
-  sourceType: 'google_docs' | 'google_forms';
+  sourceType: 'google_docs' | 'google_forms' | 'google_slides';
   sourceUrl: string;
   resourceId: string;
   resourceTitle?: string;
@@ -942,6 +943,39 @@ export async function analyzeGoogleContent(req: AuthRequest, res: Response) {
         startTime,
         res,
         googleDocsMeta,
+      );
+    }
+
+    if (resourceType === 'google_slides') {
+      const slideResult = await ingestGoogleSlide(ingestionCtx);
+      const googleSlidesMeta: GoogleSourceMeta = {
+        sourceType: 'google_slides',
+        sourceUrl: normalizedUrl || sourceUrl,
+        resourceId: targetFileId,
+        resourceTitle: slideResult.presentationTitle || fileName || 'Google Presentation',
+      };
+
+      logGoogleExtractionEvent('slides_pipeline_handoff', {
+        resourceId: targetFileId,
+        extractionMethod: slideResult.extractionMethod,
+        bytes: slideResult.pptxBuffer.length,
+        durationMs: Date.now() - startTime,
+      });
+
+      return runPipeline(
+        req.user.id,
+        {
+          source: 'file' as ContentSource,
+          file: {
+            name: slideResult.fileName,
+            mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            buffer: slideResult.pptxBuffer,
+            size: slideResult.pptxBuffer.length,
+          },
+        },
+        startTime,
+        res,
+        googleSlidesMeta,
       );
     }
 

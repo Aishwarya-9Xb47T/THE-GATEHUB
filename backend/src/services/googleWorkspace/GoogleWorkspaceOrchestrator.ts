@@ -8,7 +8,7 @@
 import type { GoogleOAuthTokens } from './googleOAuth.js';
 import { parseGoogleResourceUrl, type ParsedGoogleResource } from './GoogleResourceParser.js';
 import { getValidAccessToken } from './googleOAuth.js';
-import { getFileMetadata, exportDocsToBuffer, GOOGLE_MIME_TYPES } from './googleDriveAPI.js';
+import { getFileMetadata, exportDocsToBuffer, exportSlidesToPptxBuffer, GOOGLE_MIME_TYPES } from './googleDriveAPI.js';
 import { getFormsContent } from './googleFormsAPI.js';
 import {
   ingestGoogleFormsApiResponse,
@@ -51,7 +51,16 @@ export interface GoogleIngestionDocsResult {
   documentTitle?: string;
 }
 
-export type GoogleIngestionResult = GoogleIngestionFormsResult | GoogleIngestionDocsResult;
+export interface GoogleIngestionSlidesResult {
+  kind: 'slides';
+  pptxBuffer: Buffer;
+  fileName: string;
+  extractionMethod: 'oauth_pptx_export' | 'public_pptx_export';
+  authenticationMethod: 'oauth' | 'public';
+  presentationTitle?: string;
+}
+
+export type GoogleIngestionResult = GoogleIngestionFormsResult | GoogleIngestionDocsResult | GoogleIngestionSlidesResult;
 
 async function loadUserTokens(userId: string): Promise<GoogleOAuthTokens | null> {
   const user = await prisma.user.findUnique({
@@ -158,6 +167,14 @@ export async function resolveGoogleDriveResource(
           normalizedUrl: `https://docs.google.com/forms/d/${parsed.resourceId}`,
         };
       }
+      if (metadata.mimeType === GOOGLE_MIME_TYPES.SLIDES) {
+        return {
+          ...parsed,
+          resourceType: 'google_slides',
+          needsTypeResolution: false,
+          normalizedUrl: `https://docs.google.com/presentation/d/${parsed.resourceId}`,
+        };
+      }
 
       throw new GoogleIngestionError(
         'GOOGLE_RESOURCE_TYPE_UNSUPPORTED',
@@ -212,6 +229,22 @@ export async function resolveGoogleDriveResource(
           isPublishedForm: formUrl.includes('/d/e/'),
           needsTypeResolution: false,
           normalizedUrl: formUrl.replace(/\/viewform.*/, ''),
+        };
+      }
+    }
+
+    const slideRes = await fetchFn(
+      `https://docs.google.com/presentation/d/${parsed.resourceId}/export/pptx`,
+      { redirect: 'follow' },
+    );
+    if (slideRes.ok) {
+      const buf = Buffer.from(await slideRes.arrayBuffer());
+      if (buf.length > 500 && buf.slice(0, 4).toString('hex') === '504b0304') {
+        return {
+          ...parsed,
+          resourceType: 'google_slides',
+          needsTypeResolution: false,
+          normalizedUrl: `https://docs.google.com/presentation/d/${parsed.resourceId}`,
         };
       }
     }
@@ -555,6 +588,156 @@ export async function ingestGoogleDoc(ctx: GoogleIngestionContext): Promise<Goog
     }
   } catch (err) {
     logGoogleExtractionEvent('docs_public_export_failed', {
+      resourceId: parsed.resourceId,
+      code: classifyGoogleApiFailure(err).code,
+    });
+  }
+
+  if (!tokens) {
+    throw new GoogleIngestionError(
+      'GOOGLE_AUTH_REQUIRED',
+      getGoogleExtractionUserMessage('GOOGLE_AUTH_REQUIRED'),
+      401,
+    );
+  }
+
+  if (lastOAuthError) {
+    const classified = classifyGoogleApiFailure(lastOAuthError);
+    throw new GoogleIngestionError(
+      classified.code,
+      getGoogleExtractionUserMessage(classified.code),
+      classified.httpStatus,
+    );
+  }
+
+  throw new GoogleIngestionError(
+    'GOOGLE_RESOURCE_NOT_FOUND',
+    getGoogleExtractionUserMessage('GOOGLE_RESOURCE_NOT_FOUND'),
+    404,
+  );
+}
+
+/**
+ * Ingest Google Slides: OAuth PPTX export preferred, then public PPTX export.
+ * Full PPTX buffer is preserved for AntiGravity V2 Document Intelligence.
+ */
+export async function ingestGoogleSlide(ctx: GoogleIngestionContext): Promise<GoogleIngestionSlidesResult> {
+  const { parsed, fileName } = ctx;
+  const tokens = await loadUserTokens(ctx.userId);
+  let lastOAuthError: unknown;
+
+  logGoogleExtractionEvent('slides_extraction_started', {
+    resourceId: parsed.resourceId,
+    authenticationState: tokens ? 'oauth' : 'none',
+    sourceUrl: parsed.sourceUrl,
+  });
+
+  if (tokens) {
+    try {
+      const metadata = await withBoundedRetry('slides.drive.metadata', () =>
+        getFileMetadata(tokens, parsed.resourceId),
+      );
+
+      if (metadata.mimeType !== GOOGLE_MIME_TYPES.SLIDES) {
+        throw new GoogleIngestionError(
+          'GOOGLE_RESOURCE_TYPE_UNSUPPORTED',
+          getGoogleExtractionUserMessage('GOOGLE_RESOURCE_TYPE_UNSUPPORTED'),
+          400,
+          { mimeType: metadata.mimeType },
+        );
+      }
+
+      const pptxBuffer = await withBoundedRetry('slides.export.pptx', () =>
+        exportSlidesToPptxBuffer(tokens, parsed.resourceId),
+      );
+
+      if (!pptxBuffer?.length) {
+        throw new GoogleIngestionError(
+          'GOOGLE_EMPTY_RESOURCE',
+          getGoogleExtractionUserMessage('GOOGLE_EMPTY_RESOURCE'),
+          400,
+        );
+      }
+
+      const name = (fileName || metadata.name).endsWith('.pptx')
+        ? (fileName || metadata.name)
+        : `${fileName || metadata.name}.pptx`;
+
+      logGoogleExtractionEvent('slides_extraction_completed', {
+        resourceId: parsed.resourceId,
+        extractionMethod: 'oauth_pptx_export',
+        bytes: pptxBuffer.length,
+        durationMs: Date.now() - ctx.startTime,
+        title: metadata.name,
+      });
+
+      return {
+        kind: 'slides',
+        pptxBuffer,
+        fileName: name,
+        extractionMethod: 'oauth_pptx_export',
+        authenticationMethod: 'oauth',
+        presentationTitle: metadata.name,
+      };
+    } catch (err) {
+      if (err instanceof GoogleIngestionError) {
+        if (
+          err.code === 'GOOGLE_RESOURCE_TYPE_UNSUPPORTED' ||
+          err.code === 'GOOGLE_EMPTY_RESOURCE'
+        ) {
+          throw err;
+        }
+      }
+      lastOAuthError = err;
+      logGoogleExtractionEvent('slides_oauth_export_failed', {
+        resourceId: parsed.resourceId,
+        code: err instanceof GoogleIngestionError ? err.code : classifyGoogleApiFailure(err).code,
+      });
+    }
+  }
+
+  try {
+    const fetchModule = await import('node-fetch');
+    const fetchFn = fetchModule.default || (fetchModule as any);
+    const publicRes = await withBoundedRetry('slides.public_pptx', async () => {
+      const response = await fetchFn(
+        `https://docs.google.com/presentation/d/${parsed.resourceId}/export/pptx`,
+        { redirect: 'follow' },
+      );
+      if (response.status === 429 || response.status >= 500) {
+        const err: any = new Error(`Public PPTX export failed (${response.status})`);
+        err.status = response.status;
+        throw err;
+      }
+      return response;
+    });
+
+    if (publicRes.ok) {
+      const publicBuffer = Buffer.from(await publicRes.arrayBuffer());
+      if (publicBuffer.length > 500 && publicBuffer.slice(0, 4).toString('hex') === '504b0304') {
+        const pptxFileName = (fileName || 'Google Presentation').endsWith('.pptx')
+          ? (fileName || 'Google Presentation')
+          : `${fileName || 'Google Presentation'}.pptx`;
+
+        logGoogleExtractionEvent('slides_extraction_completed', {
+          resourceId: parsed.resourceId,
+          extractionMethod: 'public_pptx_export',
+          bytes: publicBuffer.length,
+          durationMs: Date.now() - ctx.startTime,
+        });
+
+        return {
+          kind: 'slides',
+          pptxBuffer: publicBuffer,
+          fileName: pptxFileName,
+          extractionMethod: 'public_pptx_export',
+          authenticationMethod: 'public',
+          presentationTitle: fileName || 'Google Presentation',
+        };
+      }
+    }
+  } catch (err) {
+    logGoogleExtractionEvent('slides_public_export_failed', {
       resourceId: parsed.resourceId,
       code: classifyGoogleApiFailure(err).code,
     });

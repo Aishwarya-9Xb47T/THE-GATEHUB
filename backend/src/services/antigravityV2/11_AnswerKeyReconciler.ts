@@ -3,82 +3,97 @@ import { V2ASTNode, V2ParagraphNode, V2QuestionBlock } from './types.js';
 export interface AnswerKeyEntry {
   questionNumber: number;
   answer: string;
+  marks?: number;
+  explanation?: string;
   sourceLine?: string;
 }
 
-/** Standalone answer-key section titles only — not inline "Correct Answer:" / "Correct Answer: B" */
-const ANSWER_KEY_SECTION = /^(?:answer\s*key|(?:correct\s+)?answers|solutions|key\s*answers)\s*:?\s*$/i;
+/** Standalone answer-key section titles only */
+const ANSWER_KEY_SECTION = /^(?:answer\s*key|(?:correct\s+)?answers|solutions|key\s*answers)(?:\s*[:—–\-].*)?$/i;
 
 const NUMBERED_ANSWER = /^(?:Q(?:uestion)?\s*)?(\d{1,4})\s*[.:)\-–—]\s*(.+)$/i;
 
 const INLINE_ANSWER_LABELS = /^(?:ans(?:wer)?|correct(?:\s+answer)?|solution)\s*[:\.=]\s*(.+)$/i;
 
 /**
- * PASS 7–8: End-of-document answer key detection and cross-question reconciliation.
- * Maps detached answer keys (e.g. pages 20+) back to extracted questions by number.
+ * End-of-document answer key detection and cross-question reconciliation.
+ * Maps detached answer keys back to extracted questions by number, associating answers, marks, and explanations.
  */
 export class AnswerKeyReconciler {
   static extractFromText(rawText: string): AnswerKeyEntry[] {
+    const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const startIdx = lines.findIndex(l => this.isAnswerKeySectionHeader(l));
+    if (startIdx < 0) return [];
+
     const entries: AnswerKeyEntry[] = [];
-    const seen = new Set<string>();
-    let inSection = false;
+    let currentQNum: number | null = null;
+    let currentAnswer = '';
+    let currentMarks: number | undefined = undefined;
 
-    for (const line of rawText.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^END\s+OF\s+TEST\s+DOCUMENT/i.test(line)) break;
+      if (/^Q\s+Correct\s+answer/i.test(line)) continue;
+      if (/^THE\s+GATEHUB/i.test(line)) continue;
+      if (/^--\s*\d+\s+of\s+\d+\s*--/i.test(line)) continue;
+      if (/When testing the extractor|The answer key is deliberately/i.test(line)) continue;
 
-      if (ANSWER_KEY_SECTION.test(trimmed)) {
-        inSection = true;
-        continue;
-      }
+      // Check if line starts with question number: e.g. "1 B — 200 2" or "1. B" or "Q1: B"
+      const qStartMatch = line.match(/^(?:Q\.?\s*)?(\d{1,3})\s*[.:)\-–—]?\s+(.+)$/i);
+      if (qStartMatch && !line.includes('?') && !/^(?:Which|What|Who|When|Where|Why|How)\b/i.test(qStartMatch[2])) {
+        if (currentQNum !== null) {
+          entries.push({
+            questionNumber: currentQNum,
+            answer: currentAnswer.trim(),
+            marks: currentMarks,
+            sourceLine: `${currentQNum}: ${currentAnswer}`,
+          });
+        }
+        currentQNum = parseInt(qStartMatch[1], 10);
+        const rest = qStartMatch[2].trim();
 
-      if (inSection && /^Section\s+\d+/i.test(trimmed)) {
-        inSection = false;
-      }
-
-      const parsed = this.parseLine(trimmed, inSection);
-      if (parsed) {
-        const key = `${parsed.questionNumber}:${parsed.answer}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          entries.push(parsed);
+        // Check if ends with marks e.g. " 2" or " 3"
+        const marksMatch = rest.match(/^(.*?)\s+(\d+)$/);
+        if (marksMatch && marksMatch[1].trim() && !/^[A-Z0-9_\-\/]+$/.test(marksMatch[1].trim())) {
+          currentAnswer = marksMatch[1].trim();
+          currentMarks = parseInt(marksMatch[2], 10);
+        } else {
+          currentAnswer = rest;
+          currentMarks = undefined;
+        }
+      } else if (currentQNum !== null) {
+        // Continuation line
+        if (/^\d+$/.test(line)) {
+          currentMarks = parseInt(line, 10);
+        } else {
+          const marksMatch = line.match(/^(.*?)\s+(\d+)$/);
+          if (marksMatch && marksMatch[1].trim()) {
+            currentAnswer += ' ' + marksMatch[1].trim();
+            currentMarks = parseInt(marksMatch[2], 10);
+          } else {
+            currentAnswer += ' ' + line;
+          }
         }
       }
+    }
+
+    if (currentQNum !== null) {
+      entries.push({
+        questionNumber: currentQNum,
+        answer: currentAnswer.trim(),
+        marks: currentMarks,
+        sourceLine: `${currentQNum}: ${currentAnswer}`,
+      });
     }
 
     return entries;
   }
 
   static extractFromBlocks(blocks: V2ASTNode[]): AnswerKeyEntry[] {
-    const entries: AnswerKeyEntry[] = [];
-    const seen = new Set<string>();
-    let inSection = false;
-
-    for (const block of blocks) {
-      if (block.type !== 'paragraph' && block.type !== 'heading') continue;
-      const txt = (block as V2ParagraphNode).plainText?.trim() || '';
-      if (!txt) continue;
-
-      if (ANSWER_KEY_SECTION.test(txt)) {
-        inSection = true;
-        continue;
-      }
-
-      if (inSection && /^Section\s+\d+/i.test(txt)) {
-        inSection = false;
-      }
-
-      const parsed = this.parseLine(txt, inSection);
-      if (parsed) {
-        const key = `${parsed.questionNumber}:${parsed.answer}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          entries.push(parsed);
-        }
-      }
-    }
-
-    return entries;
+    const rawText = blocks
+      .map((b) => (b.type === 'paragraph' || b.type === 'heading' ? (b as V2ParagraphNode).plainText : ''))
+      .join('\n');
+    return this.extractFromText(rawText);
   }
 
   static reconcile(
@@ -104,18 +119,13 @@ export class AnswerKeyReconciler {
 
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
-      if (q.correctAnswer && (Array.isArray(q.correctAnswer) ? q.correctAnswer.length > 0 : String(q.correctAnswer).trim())) {
-        continue;
-      }
-      if (q.options.some((o) => o.isCorrect)) continue;
-
       const qNum = q.sourceQuestionNumber ?? this.inferQuestionNumber(q, i);
       if (qNum == null) continue;
 
       const entry = byNumber.get(qNum);
       if (!entry) continue;
 
-      this.applyAnswer(q, entry.answer, entry.sourceLine);
+      this.applyAnswer(q, entry.answer, entry.sourceLine, entry.marks);
     }
 
     return questions;
@@ -129,19 +139,35 @@ export class AnswerKeyReconciler {
 
     const numbered = trimmed.match(NUMBERED_ANSWER);
     if (numbered && (inAnswerKeySection || this.looksLikeAnswerValue(numbered[2]))) {
+      let ans = numbered[2].trim();
+      let marks: number | undefined;
+      const mm = ans.match(/^(.*?)\s+(\d+)$/);
+      if (mm && mm[1].trim() && !/^[A-Z0-9_\-\/]+$/.test(mm[1].trim())) {
+        ans = mm[1].trim();
+        marks = parseInt(mm[2], 10);
+      }
       return {
         questionNumber: parseInt(numbered[1], 10),
-        answer: numbered[2].trim(),
+        answer: ans,
+        marks,
         sourceLine: trimmed,
       };
     }
 
     if (inAnswerKeySection) {
-      const compact = trimmed.match(/^(\d{1,4})\s+([A-Za-z,\s]+(?:True|False)?)$/);
-      if (compact && this.looksLikeAnswerValue(compact[2])) {
+      const compact = trimmed.match(/^(\d{1,4})\s+(.+)$/);
+      if (compact) {
+        let ans = compact[2].trim();
+        let marks: number | undefined;
+        const mm = ans.match(/^(.*?)\s+(\d+)$/);
+        if (mm && mm[1].trim()) {
+          ans = mm[1].trim();
+          marks = parseInt(mm[2], 10);
+        }
         return {
           questionNumber: parseInt(compact[1], 10),
-          answer: compact[2].trim(),
+          answer: ans,
+          marks,
           sourceLine: trimmed,
         };
       }
@@ -153,7 +179,7 @@ export class AnswerKeyReconciler {
   static isAnswerKeySectionHeader(text: string): boolean {
     const t = text.trim();
     if (!t) return false;
-    // Inline per-question labels (value on same or next line) — not a detached key section
+    // Inline per-question labels — not a detached key section
     if (/^correct\s+answer\s*:/i.test(t)) return false;
     if (/^correct\s+answers\s*:/i.test(t) && /\S/.test(t.replace(/^correct\s+answers\s*:/i, ''))) return false;
     return ANSWER_KEY_SECTION.test(t);
@@ -186,30 +212,59 @@ export class AnswerKeyReconciler {
     return index + 1;
   }
 
-  private static applyAnswer(q: V2QuestionBlock, rawAnswer: string, sourceLine?: string): void {
-    const normalized = rawAnswer.replace(/✅/g, '').trim();
-    if (!normalized) return;
-
-    const parts = normalized.split(/[,;]\s*/).map((s) => s.trim()).filter(Boolean);
-
-    if (parts.length > 1) {
-      q.correctAnswer = parts;
-      q.type = q.type === 'multiple_choice' ? 'multiple_select' : q.type;
-    } else {
-      q.correctAnswer = parts[0];
+  private static applyAnswer(q: V2QuestionBlock, rawAnswer: string, sourceLine?: string, marks?: number): void {
+    if ((q.points === undefined || q.points === null) && typeof marks === 'number') {
+      q.points = marks;
     }
 
+    let normalized = rawAnswer.replace(/✅/g, '').trim();
+    if (!normalized) return;
+
+    let explanation = '';
+    // If answer format is "B — 200" or "A, B, D — string, number, boolean"
+    const dashMatch = normalized.match(/^([A-D](?:\s*,\s*[A-D])*)\s*[—–\-]\s*(.*)$/);
+    if (dashMatch) {
+      normalized = dashMatch[1].trim();
+      explanation = dashMatch[2].trim();
+    } else {
+      const tfMatch = normalized.match(/^(True|False)\s*[—–\-]\s*(.*)$/i);
+      if (tfMatch) {
+        normalized = tfMatch[1].trim();
+        explanation = tfMatch[2].trim();
+      }
+    }
+
+    if (explanation && !q.explanation) {
+      q.explanation = explanation;
+    }
+
+    // Set correctAnswer
+    const parts = normalized.split(/[,;]\s*/).map((s) => s.trim()).filter(Boolean);
+    const looksLikeMultipleChoices = q.options.length > 0 && parts.length > 1 && parts.every((p) => /^[A-E]$/i.test(p.trim()));
+
+    if (looksLikeMultipleChoices) {
+      q.correctAnswer = parts.map((p) => p.toUpperCase());
+      q.type = 'multiple_select';
+    } else {
+      q.correctAnswer = normalized;
+    }
+
+    // Update options isCorrect
     if (q.options.length > 0) {
       const answers = Array.isArray(q.correctAnswer) ? q.correctAnswer : [q.correctAnswer];
       for (const opt of q.options) {
         opt.isCorrect = answers.some((ans) => this.optionMatchesAnswer(opt.label, opt.text, String(ans)));
       }
       if (q.options.some((o) => o.isCorrect)) {
-        q.type = answers.length > 1 ? 'multiple_select' : (q.type === 'true_false' ? 'true_false' : 'multiple_choice');
+        if (answers.length > 1 && looksLikeMultipleChoices) {
+          q.type = 'multiple_select';
+        } else if (q.type !== 'true_false' && q.type !== 'image_based' && q.type !== 'ordering' && q.type !== 'matching') {
+          q.type = 'multiple_choice';
+        }
       }
     }
 
-    (q as any).answerKeySource = sourceLine || normalized;
+    (q as any).answerKeySource = sourceLine || rawAnswer;
   }
 
   private static optionMatchesAnswer(label: string, text: string, answer: string): boolean {

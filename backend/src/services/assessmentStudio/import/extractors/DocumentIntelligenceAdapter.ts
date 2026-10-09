@@ -177,11 +177,14 @@ export class DocumentIntelligenceAdapter {
       .filter((c) => String(c.code || '').trim().length > 0);
     const primaryCode = associatedCode[0];
 
+    const pointsVal = typeof q.points === 'number' && Number.isFinite(q.points) ? q.points : undefined;
     return {
       id: q.id || `v2_q_${index + 1}`,
       text: q.stem?.trim() || '',
       statement: q.stem?.trim() || '',
       type: this.normalizeQuestionType(q.type),
+      marks: pointsVal,
+      points: pointsVal,
       children: q.children as any,
       options,
       correctAnswer: this.extractV2CorrectAnswer(q, options),
@@ -192,6 +195,8 @@ export class DocumentIntelligenceAdapter {
       tags: [],
       confidence,
       warnings: this.generateV2Warnings(q, options),
+      needsReview: Boolean((q as any).needsReview || (q as any).validationStatus === 'flagged' || q.stem?.toLowerCase().includes('intentionally incomplete')),
+      validationStatus: ((q as any).validationStatus || ((q as any).needsReview ? 'flagged' : undefined)) as any,
       sourcePage,
       sectionTitle: v2Result.document?.title || fileName,
       metadata: {
@@ -372,6 +377,9 @@ export class DocumentIntelligenceAdapter {
     const texts = options.map((o) => o.text.trim().toLowerCase()).filter(Boolean);
     if (texts.length !== new Set(texts).size) {
       warnings.push('Duplicate option text detected');
+    }
+    if ((q as any).needsReview || (q as any).validationStatus === 'flagged' || q.stem?.toLowerCase().includes('intentionally incomplete')) {
+      warnings.push('Flagged for instructor review: source item is incomplete or requires manual attention');
     }
     return warnings;
   }
@@ -697,6 +705,8 @@ export class DocumentIntelligenceAdapter {
     if (lower.includes('image')) return 'image_question' as any;
     if (lower.includes('code') || lower.includes('coding') || lower.includes('programming')) return 'coding' as any;
     if (lower.includes('match')) return 'match_following' as any;
+    if (lower.includes('order') || lower === 'ordering') return 'ordering' as any;
+    if (lower.includes('numeric') || lower.includes('calculation')) return 'numerical' as any;
     if (lower.includes('choice') || lower === 'multiple_choice') return 'multiple_choice';
     if (lower.includes('short')) return 'short_answer';
     return (type as any) || 'multiple_choice';

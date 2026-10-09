@@ -11,7 +11,7 @@ import {
   type GoogleExtractionErrorCode,
 } from './googleExtractionErrors.js';
 
-export type GoogleResourceType = 'google_docs' | 'google_forms' | 'google_drive';
+export type GoogleResourceType = 'google_docs' | 'google_forms' | 'google_slides' | 'google_drive';
 
 export interface ParsedGoogleResource {
   resourceType: GoogleResourceType;
@@ -77,6 +77,9 @@ function canonicalizeGoogleUrl(parsed: URL, resourceType: GoogleResourceType, re
   if (resourceType === 'google_docs') {
     return `https://docs.google.com/document/d/${resourceId}`;
   }
+  if (resourceType === 'google_slides') {
+    return `https://docs.google.com/presentation/d/${resourceId}`;
+  }
   if (resourceType === 'google_forms') {
     if (isPublishedForm) {
       return `https://docs.google.com/forms/d/e/${resourceId}/viewform`;
@@ -126,6 +129,30 @@ export function parseGoogleResourceUrl(rawInput: string): ParsedGoogleResource |
       );
       return {
         resourceType: 'google_docs',
+        resourceId,
+        sourceUrl,
+        normalizedUrl,
+      };
+    }
+  }
+
+  // --- Google Slides ---
+  // Covers /edit, /present, /preview, /u/N/, bare /d/{id}
+  const slidePatterns = [
+    /docs\.google\.com\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/i,
+  ];
+  for (const pattern of slidePatterns) {
+    const match = haystack.match(pattern);
+    if (match?.[1] && isValidGoogleResourceId(match[1])) {
+      const resourceId = match[1];
+      const sourceUrl = urlObj ? urlObj.toString() : trimmed;
+      const normalizedUrl = canonicalizeGoogleUrl(
+        urlObj || new URL(`https://docs.google.com/presentation/d/${resourceId}`),
+        'google_slides',
+        resourceId,
+      );
+      return {
+        resourceType: 'google_slides',
         resourceId,
         sourceUrl,
         normalizedUrl,
@@ -238,11 +265,13 @@ export function getGoogleResourceErrorMessage(code: string): string {
   switch (code as GoogleExtractionErrorCode | string) {
     case 'INVALID_URL':
     case 'INVALID_GOOGLE_URL':
-      return 'Invalid Google link. Paste a valid Google Docs or Google Forms URL.';
+      return 'Invalid Google link. Paste a valid Google Docs, Google Forms, or Google Slides URL.';
     case 'INVALID_DOCS_URL':
       return 'Invalid Google Docs link. Example: https://docs.google.com/document/d/DOCUMENT_ID/edit';
     case 'INVALID_FORMS_URL':
       return 'Invalid Google Forms link. Example: https://docs.google.com/forms/d/FORM_ID/viewform';
+    case 'INVALID_SLIDES_URL':
+      return 'Invalid Google Slides link. Example: https://docs.google.com/presentation/d/PRESENTATION_ID/edit';
     case 'AUTH_REQUIRED':
     case 'GOOGLE_AUTH_REQUIRED':
       return getGoogleExtractionUserMessage('GOOGLE_AUTH_REQUIRED');
