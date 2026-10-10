@@ -1068,6 +1068,36 @@ export interface LearningUniverseBrandingInput {
 export async function createLearningUniverseDraft(userId: string, input: LearningUniverseBrandingInput) {
   const thumbnail = input.thumbnailUrl || input.bannerUrl || null;
   const productType = parseProductType(input.productType);
+
+  let validCategoryId: string | null = null;
+  if (input.categoryId) {
+    try {
+      const existing = await prisma.category.findFirst({
+        where: {
+          OR: [
+            { id: input.categoryId },
+            { slug: input.categoryId.replace(/^cat-/, "") },
+            ...(input.categoryName ? [{ name: input.categoryName }] : []),
+          ],
+        },
+      });
+      if (existing) {
+        validCategoryId = existing.id;
+      } else {
+        const catName = input.categoryName || input.categoryId.replace(/^cat-/, "").replace(/-/g, " ");
+        const catSlug = catName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+        const created = await prisma.category.upsert({
+          where: { slug: catSlug },
+          create: { name: catName, slug: catSlug, description: catName },
+          update: {},
+        });
+        validCategoryId = created.id;
+      }
+    } catch {
+      validCategoryId = null;
+    }
+  }
+
   const universe = await prisma.learningUniverse.create({
     data: {
       title: input.title,
@@ -1076,7 +1106,7 @@ export async function createLearningUniverseDraft(userId: string, input: Learnin
       thumbnail,
       bannerUrl: input.bannerUrl || null,
       bannerType: input.bannerType || null,
-      categoryId: input.categoryId || null,
+      categoryId: validCategoryId,
       difficulty: input.difficulty || "Beginner",
       price: typeof input.price === "number" && input.price >= 0 ? input.price : 0,
       status: "draft",
@@ -1105,7 +1135,7 @@ export async function createLearningUniverseDraft(userId: string, input: Learnin
       description: input.description || input.subtitle || "",
       thumbnail,
       bannerUrl: input.bannerUrl || thumbnail,
-      categoryId: input.categoryId,
+      categoryId: validCategoryId || undefined,
       difficulty: input.difficulty,
       price: input.price,
       creationSource: "branding-draft",
@@ -1175,13 +1205,46 @@ export async function updateLearningUniverseBranding(
     catalogVisibility,
   };
 
+  let validCategoryId = existing.categoryId;
+  if (input.categoryId !== undefined) {
+    if (!input.categoryId) {
+      validCategoryId = null;
+    } else {
+      try {
+        const found = await prisma.category.findFirst({
+          where: {
+            OR: [
+              { id: input.categoryId },
+              { slug: input.categoryId.replace(/^cat-/, "") },
+              ...(input.categoryName ? [{ name: input.categoryName }] : []),
+            ],
+          },
+        });
+        if (found) {
+          validCategoryId = found.id;
+        } else {
+          const catName = input.categoryName || input.categoryId.replace(/^cat-/, "").replace(/-/g, " ");
+          const catSlug = catName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+          const created = await prisma.category.upsert({
+            where: { slug: catSlug },
+            create: { name: catName, slug: catSlug, description: catName },
+            update: {},
+          });
+          validCategoryId = created.id;
+        }
+      } catch {
+        validCategoryId = existing.categoryId;
+      }
+    }
+  }
+
   const updated = await prisma.learningUniverse.update({
     where: { id: universeId },
     data: {
       title: input.title ?? existing.title,
       subtitle: input.subtitle ?? existing.subtitle,
       description: input.description ?? existing.description,
-      categoryId: input.categoryId ?? existing.categoryId,
+      categoryId: validCategoryId,
       difficulty: input.difficulty ?? existing.difficulty,
       bannerUrl: input.bannerUrl ?? existing.bannerUrl,
       bannerType: input.bannerType ?? existing.bannerType,

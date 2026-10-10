@@ -23,6 +23,23 @@ interface Category {
   name: string;
 }
 
+export const DEFAULT_BRANDING_CATEGORIES: Category[] = [
+  { id: "cat-cyber-security", name: "Cyber Security" },
+  { id: "cat-computer-networking", name: "Computer Networking" },
+  { id: "cat-deep-learning", name: "Deep Learning" },
+  { id: "cat-aiml", name: "Artificial Intelligence & Machine Learning" },
+  { id: "cat-cloud-devops", name: "Cloud Computing & DevOps" },
+  { id: "cat-data-science", name: "Data Science & Analytics" },
+  { id: "cat-software-engineering", name: "Software Engineering" },
+  { id: "cat-web-development", name: "Web Development" },
+  { id: "cat-mobile-dev", name: "Mobile App Development" },
+  { id: "cat-blockchain", name: "Blockchain & Web3" },
+  { id: "cat-programming", name: "Programming Fundamentals" },
+  { id: "cat-fullstack", name: "Full Stack Development" },
+  { id: "cat-database", name: "Database & SQL" },
+  { id: "cat-ui-ux", name: "UI/UX Design" },
+];
+
 interface CourseBrandingWizardProps {
   initial?: Partial<CourseBrandingData> & { selectedTemplateId?: string; selectedSourceId?: string };
   submitLabel?: string;
@@ -53,7 +70,7 @@ export function CourseBrandingWizard({
   const [bannerId, setBannerId] = useState(initial?.bannerId);
   const [selectedTemplateId, setSelectedTemplateId] = useState(initial?.selectedTemplateId);
   const [selectedSourceId, setSelectedSourceId] = useState(initial?.selectedSourceId);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_BRANDING_CATEGORIES);
   const [loading, setLoading] = useState(false);
   const [fallbackLoading, setFallbackLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,10 +78,29 @@ export function CourseBrandingWizard({
   const fallbackRequest = useRef(0);
 
   useEffect(() => {
-    api<{ success: boolean; categories: Category[] }>("/categories").then((res) => {
-      if (res.data?.categories) setCategories(res.data.categories);
-    });
+    api<{ success: boolean; categories: Category[] }>("/categories")
+      .then((res) => {
+        if (res.data?.categories && res.data.categories.length > 0) {
+          setCategories(res.data.categories);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Pre-select category if title matches a known category and none selected yet
+  useEffect(() => {
+    if (categoryId || !title.trim()) return;
+    const lower = title.trim().toLowerCase();
+    const match = categories.find(
+      (c) =>
+        c.name.toLowerCase() === lower ||
+        lower.includes(c.name.toLowerCase()) ||
+        c.name.toLowerCase().includes(lower)
+    );
+    if (match) {
+      setCategoryId(match.id);
+    }
+  }, [title, categories, categoryId]);
 
   const categoryName = categories.find((c) => c.id === categoryId)?.name || initial?.categoryName;
 
@@ -150,7 +186,7 @@ export function CourseBrandingWizard({
         subtitle: subtitle.trim(),
         description: description.trim() || subtitle.trim(),
         categoryId,
-        categoryName,
+        categoryName: categoryName || categories.find((c) => c.id === categoryId)?.name || "Computer Networking",
         difficulty,
         ...(showPrice ? { price: Math.max(0, Number(price) || 0) } : {}),
         bannerUrl: finalBanner,
@@ -186,12 +222,25 @@ export function CourseBrandingWizard({
               <div className="flex flex-wrap gap-1.5 pt-1">
                 <span className="text-[10px] text-muted-foreground w-full">Banner suggestions:</span>
                 {titleSuggestions.slice(0, 6).map((s) => (
-                  <span
+                  <button
                     key={s}
-                    className="text-[10px] px-2 py-0.5 rounded-full bg-primary/5 text-primary border border-primary/20"
+                    type="button"
+                    onClick={() => {
+                      const match = categories.find(
+                        (c) =>
+                          c.name.toLowerCase() === s.toLowerCase() ||
+                          c.name.toLowerCase().includes(s.toLowerCase()) ||
+                          s.toLowerCase().includes(c.name.toLowerCase())
+                      );
+                      if (match) {
+                        setCategoryId(match.id);
+                      }
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded-full bg-primary/5 text-primary border border-primary/20 hover:bg-primary/10 transition-colors cursor-pointer"
+                    title={`Click to set category to ${s}`}
                   >
                     {s}
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -208,8 +257,10 @@ export function CourseBrandingWizard({
             <div className="space-y-2">
               <Label>Category *</Label>
               <Select value={categoryId} onValueChange={setCategoryId}>
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                <SelectContent>
+                <SelectTrigger id="category-trigger" className="w-full">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
                   {categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}

@@ -13,18 +13,82 @@ const createSchema = z.object({
   image: z.string().optional(),
 });
 
+const DEFAULT_PLATFORM_CATEGORIES = [
+  "Cyber Security",
+  "Computer Networking",
+  "Deep Learning",
+  "Artificial Intelligence & Machine Learning",
+  "Cloud Computing & DevOps",
+  "Data Science & Analytics",
+  "Software Engineering",
+  "Web Development",
+  "Mobile App Development",
+  "Blockchain & Web3",
+  "Programming Fundamentals",
+  "Full Stack Development",
+  "Database & SQL",
+  "UI/UX Design",
+];
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 export async function list(_req: AuthRequest, res: Response) {
   res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600, stale-while-revalidate=900");
   const cacheKey = "categories:all";
   const cached = appCache.get<{ success: boolean; categories: any[] }>(cacheKey);
-  if (cached) {
+  if (cached && Array.isArray(cached.categories) && cached.categories.length > 0) {
     return res.json(cached);
   }
 
-  const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
-    include: { _count: { select: { courses: true } } },
-  });
+  let categories: any[] = [];
+  try {
+    categories = await prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: { _count: { select: { courses: true } } },
+    });
+  } catch (err) {
+    console.warn("[CATEGORIES_LIST] DB query error:", err);
+  }
+
+  // Auto-seed database if empty
+  if (!categories || categories.length === 0) {
+    try {
+      for (const name of DEFAULT_PLATFORM_CATEGORIES) {
+        const slug = slugify(name);
+        await prisma.category.upsert({
+          where: { slug },
+          create: { name, slug, description: name },
+          update: {},
+        });
+      }
+      categories = await prisma.category.findMany({
+        orderBy: { name: "asc" },
+        include: { _count: { select: { courses: true } } },
+      });
+    } catch (seedErr) {
+      console.warn("[CATEGORIES_SEED] Auto-seed failed:", seedErr);
+    }
+  }
+
+  // Resilient fallback if DB writes are unavailable
+  if (!categories || categories.length === 0) {
+    categories = DEFAULT_PLATFORM_CATEGORIES.map((name) => {
+      const slug = slugify(name);
+      return {
+        id: `cat-${slug}`,
+        name,
+        slug,
+        description: name,
+        _count: { courses: 0 },
+      };
+    });
+  }
+
   const payload = { success: true, categories };
   appCache.set(cacheKey, payload, 300);
   res.json(payload);
