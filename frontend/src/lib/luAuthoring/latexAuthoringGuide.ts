@@ -183,3 +183,134 @@ export function statusColor(status: string): string {
       return "text-slate-500";
   }
 }
+
+export interface LuAgentFileOperation {
+  path: string;
+  operation: "create" | "update";
+  kind: string;
+  title: string;
+  content: string;
+  existingContent?: string;
+}
+
+export interface LuAgentPlan {
+  planId: string;
+  summary: string;
+  isScaffoldedCourse: boolean;
+  structuralActions: any[];
+  fileOperations: LuAgentFileOperation[];
+  provider: string;
+  usedFallback: boolean;
+  scope: string;
+}
+
+export interface LuAgentExecutionResult {
+  success: boolean;
+  planId: string;
+  snapshotId: string;
+  modifiedFiles: string[];
+  repairsApplied?: string[];
+}
+
+export interface LuAgentRepairHistoryItem {
+  attempt: number;
+  stage: string;
+  errorCount: number;
+  repairedFiles: string[];
+  sampleError?: string;
+}
+
+export interface LuAgentCompileRepairResult {
+  success: boolean;
+  attempts: number;
+  logs: string;
+  pdfPath?: string;
+  pdfUrl?: string;
+  errors: Array<{
+    file?: string;
+    sourceFile?: string;
+    line?: number;
+    sourceLine?: number;
+    message: string;
+    code?: string;
+  }>;
+  repairedFiles: string[];
+  stalled: boolean;
+  verified: boolean;
+  snapshotId?: string;
+  history: LuAgentRepairHistoryItem[];
+}
+
+export async function planLuAgent(
+  projectId: string,
+  options: {
+    prompt: string;
+    scope?: LuAuthoringGuideScope;
+    activeFilePath?: string;
+    targetPaths?: string[];
+    kinds?: string[];
+  }
+): Promise<LuAgentPlan> {
+  const { api } = await import("@/lib/api");
+  const res = await api<{ success: boolean; data: LuAgentPlan; error?: string }>(
+    `/latex-projects/${projectId}/lu/agent/plan`,
+    {
+      method: "POST",
+      body: options,
+    }
+  );
+  if (res.error) throw new Error(res.error);
+  if (!res.data?.data) throw new Error("Agent planner returned no data");
+  return res.data.data;
+}
+
+export async function executeLuAgentPlan(
+  projectId: string,
+  plan: LuAgentPlan,
+  options?: { rollbackOnFailure?: boolean }
+): Promise<LuAgentExecutionResult> {
+  const { api } = await import("@/lib/api");
+  const res = await api<{ success: boolean; data: LuAgentExecutionResult; error?: string }>(
+    `/latex-projects/${projectId}/lu/agent/execute`,
+    {
+      method: "POST",
+      body: { plan, rollbackOnFailure: options?.rollbackOnFailure ?? true },
+    }
+  );
+  if (res.error) throw new Error(res.error);
+  if (!res.data?.data) throw new Error("Plan execution returned no data");
+  return res.data.data;
+}
+
+export async function compileAndRepairLuAgent(
+  projectId: string,
+  options?: { maxRetries?: number; snapshotId?: string }
+): Promise<LuAgentCompileRepairResult> {
+  const { api } = await import("@/lib/api");
+  const res = await api<{ success: boolean; data: LuAgentCompileRepairResult; error?: string }>(
+    `/latex-projects/${projectId}/lu/agent/compile-repair`,
+    {
+      method: "POST",
+      body: options ?? { maxRetries: 3 },
+    }
+  );
+  if (res.error) throw new Error(res.error);
+  if (!res.data?.data) throw new Error("Compilation repair returned no data");
+  return res.data.data;
+}
+
+export async function rollbackLuAgent(
+  projectId: string,
+  snapshotId?: string
+): Promise<{ success: boolean }> {
+  const { api } = await import("@/lib/api");
+  const res = await api<{ success: boolean; data: { success: boolean }; error?: string }>(
+    `/latex-projects/${projectId}/lu/agent/rollback`,
+    {
+      method: "POST",
+      body: { snapshotId },
+    }
+  );
+  if (res.error) throw new Error(res.error);
+  return res.data?.data ?? { success: true };
+}

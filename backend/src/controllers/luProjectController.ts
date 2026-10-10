@@ -21,6 +21,13 @@ import {
   listLuAuthoringGuideFiles,
   type LuAuthoringGuideScope,
 } from "../services/luProject/luAuthoringGuideService.js";
+import {
+  planLuAgent,
+  executeLuAgentPlan,
+  runAgentCompileAndRepair,
+  rollbackLuAgent,
+  type LuAgentPlanRequest,
+} from "../services/luProject/luAuthoringAgentService.js";
 
 async function assertProjectAccess(projectId: string, userId: string) {
   const project = await prisma.latexProject.findUnique({
@@ -201,4 +208,75 @@ export async function prepareLuBuildHandler(req: AuthRequest, res: Response) {
     success: result.ready,
     data: result,
   });
+}
+
+/** Autonomous AI Agent — Stage 1: Plan course structure and multi-file changes */
+export async function planLuAgentHandler(req: AuthRequest, res: Response) {
+  const projectId = req.params.projectId;
+  await assertProjectAccess(projectId, req.user!.id);
+
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt : "";
+  const scope = req.body?.scope;
+  const activeFilePath =
+    typeof req.body?.activeFilePath === "string" ? req.body.activeFilePath : undefined;
+  const targetPaths = Array.isArray(req.body?.targetPaths)
+    ? req.body.targetPaths.filter((p: unknown) => typeof p === "string")
+    : undefined;
+  const kinds = Array.isArray(req.body?.kinds)
+    ? req.body.kinds.filter((k: unknown) => typeof k === "string")
+    : undefined;
+
+  const plan = await planLuAgent(projectId, {
+    prompt,
+    scope,
+    activeFilePath,
+    targetPaths,
+    kinds,
+  });
+
+  res.json({ success: true, data: plan });
+}
+
+/** Autonomous AI Agent — Stage 2 & 3: Safely execute transactional plan */
+export async function executeLuAgentPlanHandler(req: AuthRequest, res: Response) {
+  const projectId = req.params.projectId;
+  await assertProjectAccess(projectId, req.user!.id);
+
+  const plan = req.body?.plan;
+  if (!plan || !Array.isArray(plan.fileOperations)) {
+    throw new AppError(400, "Valid plan object required");
+  }
+
+  const result = await executeLuAgentPlan(projectId, plan, {
+    rollbackOnFailure: req.body?.rollbackOnFailure ?? true,
+  });
+
+  res.json({ success: true, data: result });
+}
+
+/** Autonomous AI Agent — Stage 2: Real compilation + autonomous repair loop */
+export async function compileAndRepairLuAgentHandler(req: AuthRequest, res: Response) {
+  const projectId = req.params.projectId;
+  await assertProjectAccess(projectId, req.user!.id);
+
+  const maxRetries = typeof req.body?.maxRetries === "number" ? req.body.maxRetries : 3;
+  const snapshotId = typeof req.body?.snapshotId === "string" ? req.body.snapshotId : undefined;
+
+  const result = await runAgentCompileAndRepair(projectId, {
+    maxRetries,
+    snapshotId,
+  });
+
+  res.json({ success: result.success, data: result });
+}
+
+/** Autonomous AI Agent — Rollback to pre-agent snapshot */
+export async function rollbackLuAgentHandler(req: AuthRequest, res: Response) {
+  const projectId = req.params.projectId;
+  await assertProjectAccess(projectId, req.user!.id);
+
+  const snapshotId = typeof req.body?.snapshotId === "string" ? req.body.snapshotId : undefined;
+  const result = await rollbackLuAgent(projectId, snapshotId);
+
+  res.json({ success: true, data: result });
 }

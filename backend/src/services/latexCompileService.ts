@@ -1395,18 +1395,19 @@ async function compileLatexLocallyInner(
   // Clear previous artifacts
   await clearPreviousArtifacts(workspaceDir);
 
-  // Multi-file: sync project .tex files from DB into workspace first
   let sourceCode = code;
-  const isLuV2 =
-    options.preserveProvidedMainTex === true ||
-    Boolean(
-      await prisma.latexFile.findFirst({
-        where: { projectId: workspaceId, path: LU_PROJECT_JSON_PATH, isFolder: false },
-        select: { id: true },
-      })
-    );
+  let isLuV2 = options.preserveProvidedMainTex === true;
 
   try {
+    if (!isLuV2) {
+      isLuV2 = Boolean(
+        await prisma.latexFile.findFirst({
+          where: { projectId: workspaceId, path: LU_PROJECT_JSON_PATH, isFolder: false },
+          select: { id: true },
+        })
+      );
+    }
+
     if (options.pdfProjectContext?.files?.length) {
       await writeSnapshotTexFilesToWorkspace(options.pdfProjectContext.files, workspaceDir);
     } else {

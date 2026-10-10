@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { LuModeToggle } from "@/components/lu-authoring/LuModeToggle";
 import { LuLatexGuideDialog } from "@/components/lu-authoring/LuLatexGuideDialog";
+import { executeLuAgentPlan, type LuAgentPlan } from "@/lib/luAuthoring/latexAuthoringGuide";
 import { LuProjectAssetsDialog } from "@/components/overleaf/LuProjectAssetsDialog";
 import { VideoAuthoringModal, type VideoAuthoringData } from "@/components/lu-authoring/VideoAuthoringModal";
 import { defaultImageUploadFolder } from "@/lib/latexEditor/useLatexProjectUpload";
@@ -706,45 +707,6 @@ export function EditorLayout({
     window.setTimeout(() => setFileSaveState("clean"), 1500);
   }, [activeFile, projectId]);
 
-  const applyGuideFileContent = useCallback(
-    async (filePath: string, content: string) => {
-      const normalized = filePath.startsWith("/") ? filePath : `/${filePath}`;
-      let file = files.find((f) => f.path === normalized);
-      if (!file) {
-        await fetchProjectFiles();
-        file = filesRef.current.find((f) => f.path === normalized);
-      }
-      if (!file?.id) throw new Error(`File not found: ${normalized}`);
-
-      const sanitized = sanitizeProjectFileContent(normalized, content);
-      if (useCentralizedAutosave && autosaveRef.current) {
-        await autosaveRef.current.flush("edit");
-      }
-      await api(`/latex-projects/${projectId}/files/content`, {
-        method: "PUT",
-        body: { fileId: file.id, content: sanitized },
-      });
-      notifyFileSaved(file.id, sanitized);
-      setFiles((prev) => prev.map((f) => (f.id === file!.id ? { ...f, content: sanitized } : f)));
-      if (activeFile?.id === file.id && monacoEditorRef.current) {
-        monacoEditorRef.current.setValue(sanitized);
-        setEditorTexContent(sanitized);
-      }
-      if (isLuAuthoringMode) {
-        await refreshLuState();
-      }
-    },
-    [
-      files,
-      fetchProjectFiles,
-      projectId,
-      useCentralizedAutosave,
-      activeFile?.id,
-      isLuAuthoringMode,
-      refreshLuState,
-    ]
-  );
-
   const persistAllDirtyFiles = useCallback(async () => {
     if (useCentralizedAutosave && autosaveRef.current) {
       await autosaveRef.current.flush("manual");
@@ -774,6 +736,106 @@ export function EditorLayout({
       );
     }
   }, [files, projectId, useCentralizedAutosave]);
+
+  const applyGuideFileContent = useCallback(
+    async (filePath: string, content: string) => {
+      const normalized = filePath.startsWith("/") ? filePath : `/${filePath}`;
+
+      // Detect and flush any unsaved edits to avoid losing user work
+      if (useCentralizedAutosave && autosaveRef.current) {
+        await autosaveRef.current.flush("edit");
+      } else {
+        await persistAllDirtyFiles();
+      }
+
+      let file = files.find((f) => f.path === normalized);
+      if (!file) {
+        await fetchProjectFiles();
+        file = filesRef.current.find((f) => f.path === normalized);
+      }
+
+      const sanitized = sanitizeProjectFileContent(normalized, content);
+
+      if (!file?.id) {
+        // If file doesn't exist, create it safely in the project
+        const fileName = normalized.split("/").pop() || "file.tex";
+        const folder = normalized.slice(0, normalized.lastIndexOf("/")) || "/";
+        await api(`/latex-projects/${projectId}/files/create`, {
+          method: "POST",
+          body: { name: fileName, folder, isFolder: false, content: sanitized },
+        });
+        await fetchProjectFiles();
+      } else {
+        await api(`/latex-projects/${projectId}/files/content`, {
+          method: "PUT",
+          body: { fileId: file.id, content: sanitized },
+        });
+        notifyFileSaved(file.id, sanitized);
+        setFiles((prev) => prev.map((f) => (f.id === file!.id ? { ...f, content: sanitized } : f)));
+      }
+
+      if (activeFile?.path === normalized && monacoEditorRef.current) {
+        monacoEditorRef.current.setValue(sanitized);
+        setEditorTexContent(sanitized);
+      }
+      if (isLuAuthoringMode) {
+        await refreshLuState();
+      }
+    },
+    [
+      files,
+      fetchProjectFiles,
+      projectId,
+      useCentralizedAutosave,
+      persistAllDirtyFiles,
+      activeFile?.path,
+      isLuAuthoringMode,
+      refreshLuState,
+    ]
+  );
+
+  const applyAgentPlan = useCallback(
+    async (plan: LuAgentPlan) => {
+      // 1. Flush all dirty edits so user's in-progress typing is never overwritten silently
+      if (useCentralizedAutosave && autosaveRef.current) {
+        await autosaveRef.current.flush("manual");
+      } else {
+        await persistAllDirtyFiles();
+      }
+
+      // 2. Safely execute the transactional multi-file plan via backend engine
+      const result = await executeLuAgentPlan(projectId, plan, { rollbackOnFailure: true });
+
+      // 3. Resync project file tree and authoring state
+      await fetchProjectFiles();
+      if (isLuAuthoringMode) {
+        await refreshLuState();
+      }
+
+      // 4. Synchronize Monaco editor if currently active file was modified in plan
+      if (activeFile?.path) {
+        const normActive = activeFile.path.startsWith("/") ? activeFile.path : `/${activeFile.path}`;
+        const modifiedOp = plan.fileOperations.find(
+          (op) => (op.path.startsWith("/") ? op.path : `/${op.path}`) === normActive
+        );
+        if (modifiedOp && monacoEditorRef.current) {
+          monacoEditorRef.current.setValue(modifiedOp.content);
+          setEditorTexContent(modifiedOp.content);
+        }
+      }
+
+      return result;
+    },
+    [
+      useCentralizedAutosave,
+      persistAllDirtyFiles,
+      projectId,
+      fetchProjectFiles,
+      isLuAuthoringMode,
+      refreshLuState,
+      activeFile?.path,
+    ]
+  );
 
   const scheduleLuValidation = useCallback(() => {
     if (!isLuAuthoringMode || !luDeveloperMode) return;
@@ -2224,7 +2286,9 @@ export function EditorLayout({
         projectId={projectId}
         activeFilePath={activeFile?.path}
         onApplyFile={applyGuideFileContent}
+        onApplyPlan={applyAgentPlan}
         onOpenFile={(path) => void openFileByPath(path.startsWith("/") ? path : `/${path}`)}
+        onTriggerCompile={triggerCompile}
       />
       <LuProjectAssetsDialog
         open={showAssetsDialog}

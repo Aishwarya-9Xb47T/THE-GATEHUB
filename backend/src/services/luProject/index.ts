@@ -21,3 +21,4 @@ export * from "./luOrchestrationEngine.js";
 export * from "./luAuthoringTemplates.js";
 export * from "./luAuthoringState.js";
 export * from "./luProjectStructureService.js";
+export * from "./luAuthoringAgentService.js";

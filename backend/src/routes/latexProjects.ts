@@ -37,6 +37,10 @@ latexProjectsRouter.get("/:projectId/lu/validate-build", lazyHandler(luCtrl, "va
 latexProjectsRouter.post("/:projectId/lu/prepare-build", lazyHandler(luCtrl, "prepareLuBuildHandler"));
 latexProjectsRouter.get("/:projectId/lu/ai-guide/files", lazyHandler(luCtrl, "listLuAuthoringGuideFilesHandler"));
 latexProjectsRouter.post("/:projectId/lu/ai-guide", lazyHandler(luCtrl, "generateLuAuthoringGuideHandler"));
+latexProjectsRouter.post("/:projectId/lu/agent/plan", lazyHandler(luCtrl, "planLuAgentHandler"));
+latexProjectsRouter.post("/:projectId/lu/agent/execute", lazyHandler(luCtrl, "executeLuAgentPlanHandler"));
+latexProjectsRouter.post("/:projectId/lu/agent/compile-repair", lazyHandler(luCtrl, "compileAndRepairLuAgentHandler"));
+latexProjectsRouter.post("/:projectId/lu/agent/rollback", lazyHandler(luCtrl, "rollbackLuAgentHandler"));
 
 latexProjectsRouter.post("/:projectId/sync/flush", lazyHandler(syncCtrl, "flushProjectFiles"));
 latexProjectsRouter.get("/:projectId/sync/snapshot", lazyHandler(syncCtrl, "getProjectSyncSnapshot"));

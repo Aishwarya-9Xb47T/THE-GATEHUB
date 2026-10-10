@@ -14,8 +14,8 @@ import {
 import { prisma } from "../../utils/prisma.js";
 import { resetYjsForFileIds } from "./yjsDocumentService.js";
 
-const UNDO_STACK_PATH = "/.lu/undo-stack.json";
-const REDO_STACK_PATH = "/.lu/redo-stack.json";
+export const UNDO_STACK_PATH = "/.lu/undo-stack.json";
+export const REDO_STACK_PATH = "/.lu/redo-stack.json";
 const MAX_STACK = 50;
 
 export interface ProjectSnapshot {
@@ -87,7 +87,7 @@ function labelForAction(action: StructureAction): string {
   }
 }
 
-async function readStack(projectId: string, path: string): Promise<SnapshotStack> {
+export async function readStack(projectId: string, path: string): Promise<SnapshotStack> {
   const file = await prisma.latexFile.findFirst({ where: { projectId, path } });
   if (!file?.content?.trim()) return { version: 1, entries: [] };
   try {
@@ -134,7 +134,7 @@ export async function captureProjectSnapshotForProject(
   };
 }
 
-async function pushUndo(projectId: string, snap: ProjectSnapshot): Promise<void> {
+export async function pushUndo(projectId: string, snap: ProjectSnapshot): Promise<void> {
   const stack = await readStack(projectId, UNDO_STACK_PATH);
   stack.entries = [...stack.entries, snap].slice(-MAX_STACK);
   await writeStack(projectId, UNDO_STACK_PATH, stack);
@@ -150,7 +150,7 @@ async function pushRedo(projectId: string, snap: ProjectSnapshot): Promise<void>
   await writeStack(projectId, REDO_STACK_PATH, stack);
 }
 
-async function restoreSnapshot(projectId: string, snap: ProjectSnapshot): Promise<void> {
+export async function restoreSnapshot(projectId: string, snap: ProjectSnapshot): Promise<void> {
   const project = JSON.parse(snap.projectJson) as LuProjectJson;
   const yjsIds: string[] = [];
 
