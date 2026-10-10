@@ -14,6 +14,7 @@ const createSchema = z.object({
 });
 
 export async function list(_req: AuthRequest, res: Response) {
+  res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600, stale-while-revalidate=900");
   const cacheKey = "categories:all";
   const cached = appCache.get<{ success: boolean; categories: any[] }>(cacheKey);
   if (cached) {

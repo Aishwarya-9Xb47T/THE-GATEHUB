@@ -21,9 +21,8 @@ export function LandingExploreCoursesSection() {
 
   const items = mergeLandingExploreItems(universesQuery.data, coursesQuery.data?.courses);
   const hasAnyData = items.length > 0;
-  const isStillWaiting = universesQuery.isLoading || coursesQuery.isLoading;
-  const isInitialLoading = !hasAnyData && isStillWaiting && (!universesQuery.data || !coursesQuery.data);
-  const isError = !hasAnyData && !isStillWaiting && (universesQuery.isError || coursesQuery.isError);
+  const isInitialLoading = !hasAnyData && (universesQuery.isLoading || coursesQuery.isLoading);
+  const isError = !hasAnyData && !universesQuery.isLoading && !coursesQuery.isLoading && (universesQuery.isError || coursesQuery.isError);
 
   return (
     <section

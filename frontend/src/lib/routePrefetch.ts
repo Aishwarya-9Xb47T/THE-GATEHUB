@@ -11,6 +11,20 @@ export function prefetchLandingRoute(): void {
   prefetchRouteChunk(() => import("@/pages/public/LandingPage"), "landing");
 }
 
+export function prefetchCoursesRoute(): void {
+  prefetchRouteChunk(
+    () => import("@/pages/student/BrowseCourses").then((m) => m.BrowseCourses),
+    "browse-courses"
+  );
+}
+
+export function prefetchHelpRoute(): void {
+  prefetchRouteChunk(
+    () => import("@/pages/help/HelpHomePage").then((m) => m.HelpHomePage),
+    "help-home"
+  );
+}
+
 export function prefetchResourcesRoute(): void {
   prefetchRouteChunk(() => import("@/pages/ResourcesPage"), "resources");
 }
@@ -39,6 +53,8 @@ export function prefetchAdminDashboardRoute(): void {
 /** Warm common dashboard + landing chunks during idle time. */
 export function prefetchCoreRoutes(): void {
   prefetchLandingRoute();
+  prefetchCoursesRoute();
+  prefetchHelpRoute();
   prefetchResourcesRoute();
   prefetchStudentDashboardRoute();
   prefetchInstructorDashboardRoute();

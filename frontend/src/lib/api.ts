@@ -88,6 +88,11 @@ function redirectToLoginSoft(fromPath: string) {
   try {
     localStorage.removeItem("lms_token");
     sessionStorage.removeItem("lms_token");
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith("gatehub_user_query_cache_")) {
+        localStorage.removeItem(key);
+      }
+    });
   } catch {
     /* ignore */
   }

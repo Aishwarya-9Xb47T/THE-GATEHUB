@@ -72,7 +72,8 @@ export function BrowseCourses() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     retry: 1,
     retryDelay: 1000,
   });
@@ -97,7 +98,8 @@ export function BrowseCourses() {
             : [];
       return items;
     },
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     retry: 1,
     retryDelay: 1000,
   });
@@ -143,9 +145,7 @@ export function BrowseCourses() {
       ? (luEnrollmentsData as any[])
       : [];
   const exploreItems = mergeLandingExploreItems(learningUniverses, courses);
-  const hasAnyCatalogData = exploreItems.length > 0;
-  const isStillWaiting = isLoading || luLoading;
-  const catalogLoading = !hasAnyCatalogData && isStillWaiting && (!data || !luData);
+  const catalogLoading = exploreItems.length === 0 && (isLoading || luLoading);
 
   const getLuEnrollmentStatus = (luId: string) => {
     const enrollment = luEnrollments.find((e: any) => e.learningUniverseId === luId || e.learningUniverse?.id === luId);

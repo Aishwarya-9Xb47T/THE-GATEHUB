@@ -816,6 +816,7 @@ export async function deleteCourseAdmin(req: AuthRequest, res: Response) {
       details: { action: "hard_delete" },
     });
   }
+  appCache.invalidate("courses:");
   res.json({ success: true, action: "deleted", message: "Course deleted" });
 }
 
@@ -855,6 +856,7 @@ export async function deleteLearningUniverseAdmin(req: AuthRequest, res: Respons
       });
     }
 
+    appCache.invalidate("universes:");
     return res.json({
       success: true,
       action: "archived",
@@ -876,6 +878,7 @@ export async function deleteLearningUniverseAdmin(req: AuthRequest, res: Respons
       details: { action: "hard_delete" },
     });
   }
+  appCache.invalidate("universes:");
   res.json({ success: true, action: "deleted", message: "Learning universe deleted" });
 }
 

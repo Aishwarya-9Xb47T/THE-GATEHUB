@@ -14,11 +14,11 @@ export function RouteWarmup() {
     };
 
     if (typeof window.requestIdleCallback === "function") {
-      const id = window.requestIdleCallback(warm, { timeout: 3500 });
+      const id = window.requestIdleCallback(warm, { timeout: 1000 });
       return () => window.cancelIdleCallback(id);
     }
 
-    const timer = window.setTimeout(warm, 1800);
+    const timer = window.setTimeout(warm, 200);
     return () => window.clearTimeout(timer);
   }, [queryClient]);
 

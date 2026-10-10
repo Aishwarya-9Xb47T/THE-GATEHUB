@@ -11,6 +11,14 @@ import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { BrandHomeButton } from "@/components/common/Logo";
 import { DevelopmentNoticeBanner } from "@/components/landing/DevelopmentNoticeBanner";
 import { cn } from "@/lib/utils";
+import {
+  prefetchCoursesRoute,
+  prefetchHelpRoute,
+  prefetchStudentDashboardRoute,
+  prefetchInstructorDashboardRoute,
+  prefetchLandingRoute,
+} from "@/lib/routePrefetch";
+import { clearUserQueryCache } from "@/lib/queryCachePersist";
 
 export function PublicLayout() {
   const navigate = useNavigate();
@@ -44,6 +52,7 @@ export function PublicLayout() {
 
   const handleLogout = async () => {
     try {
+      clearUserQueryCache();
       // Use the userStore logout method which handles token clearing and user state
       logout();
       
@@ -83,7 +92,12 @@ export function PublicLayout() {
 
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-6">
-              <Button variant="ghost" onClick={() => navigate("/")} className="type-nav">
+              <Button
+                variant="ghost"
+                onClick={() => navigate("/")}
+                onMouseEnter={prefetchLandingRoute}
+                className="type-nav"
+              >
                 Home
               </Button>
               <Button 
@@ -92,13 +106,21 @@ export function PublicLayout() {
                   const coursesSection = document.getElementById('courses');
                   if (coursesSection) {
                     coursesSection.scrollIntoView({ behavior: 'smooth' });
+                  } else {
+                    navigate("/#courses");
                   }
-                }} 
+                }}
+                onMouseEnter={prefetchCoursesRoute}
                 className={cn("type-nav", isCoursesActive && "bg-accent text-accent-foreground")}
               >
                 Courses
               </Button>
-              <Button variant="ghost" onClick={() => navigate("/help")} className="type-nav">
+              <Button
+                variant="ghost"
+                onClick={() => navigate("/help")}
+                onMouseEnter={prefetchHelpRoute}
+                className="type-nav"
+              >
                 Help Center
               </Button>
               <a
@@ -116,6 +138,7 @@ export function PublicLayout() {
                   <Button 
                     variant="ghost" 
                     onClick={() => navigate(user.role === "instructor" ? "/instructor" : "/student")}
+                    onMouseEnter={() => (user.role === "instructor" ? prefetchInstructorDashboardRoute() : prefetchStudentDashboardRoute())}
                     className="type-nav"
                   >
                     Dashboard

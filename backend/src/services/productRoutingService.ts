@@ -3,6 +3,7 @@
  */
 import { AppError } from "../middlewares/errorHandler.js";
 import { prisma } from "../utils/prisma.js";
+import { appCache } from "../utils/cache.js";
 
 export const PRODUCT_TYPES = {
   LEARNING_UNIVERSE: "learning-universe",
@@ -308,6 +309,11 @@ export async function syncCatalogOnPublish(universeId: string): Promise<void> {
 
   const { syncProductFromLearningUniverse } = await import("./productCatalogService.js");
   await syncProductFromLearningUniverse(universeId).catch(() => {});
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
+  appCache.invalidate("resources:");
 }
 
 /** Remove sibling catalog listings when a universe is unpublished. */
@@ -341,6 +347,11 @@ export async function syncCatalogOnUnpublish(universeId: string): Promise<void> 
 
   const { syncProductOnUnpublish } = await import("./productCatalogService.js");
   await syncProductOnUnpublish({ learningUniverseId: universeId }).catch(() => {});
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
+  appCache.invalidate("resources:");
 }
 
 export function assertProductTypeMatch(
@@ -776,7 +787,7 @@ export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Pr
 
   const result = [...premiumIds];
   cachedPremiumCourseIds = result;
-  cachedPremiumCourseIdsExpiresAt = now + 120 * 1000; // 120s TTL (invalidated on publish/save)
+  cachedPremiumCourseIdsExpiresAt = now + 600 * 1000; // 600s TTL (invalidated on publish/save)
   return result;
 }
 

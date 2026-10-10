@@ -126,4 +126,36 @@ describe("mergeLandingExploreItems", () => {
       }).not.toThrow();
     });
   });
+
+  describe("landingCoursesQueryOptions initialData resilience", () => {
+    it("provides initialData so landing never renders empty skeletons", () => {
+      const initial = landingCoursesQueryOptions.initialData();
+      expect(initial).toBeDefined();
+      expect(initial.success).toBe(true);
+      expect(initial.courses.length).toBeGreaterThan(0);
+      expect(initial.courses[0]).toHaveProperty("id");
+      expect(initial.courses[0]).toHaveProperty("title");
+    });
+
+    it("restores cached live courses from localStorage if present", () => {
+      const customCourses = {
+        success: true,
+        courses: [
+          {
+            id: "live-updated-course",
+            title: "Newly Published Live Course",
+            price: 0,
+            instructor: { firstName: "Test", lastName: "Instructor" },
+          },
+        ],
+      };
+      localStorage.setItem("gatehub_landing_featured_courses", JSON.stringify(customCourses));
+
+      const initial = landingCoursesQueryOptions.initialData();
+      expect(initial.courses[0].id).toBe("live-updated-course");
+      expect(initial.courses[0].title).toBe("Newly Published Live Course");
+
+      localStorage.removeItem("gatehub_landing_featured_courses");
+    });
+  });
 });

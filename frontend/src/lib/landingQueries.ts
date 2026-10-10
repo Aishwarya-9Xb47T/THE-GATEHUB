@@ -22,16 +22,103 @@ export interface LandingCoursesResponse {
   }>;
 }
 
+/** Pre-seeded active production courses for 0-millisecond instant initial paint */
+export const SEED_LANDING_COURSES: LandingCoursesResponse = {
+  success: true,
+  courses: [
+    {
+      id: "cmuyyrclo006ab4kywr3pypkl",
+      title: "Cyber Security",
+      subtitle: "Professional Cyber Security — Custom",
+      price: 0,
+      thumbnail: "/uploads/banners/1b406ad0-f47b-41bf-95ec-959a1354b3e9.jpg",
+      bannerUrl: "/uploads/banners/1b406ad0-f47b-41bf-95ec-959a1354b3e9.jpg",
+      category: "Cyber Security",
+      categoryRel: { name: "Cyber Security" },
+      instructor: { firstName: "N", lastName: "AISHWARYA" },
+    },
+    {
+      id: "cmt7jc1ff000310g6u2egopr4",
+      title: "Computer Networking",
+      subtitle: "Professional Computer Networking — Custom",
+      price: 0,
+      thumbnail: "/uploads/banners/d78f6c86-a5b1-46d1-a6b1-4ce0cbc7ffd4.jpg",
+      bannerUrl: "/uploads/banners/d78f6c86-a5b1-46d1-a6b1-4ce0cbc7ffd4.jpg",
+      category: "Computer Networking",
+      categoryRel: { name: "Computer Networking" },
+      instructor: { firstName: "N", lastName: "AISHWARYA" },
+    },
+    {
+      id: "cmt7hmqv300aw4c57cvx9e2a7",
+      title: "Deep Learning",
+      subtitle: "Professional Deep Learning — Custom",
+      price: 0,
+      thumbnail: "/uploads/banners/a645f8e8-860b-4d1c-bb49-6a7931254c09.png",
+      bannerUrl: "/uploads/banners/a645f8e8-860b-4d1c-bb49-6a7931254c09.png",
+      category: "Deep Learning",
+      categoryRel: { name: "Deep Learning" },
+      instructor: { firstName: "N", lastName: "AISHWARYA" },
+    },
+    {
+      id: "cmt7hgrys000m4c57gs35qg0z",
+      title: "AIML",
+      subtitle: "Professional AIML — Custom",
+      price: 0,
+      thumbnail: "/uploads/banners/16152995-3b57-4321-82b7-751bdbcc49ae.jpg",
+      bannerUrl: "/uploads/banners/16152995-3b57-4321-82b7-751bdbcc49ae.jpg",
+      category: "Artificial Intelligence",
+      categoryRel: { name: "Artificial Intelligence" },
+      instructor: { firstName: "N", lastName: "AISHWARYA" },
+    },
+  ],
+};
+
+function getCachedLandingCourses(): LandingCoursesResponse {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const stored = localStorage.getItem("gatehub_landing_featured_courses");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.courses?.length > 0) return parsed;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return SEED_LANDING_COURSES;
+}
+
+function getCachedLandingUniverses(): any[] {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const stored = localStorage.getItem("gatehub_landing_universes");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return [];
+}
+
 export const landingCoursesQueryOptions = {
   queryKey: ["landing", "featured-courses"] as const,
   queryFn: async (): Promise<LandingCoursesResponse> => {
     const res = await api<LandingCoursesResponse>("/courses?featured=home&limit=8");
     if (res.error) throw new Error(res.error);
-    if (!res.data?.courses) {
-      return { success: true, courses: [] };
+    const data = res.data?.courses ? res.data : { success: true, courses: [] };
+    if (typeof window !== "undefined" && window.localStorage && data.courses.length > 0) {
+      try {
+        localStorage.setItem("gatehub_landing_featured_courses", JSON.stringify(data));
+      } catch {
+        /* ignore */
+      }
     }
-    return res.data;
+    return data;
   },
+  initialData: getCachedLandingCourses,
   staleTime: LANDING_STALE_MS,
   gcTime: LANDING_GC_MS,
   retry: 2,
@@ -130,8 +217,17 @@ export const landingUniversesQueryOptions = {
   queryFn: async (): Promise<LandingUniversesResponse> => {
     const res = await getLandingShowcaseLearningUniverses();
     if (res.error) throw new Error(res.error);
-    return normalizeLandingUniverses(res.data);
+    const data = normalizeLandingUniverses(res.data);
+    if (typeof window !== "undefined" && window.localStorage && Array.isArray(data)) {
+      try {
+        localStorage.setItem("gatehub_landing_universes", JSON.stringify(data));
+      } catch {
+        /* ignore */
+      }
+    }
+    return data;
   },
+  initialData: getCachedLandingUniverses,
   staleTime: LANDING_STALE_MS,
   gcTime: LANDING_GC_MS,
   retry: 2,

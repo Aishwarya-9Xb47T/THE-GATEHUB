@@ -33,6 +33,7 @@ const ASSETS_DIR = path.join(UPLOAD_DIR, "learning-universes");
 // Public routes
 router.get("/catalog/landing", async (_req, res) => {
   try {
+    res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
     const universes = await getLandingShowcaseLearningUniverses();
     res.json({ success: true, data: universes });
   } catch (err) {
@@ -43,6 +44,7 @@ router.get("/catalog/landing", async (_req, res) => {
 
 router.get("/catalog/featured", async (_req, res) => {
   try {
+    res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
     const universes = await getFeaturedHomeLearningUniverses();
     res.json({ success: true, data: universes });
   } catch (err) {
@@ -53,6 +55,7 @@ router.get("/catalog/featured", async (_req, res) => {
 
 router.get("/", async (req, res) => {
   try {
+    res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
     const categorySlug =
       typeof req.query.categorySlug === "string" ? req.query.categorySlug : undefined;
     const categoryId =

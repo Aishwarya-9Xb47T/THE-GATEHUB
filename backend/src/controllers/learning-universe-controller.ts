@@ -854,7 +854,7 @@ export async function getPublishedLearningUniverses(options?: {
   });
 
   const result = mapUniversesWithStats(await excludeResourceBackedUniverses(filterUniversesForLuListing(universes as any)));
-  appCache.set(cacheKey, result, 30);
+  appCache.set(cacheKey, result, 300);
   return result;
 }
 
@@ -903,7 +903,7 @@ export async function getLandingShowcaseLearningUniverses() {
     filterUniversesForLuListing(universes as Parameters<typeof filterUniversesForLuListing>[0])
   );
   const result = mapUniversesWithStats(filtered as Parameters<typeof mapUniversesWithStats>[0]);
-  appCache.set(cacheKey, result, 30);
+  appCache.set(cacheKey, result, 300);
   return result;
 }
 
@@ -949,7 +949,7 @@ export async function getFeaturedHomeLearningUniverses() {
   const { filterUniversesForLuListing, filterFeaturedHomeUniverses } = await import("../services/productRoutingService.js");
   const luCatalog = filterUniversesForLuListing(universes as any);
   const result = mapUniversesWithStats(filterFeaturedHomeUniverses(luCatalog));
-  appCache.set(cacheKey, result, 30);
+  appCache.set(cacheKey, result, 300);
   return result;
 }
 

@@ -8,6 +8,7 @@ import { prisma } from "../utils/prisma.js";
 import { recordProjectVersion } from "../services/latexVersionService.js";
 import { generateStructuredContent, compileLatexToHtml } from "../services/contentBlockParser.js";
 import { getFrontendUrl } from "../utils/frontendUrl.js";
+import { appCache } from "../utils/cache.js";
 
 // Create a new resource course
 export const createResourceCourse = async (req: AuthRequest, res: Response) => {
@@ -64,6 +65,7 @@ export const createResourceCourse = async (req: AuthRequest, res: Response) => {
       }
     });
 
+    appCache.invalidate("resources:");
     res.status(201).json(course);
   } catch (error) {
     console.error("Error creating resource course:", error);
@@ -104,6 +106,7 @@ export const updateResourceCourse = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    appCache.invalidate("resources:");
     res.json(course);
   } catch (error) {
     console.error("Error updating resource course:", error);
@@ -114,6 +117,13 @@ export const updateResourceCourse = async (req: AuthRequest, res: Response) => {
 // Get all resource courses (public) — Free Learning library only
 export const getAllResourceCourses = async (req: Request, res: Response) => {
   try {
+    res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
+    const cacheKey = "resources:courses:all";
+    const cached = appCache.get<any[]>(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const { filterUniversesForFreeLibrary, inferProductType, isFreeLearningProduct } = await import(
       "../services/productRoutingService.js"
     );
@@ -200,6 +210,7 @@ export const getAllResourceCourses = async (req: Request, res: Response) => {
 
     const merged = [...luBackedCourses, ...legacyCourses];
     const uniqueCourses = Array.from(new Map(merged.map((c) => [c.id, c])).values());
+    appCache.set("resources:courses:all", uniqueCourses, 300);
 
     res.json(uniqueCourses);
   } catch (error) {
@@ -258,6 +269,7 @@ export const togglePublishCourse = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    appCache.invalidate("resources:");
     res.json({
       success: true,
       published: updatedCourse.published,
@@ -823,6 +835,7 @@ export const deleteCourse = async (req: AuthRequest, res: Response) => {
       where: { id: courseId }
     });
 
+    appCache.invalidate("resources:");
     res.json({ success: true, message: "Resource and all associated project data deleted permanently" });
   } catch (error: any) {
     console.error("Error deleting course:", error);

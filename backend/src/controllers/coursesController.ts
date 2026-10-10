@@ -254,6 +254,7 @@ export async function list(req: AuthRequest, res: Response) {
   if (cacheKey) {
     const cached = appCache.get<{ success: boolean; courses: any[] }>(cacheKey);
     if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
       return res.json(cached);
     }
   }
@@ -323,7 +324,8 @@ export async function list(req: AuthRequest, res: Response) {
   };
 
   if (cacheKey) {
-    appCache.set(cacheKey, responsePayload, 30);
+    appCache.set(cacheKey, responsePayload, 300);
+    res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
   }
 
   res.json(responsePayload);

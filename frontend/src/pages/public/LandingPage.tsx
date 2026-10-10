@@ -16,11 +16,7 @@ const EcosystemValueSection = lazy(() =>
   }))
 );
 
-const LandingExploreCoursesSection = lazy(() =>
-  import("@/pages/public/landing/LandingExploreCoursesSection").then((m) => ({
-    default: m.LandingExploreCoursesSection,
-  }))
-);
+import { LandingExploreCoursesSection } from "@/pages/public/landing/LandingExploreCoursesSection";
 
 function HeroMarqueeFallback() {
   return (
@@ -75,9 +71,7 @@ export function LandingPage() {
           <EcosystemValueSection />
         </Suspense>
 
-        <Suspense fallback={<LandingExploreSectionFallback />}>
-          <LandingExploreCoursesSection />
-        </Suspense>
+        <LandingExploreCoursesSection />
 
         <section className="landing-section-compact bg-transparent dark:bg-background transition-colors border-t border-border/40">
           <div className="landing-shell text-center">
