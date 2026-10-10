@@ -20,6 +20,7 @@ interface InstructorCourseCardProps {
     academicStudioEdit?: CourseAcademicStudioEdit | null;
   };
   variant?: "dashboard" | "catalog";
+  priority?: boolean;
   onTogglePublish?: (courseId: string, status: string) => void;
   onDelete?: (course: InstructorCourseCardProps["course"]) => void;
 }
@@ -27,6 +28,7 @@ interface InstructorCourseCardProps {
 export function InstructorCourseCard({
   course,
   variant = "dashboard",
+  priority = false,
   onTogglePublish,
   onDelete,
 }: InstructorCourseCardProps) {
@@ -53,6 +55,7 @@ export function InstructorCourseCard({
         thumbnailUrl={course.thumbnail}
         alt={course.title}
         placeholderSeed={course.title}
+        priority={priority}
       >
         <div className="absolute top-3 right-3 z-10">
           <span

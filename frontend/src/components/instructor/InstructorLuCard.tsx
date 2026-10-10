@@ -18,10 +18,11 @@ interface InstructorLuCardProps {
     _count?: { enrollments: number };
   };
   returnState: InstructorPreviewReturnState;
+  priority?: boolean;
   onDelete?: (universe: InstructorLuCardProps["universe"]) => void;
 }
 
-export function InstructorLuCard({ universe, returnState, onDelete }: InstructorLuCardProps) {
+export function InstructorLuCard({ universe, returnState, priority = false, onDelete }: InstructorLuCardProps) {
   const navigate = useNavigate();
 
   return (
@@ -31,6 +32,7 @@ export function InstructorLuCard({ universe, returnState, onDelete }: Instructor
         thumbnailUrl={universe.thumbnail}
         alt={universe.title}
         placeholderSeed={universe.title}
+        priority={priority}
       >
         <span
           className={cn(

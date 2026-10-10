@@ -31,6 +31,8 @@ interface CourseCardProps {
   detail?: ReactNode;
   /** When true, hide the built-in progress bar (use detail instead) */
   hideDefaultProgress?: boolean;
+  /** When true, image loads eagerly with high fetchPriority (e.g. above-the-fold cards) */
+  priority?: boolean;
 }
 
 export function CourseCard({
@@ -42,6 +44,7 @@ export function CourseCard({
   stats,
   detail,
   hideDefaultProgress,
+  priority = false,
 }: CourseCardProps) {
   const categoryLabel =
     typeof course.category === "string" ? course.category : course.category?.name || "Uncategorized";
@@ -57,6 +60,7 @@ export function CourseCard({
         category={categoryLabel}
         alt={course.title}
         placeholderSeed={categoryLabel}
+        priority={priority}
       >
         {topRightOverlay && (
           <div className="absolute top-2.5 right-2.5 z-10" onClick={(e) => e.stopPropagation()}>

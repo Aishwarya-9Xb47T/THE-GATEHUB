@@ -106,6 +106,7 @@ export function StudentDashboard() {
               thumbnailUrl={primaryContinue.thumbnail}
               alt={primaryContinue.title}
               placeholderSeed={primaryContinue.title}
+              priority={true}
             />
             <div className="flex flex-1 flex-col justify-center gap-3 p-5 sm:p-6">
               <div>

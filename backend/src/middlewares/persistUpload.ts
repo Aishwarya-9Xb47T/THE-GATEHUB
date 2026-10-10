@@ -24,6 +24,7 @@ import { getUploadRoot, resolveSafeUploadPath, normalizeUploadRelativePath } fro
 import {
   inspectByteRange,
   isVideoUploadPath,
+  isPublicUploadPath,
   mimeFromUploadPath as mimeFromExt,
 } from "../utils/uploadMedia.js";
 import { classroomAssetLookupRelatives } from "../services/classroomStudio/classroomAssetUrls.js";
@@ -32,6 +33,20 @@ import { getClientUrlSafe } from "../utils/frontendUrl.js";
 
 export type { B2Prefix };
 export { isVideoUploadPath };
+
+/** Resolve standard CDN and browser Cache-Control headers for upload paths. */
+export function resolveUploadCacheControl(relativePath: string): string {
+  const norm = normalizeUploadRelativePath(relativePath).toLowerCase();
+  if (isPublicUploadPath(norm)) {
+    // Content-addressed immutable media (UUID or hex hash in filename)
+    if (/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}|[a-f0-9]{16,}/i.test(norm)) {
+      return "public, max-age=31536000, immutable";
+    }
+    // General public uploads (banners, categories, images): 7 days browser, 30 days CDN edge
+    return "public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400";
+  }
+  return "private, no-cache, no-store, must-revalidate";
+}
 
 function httpStatusOfGet(err: unknown): number | undefined {
   if (!err || typeof err !== "object") return undefined;
@@ -351,7 +366,7 @@ export async function hydrateLocalUpload(stored: string): Promise<string | null>
 export function streamMemoryUpload(
   res: Response,
   body: Buffer,
-  options?: { range?: string; method?: string; mimeType?: string; origin?: string; cacheControl?: string }
+  options?: { range?: string; method?: string; mimeType?: string; origin?: string; cacheControl?: string; ifNoneMatch?: string }
 ): boolean {
   const size = body.length;
   if (size <= 0) return false;
@@ -362,6 +377,14 @@ export function streamMemoryUpload(
   res.setHeader("Content-Type", mime);
   res.setHeader("X-Content-Type-Options", "nosniff");
   if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
+
+  const etag = `W/"${size.toString(16)}-${body.subarray(0, 16).toString("hex")}"`;
+  res.setHeader("ETag", etag);
+
+  if (options?.ifNoneMatch && (options.ifNoneMatch === etag || options.ifNoneMatch === etag.replace(/^W\//, ""))) {
+    res.status(304).end();
+    return true;
+  }
 
   if (inspected.type === "unsatisfiable") {
     sendUnsatisfiableRange(res, size);
@@ -394,7 +417,7 @@ export function streamMemoryUpload(
 export function streamLocalUpload(
   res: Response,
   filePath: string,
-  options?: { range?: string; method?: string; mimeType?: string; origin?: string; cacheControl?: string }
+  options?: { range?: string; method?: string; mimeType?: string; origin?: string; cacheControl?: string; ifNoneMatch?: string }
 ): boolean {
   if (!fs.existsSync(filePath)) return false;
   const stat = fs.statSync(filePath);
@@ -404,8 +427,17 @@ export function streamLocalUpload(
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", mime);
   res.setHeader("X-Content-Type-Options", "nosniff");
-  if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
+  const cacheControl = options?.cacheControl || resolveUploadCacheControl(filePath);
+  if (cacheControl) res.setHeader("Cache-Control", cacheControl);
   if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
+
+  const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  res.setHeader("ETag", etag);
+
+  if (options?.ifNoneMatch && (options.ifNoneMatch === etag || options.ifNoneMatch === etag.replace(/^W\//, ""))) {
+    res.status(304).end();
+    return true;
+  }
 
   mediaLog("MEDIA_RESOLVE", {
     path: path.basename(filePath),
@@ -612,7 +644,7 @@ async function resolveB2StreamTarget(relativePath: string): Promise<{
 export async function serveStoredUpload(
   res: Response,
   relativePath: string,
-  options?: { range?: string; asVideo?: boolean; method?: string; origin?: string; mimeType?: string; cacheControl?: string }
+  options?: { range?: string; asVideo?: boolean; method?: string; origin?: string; mimeType?: string; cacheControl?: string; ifNoneMatch?: string }
 ): Promise<boolean> {
   const relatives = uploadRelativesToTry(relativePath);
   for (const relative of relatives) {
@@ -624,13 +656,62 @@ export async function serveStoredUpload(
         origin: options?.origin,
         mimeType: options?.mimeType,
         cacheControl: options?.cacheControl,
+        ifNoneMatch: options?.ifNoneMatch,
       });
     }
   }
 
   if (!isB2Configured()) return false;
 
-  const target = await resolveB2StreamTarget(relativePath);
+  let target = await resolveB2StreamTarget(relativePath);
+
+  // Auto on-the-fly thumbnail generation if requesting a missing thumbnail
+  if (!target && relativePath.includes("banners/thumbs/thumb-")) {
+    const originalFilename = relativePath.split("banners/thumbs/thumb-")[1]?.split("?")[0];
+    if (originalFilename) {
+      const parentRelative = `banners/${originalFilename}`;
+      const parentLocal = resolveSafeUploadPath(parentRelative);
+      let parentBuffer: Buffer | null = null;
+      if (parentLocal && fs.existsSync(parentLocal)) {
+        parentBuffer = fs.readFileSync(parentLocal);
+      } else {
+        parentBuffer = await readSmallStoredFile(parentRelative);
+      }
+      if (parentBuffer && parentBuffer.length > 0) {
+        try {
+          const sharp = (await import("sharp")).default;
+          const thumbBuffer = await sharp(parentBuffer)
+            .resize(640, 360, { fit: "cover" })
+            .jpeg({ quality: 82 })
+            .toBuffer();
+          const thumbLocal = resolveSafeUploadPath(relativePath);
+          if (thumbLocal) {
+            fs.mkdirSync(path.dirname(thumbLocal), { recursive: true });
+            fs.writeFileSync(thumbLocal, thumbBuffer);
+          }
+          if (isB2Configured() && thumbLocal) {
+            persistGeneratedFile({
+              localPath: thumbLocal,
+              prefix: "banners",
+              extraPath: "thumbs",
+              fileName: `thumb-${originalFilename}`,
+              contentType: "image/jpeg",
+            }).catch((e) => console.warn("[THUMB_GEN] B2 persist error:", e));
+          }
+          return streamMemoryUpload(res, thumbBuffer, {
+            mimeType: "image/jpeg",
+            origin: options?.origin,
+            method: options?.method,
+            cacheControl: options?.cacheControl || resolveUploadCacheControl(relativePath),
+            ifNoneMatch: options?.ifNoneMatch,
+          });
+        } catch (err) {
+          console.warn("[THUMB_GEN] On-the-fly generation failed:", err);
+        }
+      }
+    }
+  }
+
   if (!target) {
     mediaLog("MEDIA_B2", { path: relativePath, found: 0 });
     return false;
@@ -648,8 +729,17 @@ export async function serveStoredUpload(
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Content-Type", mime);
-  if (options?.cacheControl) res.setHeader("Cache-Control", options.cacheControl);
+  const cacheControl = options?.cacheControl || resolveUploadCacheControl(relativePath);
+  if (cacheControl) res.setHeader("Cache-Control", cacheControl);
   if (mime === "application/pdf") res.removeHeader("X-Frame-Options");
+
+  const etag = `W/"${size.toString(16)}-${key.replace(/[^a-zA-Z0-9]/g, "")}"`;
+  res.setHeader("ETag", etag);
+
+  if (options?.ifNoneMatch && (options.ifNoneMatch === etag || options.ifNoneMatch === etag.replace(/^W\//, ""))) {
+    res.status(304).end();
+    return true;
+  }
 
   mediaLog("MEDIA_RESOLVE", {
     path: relativePath,
@@ -742,6 +832,29 @@ export async function serveStoredUpload(
     res.setHeader("Content-Range", streamed.contentRange);
   } else if (contentRangeHeader) {
     res.setHeader("Content-Range", contentRangeHeader);
+  }
+
+  // Cache streamed B2 object to local disk for fast subsequent reads if 200 full response < 15MB
+  const localDest = resolveSafeUploadPath(relativePath);
+  if (responseStatus === 200 && !b2Range && sizeKnown && size > 0 && size < 15 * 1024 * 1024 && localDest) {
+    try {
+      fs.mkdirSync(path.dirname(localDest), { recursive: true });
+      const tempPath = `${localDest}.${Date.now()}.tmp`;
+      const fileOut = fs.createWriteStream(tempPath);
+      streamed.body.pipe(fileOut);
+      fileOut.on("finish", () => {
+        fs.rename(tempPath, localDest, (err) => {
+          if (err) {
+            unlinkQuietly(tempPath).catch(() => {});
+          }
+        });
+      });
+      fileOut.on("error", () => {
+        unlinkQuietly(tempPath).catch(() => {});
+      });
+    } catch {
+      // non-fatal
+    }
   }
 
   streamed.body.on("error", (err) => {

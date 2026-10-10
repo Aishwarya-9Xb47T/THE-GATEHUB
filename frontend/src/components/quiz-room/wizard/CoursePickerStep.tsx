@@ -3,7 +3,7 @@ import { Search, Users, BookOpen, ChevronRight, GraduationCap } from "lucide-rea
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { resolveCourseBannerUrl } from "@/lib/courseBanner";
+import { resolveCourseThumbnailUrl } from "@/lib/courseBanner";
 import type { InstructorCourseCard } from "./wizardTypes";
 
 interface CoursePickerStepProps {
@@ -75,9 +75,11 @@ export function CoursePickerStep({ courses, selectedId, onSelect, loading }: Cou
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-amber-500/20">
                     {course.thumbnail ? (
                       <img
-                        src={resolveCourseBannerUrl(course.thumbnail) || course.thumbnail}
+                        src={resolveCourseThumbnailUrl(course.thumbnail) || course.thumbnail}
                         alt=""
                         className="h-full w-full rounded-xl object-cover"
+                        loading="eager"
+                        decoding="async"
                       />
                     ) : (
                       <GraduationCap className="h-7 w-7 text-primary" />

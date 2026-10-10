@@ -79,11 +79,12 @@ export function WishlistPage() {
         <Card><CardContent className="p-12 text-center text-muted-foreground">You haven't saved anything yet.</CardContent></Card>
       ) : (
         <div className="course-cards-grid">
-          {items.map((item) => {
+          {items.map((item, i) => {
             if (item.course) {
               return (
                 <CourseCard
                   key={item.id}
+                  priority={i < 4}
                   course={{
                     id: item.course.id,
                     title: item.course.title,
@@ -116,6 +117,7 @@ export function WishlistPage() {
                       bannerUrl={lu.thumbnail}
                       thumbnailUrl={lu.thumbnail}
                       alt={lu.title}
+                      priority={i < 4}
                       className="h-32 rounded"
                       imageClassName="h-full w-full object-cover rounded"
                       overlay={false}

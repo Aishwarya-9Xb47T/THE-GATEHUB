@@ -303,6 +303,8 @@ export function CourseDetailPage() {
                 className="w-full h-full"
                 imageClassName="max-h-full max-w-full object-cover transition-transform duration-700 group-hover:scale-105"
                 overlay={false}
+                priority={true}
+                preferOriginal={true}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-80 group-hover:opacity-60 transition-all duration-300 pointer-events-none" />
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 transform scale-95 group-hover:scale-100 pointer-events-none">

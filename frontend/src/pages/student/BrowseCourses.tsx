@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Search, Play, Award } from "lucide-react";
@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { useRazorpayCheckout } from "@/hooks/useRazorpayCheckout";
 import { studentCourseCta } from "@/lib/paymentUtils";
 import { mergeLandingExploreItems } from "@/lib/landingQueries";
+import { preloadCourseImages } from "@/lib/courseBanner";
 
 interface Course {
   id: string;
@@ -146,6 +147,17 @@ export function BrowseCourses() {
       : [];
   const exploreItems = mergeLandingExploreItems(learningUniverses, courses);
   const catalogLoading = exploreItems.length === 0 && (isLoading || luLoading);
+
+  useEffect(() => {
+    if (exploreItems.length > 0) {
+      const bannerTargets = exploreItems.slice(0, 4).map((it) =>
+        it.kind === "universe"
+          ? it.universe.bannerUrl || it.universe.thumbnail
+          : it.course.bannerUrl || it.course.thumbnail
+      );
+      preloadCourseImages(bannerTargets);
+    }
+  }, [exploreItems]);
 
   const getLuEnrollmentStatus = (luId: string) => {
     const enrollment = luEnrollments.find((e: any) => e.learningUniverseId === luId || e.learningUniverse?.id === luId);
@@ -287,6 +299,7 @@ export function BrowseCourses() {
               return (
                 <motion.div key={`universe-${lu.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
                   <CourseCard
+                    priority={i < 4}
                     course={{
                       id: lu.id,
                       title: lu.title,
@@ -332,6 +345,7 @@ export function BrowseCourses() {
             return (
               <motion.div key={`course-${c.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="h-full">
                 <CourseCard
+                  priority={i < 4}
                   course={{
                     id: c.id,
                     title: c.title,

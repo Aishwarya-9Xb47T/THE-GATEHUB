@@ -286,14 +286,16 @@ async function serveProjectUpload(req: Request, res: Response) {
   }
   const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  const ifNoneMatch = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : undefined;
   try {
     if (fs.existsSync(filePath)) {
-      return streamLocalUpload(res, filePath, { range, method: req.method, origin });
+      return streamLocalUpload(res, filePath, { range, method: req.method, origin, ifNoneMatch });
     }
     const served = await serveStoredUpload(res, relative, {
       range,
       method: req.method,
       origin,
+      ifNoneMatch,
       asVideo: isVideoUploadPath(relative),
     });
     if (served) return;
@@ -331,13 +333,14 @@ async function serveAnyUpload(req: Request, res: Response, next: () => void) {
   }
   const range = typeof req.headers.range === "string" ? req.headers.range : undefined;
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  const ifNoneMatch = typeof req.headers["if-none-match"] === "string" ? req.headers["if-none-match"] : undefined;
   console.log(
     `[MEDIA_RESOLVE] path=${relativePath} method=${req.method} range=${range || "none"} video=${isVideoUploadPath(relativePath) ? 1 : 0}`
   );
 
   try {
     if (fs.existsSync(filePath)) {
-      return streamLocalUpload(res, filePath, { range, method: req.method, origin });
+      return streamLocalUpload(res, filePath, { range, method: req.method, origin, ifNoneMatch });
     }
 
     const streamed = await serveStoredUpload(res, relativePath, {
@@ -345,6 +348,7 @@ async function serveAnyUpload(req: Request, res: Response, next: () => void) {
       range,
       method: req.method,
       origin,
+      ifNoneMatch,
     });
     if (streamed) return;
     if (isVideoUploadPath(relativePath)) {

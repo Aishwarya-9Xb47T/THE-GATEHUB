@@ -89,9 +89,22 @@ const updateSchema = createSchema.partial().extend({
   status: z.enum(["draft", "published", "archived"]).optional(),
 });
 
-function normalizeCourseCategory<T extends { categoryRel?: { id?: string; name: string; slug?: string } | null; category?: string | null }>(course: T) {
+function normalizeCourseCategory<T extends {
+  categoryRel?: { id?: string; name: string; slug?: string } | null;
+  category?: string | null;
+  thumbnail?: string | null;
+  bannerUrl?: string | null;
+}>(course: T) {
+  let thumbnail = course.thumbnail || course.bannerUrl || null;
+  if (thumbnail && thumbnail.includes("/uploads/banners/") && !thumbnail.includes("/thumbs/thumb-")) {
+    const filename = thumbnail.split("/uploads/banners/")[1]?.split("?")[0];
+    if (filename) {
+      thumbnail = `/uploads/banners/thumbs/thumb-${filename}`;
+    }
+  }
   return {
     ...course,
+    thumbnail,
     category: course.categoryRel ?? (course.category ? { name: course.category } : null),
   };
 }

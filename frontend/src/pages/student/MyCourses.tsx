@@ -417,6 +417,7 @@ export function MyCourses() {
                       className="h-full"
                     >
                       <CourseCard
+                        priority={i < 4}
                         course={{
                           id: e.course.id,
                           title: e.course.title,
@@ -655,6 +656,7 @@ export function MyCourses() {
                       className="h-full"
                     >
                       <CourseCard
+                        priority={i < 4}
                         course={{
                           id: lu.id,
                           title: lu.title,

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, Clock } from "lucide-react";
@@ -6,6 +7,7 @@ import { WishlistHeartButton } from "@/components/common/WishlistHeartButton";
 import { Button } from "@/components/ui/button";
 import { LandingCatalogSkeleton } from "@/components/landing/LandingCatalogSkeleton";
 import { ShimmerHeading } from "@/components/landing/ShimmerHeading";
+import { preloadCourseImages } from "@/lib/courseBanner";
 import {
   landingCoursesQueryOptions,
   landingUniversesQueryOptions,
@@ -23,6 +25,17 @@ export function LandingExploreCoursesSection() {
   const hasAnyData = items.length > 0;
   const isInitialLoading = !hasAnyData && (universesQuery.isLoading || coursesQuery.isLoading);
   const isError = !hasAnyData && !universesQuery.isLoading && !coursesQuery.isLoading && (universesQuery.isError || coursesQuery.isError);
+
+  useEffect(() => {
+    if (items.length > 0) {
+      const bannerTargets = items.slice(0, 4).map((it) =>
+        it.kind === "universe"
+          ? it.universe.bannerUrl || it.universe.thumbnail
+          : it.course.bannerUrl || it.course.thumbnail
+      );
+      preloadCourseImages(bannerTargets);
+    }
+  }, [items]);
 
   return (
     <section
@@ -52,10 +65,11 @@ export function LandingExploreCoursesSection() {
           </div>
         ) : (
           <div className="landing-cards-grid">
-            {items.map((item) =>
+            {items.map((item, index) =>
               item.kind === "universe" ? (
                 <CourseCard
                   key={`universe-${item.id}`}
+                  priority={index < 4}
                   course={{
                     id: item.universe.id,
                     title: item.universe.title,
@@ -113,6 +127,7 @@ export function LandingExploreCoursesSection() {
               ) : (
                 <CourseCard
                   key={`course-${item.id}`}
+                  priority={index < 4}
                   course={{
                     id: item.course.id,
                     title: item.course.title || "Untitled Course",

@@ -266,7 +266,7 @@ export function InstructorDashboard() {
                 transition={{ delay: Math.min(index * 0.05, 0.3) }}
                 className="h-full"
               >
-                <InstructorCourseCard course={course} />
+                <InstructorCourseCard course={course} priority={index < 4} />
               </motion.div>
             ))}
           </div>

@@ -111,10 +111,11 @@ export function MyCoursesInstructor() {
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
-          {courses.map((course) => (
+          {courses.map((course, i) => (
             <InstructorCourseCard
               key={course.id}
               course={course}
+              priority={i < 4}
               variant="catalog"
               onTogglePublish={handleTogglePublish}
               onDelete={(course) => {
