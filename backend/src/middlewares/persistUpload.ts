@@ -480,7 +480,7 @@ function uploadRelativesToTry(relativePath: string): string[] {
     const ext = path.extname(primary).toLowerCase();
     if (/\.(mp4|webm|mov|avi|mkv|m4v)$/i.test(ext)) {
       relatives.push(`videos/${primary}`);
-    } else if (/\.(png|jpg|jpeg|webp|svg|gif|avif)$/i.test(ext)) {
+    } else if (/\.(png|jpg|jpeg|webp|svg|gif|avif|bmp)$/i.test(ext)) {
       relatives.push(`images/${primary}`);
       relatives.push(`banners/${primary}`);
     } else if (/\.pdf$/i.test(ext)) {

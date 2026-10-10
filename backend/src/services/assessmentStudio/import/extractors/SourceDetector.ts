@@ -53,6 +53,7 @@ export class SourceDetector {
 
   private static readonly URL_PATTERNS: Array<{ pattern: RegExp; type: SourceType; priority: number }> = [
     { pattern: /docs\.google\.com\/document/i, type: SourceType.GOOGLE_DOCS, priority: 10 },
+    { pattern: /docs\.google\.com\/presentation/i, type: SourceType.GOOGLE_SLIDES, priority: 10 },
     { pattern: /docs\.google\.com\/forms/i, type: SourceType.GOOGLE_FORMS, priority: 10 },
     { pattern: /forms\.google\.com/i, type: SourceType.GOOGLE_FORMS, priority: 10 },
     { pattern: /youtube\.com\/watch/i, type: SourceType.YOUTUBE, priority: 10 },
@@ -82,6 +83,12 @@ export class SourceDetector {
             sourceType: SourceType.GOOGLE_FORMS,
             confidence: 1.0,
             metadata: { urlPattern: 'google_forms_api' },
+          };
+        case ContentSource.GOOGLE_SLIDES:
+          return {
+            sourceType: SourceType.GOOGLE_SLIDES,
+            confidence: 1.0,
+            metadata: { urlPattern: 'google_slides_api' },
           };
         default:
           throw new AppError(400, `Unsupported content source: ${input.source}`);

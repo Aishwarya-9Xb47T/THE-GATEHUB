@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@jest/globals";
 import { relativeUploadPathFromRef, architectUploadStorageRefs } from "../videoAssignmentEngine.js";
 import { emitVideosTex } from "../../luProject/luCourseRenderer.js";
 

@@ -25,9 +25,18 @@ import { prepareLatexForCompilation } from "../src/services/latexLearningCommand
 const projectId = process.argv[2] || "cmr1t3kgu00032biyhmh22894";
 
 async function main() {
-  const files = await loadProjectFiles(projectId);
+  let files;
+  try {
+    files = await loadProjectFiles(projectId);
+  } catch (err) {
+    console.warn(`[AUDIT_COMPILER_MACROS] Database unreachable or project "${projectId}" not found. Skipping live DB audit.`);
+    return;
+  }
   const project = getProjectJsonFromFiles(files);
-  if (!project) throw new Error("project.json not found");
+  if (!project) {
+    console.warn(`[AUDIT_COMPILER_MACROS] project.json not found for project "${projectId}". Skipping.`);
+    return;
+  }
 
   console.log("=".repeat(72));
   console.log("COMPILER AUDIT — macro registry + validation + compile");

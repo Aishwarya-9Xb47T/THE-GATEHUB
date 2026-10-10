@@ -133,6 +133,6 @@ export function isPublicUploadPath(relativePath: string): boolean {
   }
 
   const ext = path.extname(normalized);
-  const publicImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".ico"];
+  const publicImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".ico", ".bmp", ".avif"];
   return publicImageExtensions.includes(ext);
 }

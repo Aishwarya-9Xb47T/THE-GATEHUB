@@ -24,7 +24,7 @@ export function shouldUseGoogleSlidesEmbed(args: {
   if (args.visualSource === "original_pptx" || args.visualSource === "rendered_image") return false;
   const id = args.googleSlidesId || googleSlidesPresentationId(args.sourceUrl);
   if (!id) return false;
-  return args.visualSource === "google_embed";
+  return args.visualSource === "google_embed" || args.sourceType === "google_slides";
 }
 
 export function classroomOriginalPptxUrl(presentationId: string): string {

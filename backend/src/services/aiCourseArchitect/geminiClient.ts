@@ -10,12 +10,10 @@ import { getGeminiApiKey } from "./openaiClient.js";
  * Can be overridden via GEMINI_MODEL, AI_ARCHITECT_GEMINI_MODEL, or GOOGLE_GEMINI_MODEL.
  */
 export const GEMINI_FREE_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-  "gemini-2.5-pro",
   "gemini-3.5-flash-lite",
   "gemini-3.5-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
 ] as const;
 
 export const DEFAULT_GEMINI_MODEL = GEMINI_FREE_MODELS[0];

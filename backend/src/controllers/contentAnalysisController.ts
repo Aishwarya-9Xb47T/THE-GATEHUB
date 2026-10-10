@@ -27,7 +27,7 @@ export const contentAnalysisUpload = multer({
 });
 
 const contentInputSchema = z.object({
-  source: z.enum(['file', 'url', 'google_docs', 'google_forms']),
+  source: z.enum(['file', 'url', 'google_docs', 'google_forms', 'google_slides']),
   url: z.string().url().optional(),
   googleAccessToken: z.string().optional(),
   title: z.string().optional(),

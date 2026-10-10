@@ -58,7 +58,7 @@ async function identifyUploadUser(req: AuthRequest): Promise<{ id: string; role:
 }
 
 const PUBLISHED_PROJECT_MEDIA_EXT =
-  /\.(mp4|webm|mov|m4v|mkv|ogv|ogg|png|jpe?g|gif|webp|svg)$/i;
+  /\.(mp4|webm|mov|m4v|mkv|ogv|ogg|png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 export async function canAccessPublishedSourceProjectMedia(
   projectId: string,

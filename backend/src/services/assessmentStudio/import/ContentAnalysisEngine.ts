@@ -246,6 +246,7 @@ export class ContentAnalysisEngine {
       SourceType.MOODLE_XML,
       SourceType.GOOGLE_DOCS,
       SourceType.GOOGLE_FORMS,
+      SourceType.GOOGLE_SLIDES,
       SourceType.YOUTUBE,
       SourceType.WEBSITE,
     ];
@@ -259,11 +260,18 @@ export class ContentAnalysisEngine {
       throw new AppError(400, 'File input requires a file');
     }
 
-    if (input.source === 'url' && !input.url) {
-      throw new AppError(400, 'URL input requires a URL');
+    if (input.source === 'url') {
+      if (!input.url) {
+        throw new AppError(400, 'URL input requires a URL');
+      }
+      try {
+        new URL(input.url);
+      } catch {
+        throw new AppError(400, 'Invalid URL format');
+      }
     }
 
-    if ((input.source === 'google_docs' || input.source === 'google_forms') && !input.googleAccessToken) {
+    if ((input.source === 'google_docs' || input.source === 'google_forms' || input.source === 'google_slides') && !input.googleAccessToken) {
       throw new AppError(401, 'Google source requires access token');
     }
 

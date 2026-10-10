@@ -74,6 +74,10 @@ export class RawContentExtractor {
           console.log('[RawContentExtractor] Using Google Forms parser');
           result = await this.extractFromGoogleForms(input);
           break;
+        case SourceType.GOOGLE_SLIDES:
+          console.log('[RawContentExtractor] Using Google Slides parser');
+          result = await this.extractFromGoogleSlides(input);
+          break;
         case SourceType.YOUTUBE:
           console.log('[RawContentExtractor] Using YouTube parser');
           result = await this.extractFromYoutube(input);
@@ -213,6 +217,10 @@ export class RawContentExtractor {
 
   private static async extractFromGoogleForms(input: ContentInput): Promise<RawContent> {
     throw new AppError(400, 'Google Forms must be processed via the unified analyze-google adapter endpoint');
+  }
+
+  private static async extractFromGoogleSlides(input: ContentInput): Promise<RawContent> {
+    throw new AppError(400, 'Google Slides must be processed via the unified analyze-google adapter endpoint');
   }
 
   /**

@@ -9,9 +9,6 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-import fs from 'fs';
-import path from 'path';
-
 function persistImageAsset(dataUrl?: string): string | undefined {
   if (!dataUrl || typeof dataUrl !== 'string') return undefined;
   const trimmed = dataUrl.trim();

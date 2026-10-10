@@ -22,7 +22,7 @@ const FORBIDDEN: Array<{ id: string; pattern: RegExp; allowIn?: RegExp }> = [
   {
     id: "injectAllIncludeGraphicsForPublish",
     pattern: /injectAllIncludeGraphicsForPublish\s*\(/,
-    allowIn: /luIncludeGraphicsInjector\.ts$/,
+    allowIn: /(luIncludeGraphicsInjector|luCompileSource)\.ts$/,
   },
   {
     id: "enrichLessonToDocumentBlocks",

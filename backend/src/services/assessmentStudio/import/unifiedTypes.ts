@@ -20,6 +20,7 @@ export enum SourceType {
   MOODLE_XML = 'moodle_xml',
   GOOGLE_DOCS = 'google_docs',
   GOOGLE_FORMS = 'google_forms',
+  GOOGLE_SLIDES = 'google_slides',
   YOUTUBE = 'youtube',
   WEBSITE = 'website',
 }
@@ -29,6 +30,7 @@ export enum ContentSource {
   URL = 'url',
   GOOGLE_DOCS = 'google_docs',
   GOOGLE_FORMS = 'google_forms',
+  GOOGLE_SLIDES = 'google_slides',
 }
 
 // ============================================================================

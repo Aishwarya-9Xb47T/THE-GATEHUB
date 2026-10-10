@@ -1,6 +1,7 @@
-﻿export const IMPORT_SOURCES = [
+export const IMPORT_SOURCES = [
   "google_forms",
   "google_docs",
+  "google_slides",
   "pdf",
   "docx",
   "pptx",
