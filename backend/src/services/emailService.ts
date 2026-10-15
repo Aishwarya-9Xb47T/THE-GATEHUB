@@ -57,18 +57,65 @@ function brandShell(opts: {
 </body></html>`;
 }
 
+async function getPlatformSettingsSafe() {
+  if (process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== undefined) {
+    return null;
+  }
+  try {
+    return await Promise.race([
+      getPlatformSettings(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
 async function resolveMailConfig() {
-  const settings = await getPlatformSettings().catch(() => null);
-  const host = process.env.SMTP_HOST || settings?.smtpHost || "";
-  const port = Number(process.env.SMTP_PORT || settings?.smtpPort || 587);
-  const user = process.env.SMTP_USER || process.env.EMAIL_USER || settings?.smtpUsername || "";
-  const pass = process.env.SMTP_PASSWORD || process.env.EMAIL_PASS || settings?.smtpPassword || "";
+  const envHost = process.env.SMTP_HOST || "";
+  const envPort = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
+  const envUser = process.env.SMTP_USER || process.env.EMAIL_USER || "";
+  const envPass = process.env.SMTP_PASSWORD || process.env.EMAIL_PASS || "";
+
+  // If env vars are already populated, use them immediately without querying DB
+  if (envUser && envPass) {
+    const fromEmail = process.env.EMAIL_FROM || envUser || "noreply@thegatehub.com";
+    const fromName = process.env.EMAIL_FROM_NAME || "THE GATEHUB";
+    const supportEmail = process.env.SUPPORT_EMAIL || null;
+    return {
+      host: envHost,
+      port: envPort || 587,
+      user: envUser,
+      pass: envPass,
+      fromEmail,
+      fromName,
+      supportEmail,
+      settings: null,
+    };
+  }
+
+  const settings = await getPlatformSettingsSafe();
+  const host = envHost || settings?.smtpHost || "";
+  const port = envPort || Number(settings?.smtpPort || 587);
+  const user = envUser || settings?.smtpUsername || "";
+  const pass = envPass || settings?.smtpPassword || "";
   const fromEmail =
-    process.env.EMAIL_FROM || process.env.EMAIL_USER || user || "noreply@thegatehub.local";
+    process.env.EMAIL_FROM || process.env.EMAIL_USER || user || "noreply@thegatehub.com";
   const fromName = process.env.EMAIL_FROM_NAME || settings?.platformName || "THE GATEHUB";
-  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
+  const supportEmail = process.env.SUPPORT_EMAIL || settings?.supportEmail || null;
 
   return { host, port, user, pass, fromEmail, fromName, supportEmail, settings };
+}
+
+export async function isEmailConfigured(): Promise<boolean> {
+  const hasResend = Boolean(
+    process.env.EMAIL_API_KEY?.trim() &&
+    (process.env.EMAIL_FROM?.trim() || process.env.EMAIL_USER?.trim() || process.env.SMTP_USER?.trim())
+  );
+  if (hasResend) return true;
+
+  const cfg = await resolveMailConfig().catch(() => null);
+  return Boolean(cfg?.user && cfg?.pass);
 }
 
 async function getTransporter() {
@@ -146,7 +193,7 @@ async function withSendTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 async function sendMail(payload: MailPayload) {
   const started = Date.now();
   const maskedTo = maskRecipient(payload.to);
-  console.log(`[EMAIL] EMAIL_SEND_START to=${maskedTo} subject="${payload.subject}"`);
+  console.log(`[EMAIL] EMAIL_SEND_START provider=smtp to=${maskedTo} subject="${payload.subject}"`);
 
   try {
     const { transporter, cfg } = await getTransporter();
@@ -164,7 +211,7 @@ async function sendMail(payload: MailPayload) {
 
     const durationMs = Date.now() - started;
     console.log(
-      `[EMAIL] EMAIL_SEND_SUCCESS durationMs=${durationMs} to=${maskedTo} messageId=${result?.messageId || "(none)"} accepted=${JSON.stringify(result?.accepted ?? [])} rejected=${JSON.stringify(result?.rejected ?? [])}`
+      `[EMAIL] EMAIL_SEND_SUCCESS provider=smtp durationMs=${durationMs} to=${maskedTo} messageId=${result?.messageId || "(none)"} accepted=${JSON.stringify(result?.accepted ?? [])} rejected=${JSON.stringify(result?.rejected ?? [])}`
     );
 
     if (result?.rejected?.length) {
@@ -175,7 +222,7 @@ async function sendMail(payload: MailPayload) {
     const durationMs = Date.now() - started;
     const isTimeout = /timed out|timeout|ETIMEDOUT|ESOCKETTIMEDOUT/i.test(msg);
     console.error(
-      `[EMAIL] ${isTimeout ? "EMAIL_SEND_TIMEOUT" : "EMAIL_SEND_FAILED"} durationMs=${durationMs} to=${maskedTo} message=${msg}`
+      `[EMAIL] ${isTimeout ? "EMAIL_SEND_TIMEOUT" : "EMAIL_SEND_FAILED"} provider=smtp durationMs=${durationMs} to=${maskedTo} message=${msg}`
     );
     // Invalidate cached transporter after failures so the next attempt reconnects cleanly.
     cachedTransporter = null;
@@ -186,44 +233,57 @@ async function sendMail(payload: MailPayload) {
 
 /**
  * Startup health-check for email delivery.
- * Prefer HTTPS API (Render Free blocks SMTP 25/465/587). Never logs secrets.
+ * Checks both HTTPS API (Resend) and SMTP when configured. Never logs secrets.
  */
 export async function verifySmtpTransporter(): Promise<void> {
-  if (process.env.EMAIL_API_KEY?.trim()) {
-    if (!process.env.EMAIL_FROM?.trim()) {
-      console.error(
-        "[EMAIL] EMAIL_PROVIDER_NOT_CONFIGURED — EMAIL_API_KEY is set but EMAIL_FROM is missing"
-      );
-      return;
-    }
-    console.log(
-      "[EMAIL] EMAIL_PROVIDER_READY — HTTPS email API configured (Resend). SMTP startup verify skipped."
+  const hasResend = Boolean(
+    process.env.EMAIL_API_KEY?.trim() &&
+    (process.env.EMAIL_FROM?.trim() || process.env.EMAIL_USER?.trim() || process.env.SMTP_USER?.trim())
+  );
+  const mailConfig = await resolveMailConfig().catch(() => null);
+  const hasSmtp = Boolean(mailConfig?.user && mailConfig?.pass);
+
+  if (!hasResend && !hasSmtp) {
+    console.warn(
+      "[EMAIL] EMAIL_PROVIDER_NOT_CONFIGURED — neither HTTPS API (Resend) nor SMTP credentials are set. " +
+      "Password reset and verification emails will NOT be sent."
     );
     return;
   }
 
-  try {
-    const { transporter } = await getTransporter();
-    await transporter.verify();
-    console.log("[EMAIL] SMTP READY — transporter verified successfully");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const category =
-      msg.includes("not configured") ? "SMTP_NOT_CONFIGURED" :
-      msg.includes("ECONNREFUSED") ? "SMTP_CONNECTION_REFUSED" :
-      msg.includes("ETIMEDOUT") || msg.includes("timeout") ? "SMTP_TIMEOUT" :
-      msg.includes("535") || msg.includes("Authentication") ? "SMTP_AUTH_FAILED" :
-      "SMTP_VERIFY_FAILED";
-    console.error(
-      `[EMAIL] SMTP FAILED at startup — category=${category} message=${msg}. ` +
-        "On Render Free, set EMAIL_API_KEY + EMAIL_FROM for password-reset email (HTTPS)."
+  if (hasResend) {
+    console.log(
+      "[EMAIL] EMAIL_PROVIDER_READY — HTTPS email API configured (Resend)."
     );
+  }
+
+  if (hasSmtp) {
+    try {
+      const { transporter } = await getTransporter();
+      await transporter.verify();
+      console.log("[EMAIL] SMTP READY — transporter verified successfully");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const category =
+        msg.includes("not configured") ? "SMTP_NOT_CONFIGURED" :
+        msg.includes("ECONNREFUSED") ? "SMTP_CONNECTION_REFUSED" :
+        msg.includes("ETIMEDOUT") || msg.includes("timeout") ? "SMTP_TIMEOUT" :
+        msg.includes("535") || msg.includes("Authentication") ? "SMTP_AUTH_FAILED" :
+        "SMTP_VERIFY_FAILED";
+      console.error(
+        `[EMAIL] SMTP verify warning — category=${category} message=${msg}.`
+      );
+    }
   }
 }
 
 function resolveHttpsMailConfig() {
   const apiKey = process.env.EMAIL_API_KEY?.trim() || "";
-  const fromEmail = process.env.EMAIL_FROM?.trim() || "";
+  const fromEmail =
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.EMAIL_USER?.trim() ||
+    process.env.SMTP_USER?.trim() ||
+    "";
   const fromName = process.env.EMAIL_FROM_NAME?.trim() || "THE GATEHUB";
 
   if (!apiKey) {
@@ -244,18 +304,21 @@ function resolveHttpsMailConfig() {
 
 /**
  * Deliver password-reset mail via Resend HTTPS API (not SMTP).
- * Render Free blocks outbound SMTP on 25/465/587.
  * Exported for focused unit tests; do not log apiKey / token / Authorization.
  */
-export async function sendPasswordResetViaHttpsApi(payload: MailPayload): Promise<{ id?: string }> {
+export async function sendPasswordResetViaHttpsApi(
+  payload: MailPayload,
+  corrId?: string
+): Promise<{ id?: string }> {
   const { apiKey, fromEmail, fromName } = resolveHttpsMailConfig();
   const started = Date.now();
   const maskedTo = maskRecipient(payload.to);
   const timeoutMs = Number(process.env.EMAIL_API_TIMEOUT_MS || 15_000);
   const from =
     fromEmail.includes("<") ? fromEmail : `${fromName} <${fromEmail}>`;
+  const prefix = corrId ? `[${corrId}] ` : "";
 
-  console.log(`[EMAIL] EMAIL_SEND_START provider=resend to=${maskedTo} subject="${payload.subject}"`);
+  console.log(`[EMAIL] ${prefix}EMAIL_SEND_START provider=resend to=${maskedTo} subject="${payload.subject}"`);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -279,7 +342,7 @@ export async function sendPasswordResetViaHttpsApi(payload: MailPayload): Promis
 
     const durationMs = Date.now() - started;
     const rawBody = await response.text();
-    let parsed: { id?: string; message?: string; name?: string } = {};
+    let parsed: { id?: string; message?: string; name?: string; error?: string } = {};
     try {
       parsed = rawBody ? JSON.parse(rawBody) : {};
     } catch {
@@ -287,22 +350,22 @@ export async function sendPasswordResetViaHttpsApi(payload: MailPayload): Promis
     }
 
     if (!response.ok) {
-      const safeReason = (parsed.message || parsed.name || `HTTP ${response.status}`).slice(0, 160);
+      const safeReason = (parsed.message || parsed.error || parsed.name || `HTTP ${response.status}`).slice(0, 160);
       console.error(
-        `[EMAIL] EMAIL_SEND_FAILED provider=resend durationMs=${durationMs} to=${maskedTo} status=${response.status} reason=${safeReason}`
+        `[EMAIL] ${prefix}EMAIL_SEND_FAILED provider=resend durationMs=${durationMs} to=${maskedTo} status=${response.status} reason=${safeReason}`
       );
       throw new Error(`EMAIL_SEND_FAILED: provider HTTP ${response.status}`);
     }
 
     console.log(
-      `[EMAIL] EMAIL_SEND_SUCCESS provider=resend durationMs=${durationMs} to=${maskedTo} id=${parsed.id || "(none)"}`
+      `[EMAIL] ${prefix}EMAIL_SEND_SUCCESS provider=resend durationMs=${durationMs} to=${maskedTo} id=${parsed.id || "(none)"}`
     );
     return { id: parsed.id };
   } catch (err) {
     const durationMs = Date.now() - started;
     if (err instanceof Error && err.name === "AbortError") {
       console.error(
-        `[EMAIL] EMAIL_PROVIDER_TIMEOUT provider=resend durationMs=${durationMs} to=${maskedTo}`
+        `[EMAIL] ${prefix}EMAIL_PROVIDER_TIMEOUT provider=resend durationMs=${durationMs} to=${maskedTo}`
       );
       throw new Error(`EMAIL_PROVIDER_TIMEOUT: Resend request timed out after ${timeoutMs}ms`);
     }
@@ -311,7 +374,7 @@ export async function sendPasswordResetViaHttpsApi(payload: MailPayload): Promis
       throw err instanceof Error ? err : new Error(msg);
     }
     console.error(
-      `[EMAIL] EMAIL_SEND_FAILED provider=resend durationMs=${durationMs} to=${maskedTo} message=${msg.slice(0, 200)}`
+      `[EMAIL] ${prefix}EMAIL_SEND_FAILED provider=resend durationMs=${durationMs} to=${maskedTo} message=${msg.slice(0, 200)}`
     );
     throw err instanceof Error ? err : new Error(msg);
   } finally {
@@ -319,42 +382,122 @@ export async function sendPasswordResetViaHttpsApi(payload: MailPayload): Promis
   }
 }
 
-export async function sendPasswordResetEmail(email: string, rawToken: string) {
+export type DeliverMailResult = {
+  provider: "resend" | "smtp";
+  id?: string;
+  durationMs: number;
+};
+
+/**
+ * Resilient multi-provider mail dispatcher.
+ * Tries the primary configured provider (Resend HTTPS or SMTP), and seamlessly
+ * falls back to the alternate provider if the primary rejects or encounters an error.
+ */
+export async function deliverMail(
+  payload: MailPayload,
+  corrId?: string
+): Promise<DeliverMailResult> {
+  const started = Date.now();
+  const maskedTo = maskRecipient(payload.to);
+  const prefix = corrId ? `[${corrId}] ` : "";
+
+  const hasResend = Boolean(
+    process.env.EMAIL_API_KEY?.trim() &&
+    (process.env.EMAIL_FROM?.trim() || process.env.EMAIL_USER?.trim() || process.env.SMTP_USER?.trim())
+  );
+
+  // If Resend HTTPS is configured, attempt it immediately
+  if (hasResend) {
+    try {
+      const resendRes = await sendPasswordResetViaHttpsApi(payload, corrId);
+      return {
+        provider: "resend",
+        id: resendRes.id,
+        durationMs: Date.now() - started,
+      };
+    } catch (resendErr) {
+      const resendMsg = resendErr instanceof Error ? resendErr.message : String(resendErr);
+      console.warn(
+        `[EMAIL] ${prefix}Primary HTTPS delivery (Resend) failed: ${resendMsg.slice(0, 180)}`
+      );
+
+      // If SMTP is available, attempt fallback
+      const mailCfg = await resolveMailConfig().catch(() => null);
+      if (mailCfg?.user && mailCfg?.pass) {
+        console.log(`[EMAIL] ${prefix}Attempting SMTP fallback for ${maskedTo}...`);
+        try {
+          await sendMail(payload);
+          console.log(`[EMAIL] ${prefix}SMTP fallback delivery SUCCEEDED in ${Date.now() - started}ms`);
+          return {
+            provider: "smtp",
+            durationMs: Date.now() - started,
+          };
+        } catch (smtpErr) {
+          const smtpMsg = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
+          console.error(
+            `[EMAIL] ${prefix}SMTP fallback ALSO failed: ${smtpMsg.slice(0, 180)}`
+          );
+          // Preserve the original Resend failure error so upstream category matching works
+          throw resendErr instanceof Error ? resendErr : new Error(resendMsg);
+        }
+      }
+
+      // No SMTP fallback available
+      throw resendErr instanceof Error ? resendErr : new Error(resendMsg);
+    }
+  }
+
+  // Resend not configured; try SMTP
+  const mailCfg = await resolveMailConfig().catch(() => null);
+  if (!mailCfg?.user || !mailCfg?.pass) {
+    throw new Error(
+      "EMAIL_PROVIDER_NOT_CONFIGURED: Neither Resend HTTPS API nor SMTP is configured. " +
+        "Configure EMAIL_API_KEY + EMAIL_FROM for Resend or SMTP_HOST + SMTP_USER + SMTP_PASSWORD."
+    );
+  }
+
+  await sendMail(payload);
+  return {
+    provider: "smtp",
+    durationMs: Date.now() - started,
+  };
+}
+
+export async function sendPasswordResetEmail(email: string, rawToken: string, corrId?: string) {
   const frontend = getFrontendUrl();
   const resetLink = `${frontend}/reset-password?token=${encodeURIComponent(rawToken)}`;
-  const settings = await getPlatformSettings().catch(() => null);
-  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
+  const supportEmail = process.env.SUPPORT_EMAIL || (await getPlatformSettingsSafe())?.supportEmail || null;
 
-  // HTTPS only — do not use SMTP (blocked on Render Free).
-  await sendPasswordResetViaHttpsApi({
+  await deliverMail({
     to: email,
     subject: "Reset your THE GATEHUB password",
     html: brandShell({
       title: "Password reset",
       supportEmail,
       footerNote:
-        "This link expires in 1 hour and can be used only once. If you did not request a reset, you can ignore this email.",
+        "This link expires in 1 hour and can be used only once. If you did not request a reset, you can safely ignore this email.",
       ctaLabel: "Reset password",
       ctaUrl: resetLink,
-      bodyHtml: `<p style="color:#0f172a;line-height:1.6;">We received a request to reset the password for your THE GATEHUB account.</p>
-        <p style="color:#334155;line-height:1.6;">For your security, never share this link. THE GATEHUB will never ask for your password by email.</p>`,
+      bodyHtml: `<p style="color:#0f172a;line-height:1.6;margin:0 0 16px;">We received a request to set or reset the password for your THE GATEHUB account.</p>
+        <p style="color:#334155;line-height:1.6;margin:0;">For your security, never share this link with anyone. THE GATEHUB will never ask for your password by email.</p>`,
     }),
-    text: `Reset your password: ${resetLink}\nThis link expires in 1 hour.`,
-  });
+    text: `THE GATEHUB - Password Reset\n\nReset your password: ${resetLink}\n\nThis link expires in 1 hour and can be used only once.\nIf you did not request a reset, you can safely ignore this email.`,
+  }, corrId);
 }
 
-export async function sendVerificationEmail(email: string, rawToken: string, firstName?: string) {
+export async function sendVerificationEmail(email: string, rawToken: string, firstName?: string, corrId?: string) {
   const frontend = getFrontendUrl();
   const verifyLink = `${frontend}/verify-email?token=${encodeURIComponent(rawToken)}`;
-  const { cfg } = await getTransporter();
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
   const name = firstName ? ` ${firstName}` : "";
 
-  await sendMail({
+  await deliverMail({
     to: email,
     subject: "Verify your THE GATEHUB email",
     html: brandShell({
       title: "Verify your email",
-      supportEmail: cfg.supportEmail,
+      supportEmail,
       footerNote: "This verification link expires in 24 hours and can be used only once.",
       ctaLabel: "Verify email",
       ctaUrl: verifyLink,
@@ -362,93 +505,103 @@ export async function sendVerificationEmail(email: string, rawToken: string, fir
         <p style="color:#334155;line-height:1.6;">Confirm your email address to finish setting up your THE GATEHUB account.</p>`,
     }),
     text: `Verify your email: ${verifyLink}`,
-  });
+  }, corrId);
 }
 
-export async function sendWelcomeEmail(email: string, firstName?: string) {
+
+
+export async function sendWelcomeEmail(email: string, firstName?: string, corrId?: string) {
   const frontend = getFrontendUrl();
-  const { cfg } = await getTransporter();
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
   const name = firstName ? ` ${firstName}` : "";
 
-  await sendMail({
+  await deliverMail({
     to: email,
     subject: "Welcome to THE GATEHUB",
     html: brandShell({
       title: "Welcome",
-      supportEmail: cfg.supportEmail,
+      supportEmail,
       ctaLabel: "Open THE GATEHUB",
       ctaUrl: frontend,
       bodyHtml: `<p style="color:#0f172a;line-height:1.6;">Hi${name},</p>
         <p style="color:#334155;line-height:1.6;">Your account is ready. Learn, teach, and grow on THE GATEHUB.</p>`,
     }),
-  }).catch((err) => {
+  }, corrId).catch((err) => {
     console.error("[EMAIL] Welcome email failed:", err instanceof Error ? err.message : "error");
   });
 }
 
-export async function sendPasswordChangedEmail(email: string) {
-  const { cfg } = await getTransporter();
-  await sendMail({
+export async function sendPasswordChangedEmail(email: string, corrId?: string) {
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
+
+  await deliverMail({
     to: email,
     subject: "Your THE GATEHUB password was changed",
     html: brandShell({
       title: "Security notice",
-      supportEmail: cfg.supportEmail,
+      supportEmail,
       footerNote: "If you did not make this change, reset your password immediately and contact support.",
       bodyHtml: `<p style="color:#0f172a;line-height:1.6;">Your THE GATEHUB password was changed successfully.</p>
         <p style="color:#334155;line-height:1.6;">All other sessions were signed out for your protection.</p>`,
     }),
-  }).catch((err) => {
+  }, corrId).catch((err) => {
     console.error("[EMAIL] Password-changed email failed:", err instanceof Error ? err.message : "error");
   });
 }
 
-export async function sendEmailChangeConfirmEmail(newEmail: string, rawToken: string) {
+export async function sendEmailChangeConfirmEmail(newEmail: string, rawToken: string, corrId?: string) {
   const frontend = getFrontendUrl();
   const link = `${frontend}/verify-email-change?token=${encodeURIComponent(rawToken)}`;
-  const { cfg } = await getTransporter();
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
 
-  await sendMail({
+  await deliverMail({
     to: newEmail,
     subject: "Confirm your new THE GATEHUB email",
     html: brandShell({
       title: "Confirm email change",
-      supportEmail: cfg.supportEmail,
+      supportEmail,
       footerNote: "This link expires in 24 hours and can be used only once.",
       ctaLabel: "Confirm new email",
       ctaUrl: link,
       bodyHtml: `<p style="color:#0f172a;line-height:1.6;">Confirm this address to finish changing the email on your THE GATEHUB account.</p>`,
     }),
-  });
+  }, corrId);
 }
 
-export async function sendEmailChangedNotice(oldEmail: string, newEmailMasked: string) {
-  const { cfg } = await getTransporter();
-  await sendMail({
+export async function sendEmailChangedNotice(oldEmail: string, newEmailMasked: string, corrId?: string) {
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
+
+  await deliverMail({
     to: oldEmail,
     subject: "Your THE GATEHUB email was changed",
     html: brandShell({
       title: "Security notice",
-      supportEmail: cfg.supportEmail,
+      supportEmail,
       footerNote: "If you did not request this change, contact support immediately.",
       bodyHtml: `<p style="color:#0f172a;line-height:1.6;">The email on your THE GATEHUB account was changed to <strong>${newEmailMasked}</strong>.</p>`,
     }),
-  }).catch((err) => {
+  }, corrId).catch((err) => {
     console.error("[EMAIL] Email-changed notice failed:", err instanceof Error ? err.message : "error");
   });
 }
 
-export async function sendAccountSecurityAlert(email: string, message: string) {
-  const { cfg } = await getTransporter();
-  await sendMail({
+export async function sendAccountSecurityAlert(email: string, message: string, corrId?: string) {
+  const settings = await getPlatformSettings().catch(() => null);
+  const supportEmail = settings?.supportEmail || process.env.SUPPORT_EMAIL || null;
+
+  await deliverMail({
     to: email,
     subject: "THE GATEHUB security alert",
     html: brandShell({
       title: "Security alert",
-      supportEmail: cfg.supportEmail,
+      supportEmail,
       bodyHtml: `<p style="color:#0f172a;line-height:1.6;">${message}</p>`,
     }),
-  }).catch(() => {});
+  }, corrId).catch(() => {});
 }
 
 export function maskEmail(email: string): string {

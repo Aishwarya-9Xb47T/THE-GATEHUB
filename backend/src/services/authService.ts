@@ -632,9 +632,10 @@ export async function forgotPassword(email: string, req?: ReqLike) {
   };
   const normalized = normalizeEmail(email);
   const meta = getReqMeta(req);
+  const corrId = `reset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-  console.log("[AUTH] Forgot-password request received for domain:", normalized.split("@")[1] || "unknown");
-  console.log("[EMAIL] EMAIL_RESET_START");
+  console.log(`[AUTH] [${corrId}] Forgot-password request received for domain: ${normalized.split("@")[1] || "unknown"}`);
+  console.log(`[EMAIL] [${corrId}] EMAIL_RESET_START`);
 
   const user = await prisma.user.findUnique({ where: { email: normalized } });
   await logSecurityEvent({
@@ -642,28 +643,30 @@ export async function forgotPassword(email: string, req?: ReqLike) {
     userId: user?.id,
     email: normalized,
     ...meta,
+    meta: { ...(meta as Record<string, unknown>), corrId },
   });
 
-  console.log("[AUTH] User lookup completed. found=%s suspended=%s deleted=%s",
-    !!user, user?.suspended ?? false, !!user?.deletedAt);
+  console.log(
+    `[AUTH] [${corrId}] User lookup completed. found=%s suspended=%s deleted=%s authProvider=%s`,
+    !!user,
+    user?.suspended ?? false,
+    !!user?.deletedAt,
+    user?.authProvider ?? "none"
+  );
 
   // Anti-enumeration: unknown / ineligible accounts still get a generic success (no email to send).
   if (!user || user.suspended || user.deletedAt) return generic;
-  if (user.authProvider === "google" && !user.passwordHash) {
-    console.log("[AUTH] Skipping reset for Google-only account (no password hash)");
-    return generic;
-  }
 
-  console.log("[AUTH] Generating password reset token...");
+  console.log(`[AUTH] [${corrId}] Generating password reset token for user=${user.id}...`);
   const { rawToken } = await issueAuthToken({ userId: user.id, type: "password_reset" });
-  console.log("[AUTH] Reset token generated and persisted");
+  console.log(`[AUTH] [${corrId}] Reset token generated and persisted`);
 
   const { sendPasswordResetEmail } = await import("./emailService.js");
   const sendStarted = Date.now();
   try {
-    console.log("[EMAIL] EMAIL_SEND_START");
-    await sendPasswordResetEmail(user.email, rawToken);
-    console.log("[EMAIL] EMAIL_SEND_SUCCESS durationMs=%s", Date.now() - sendStarted);
+    console.log(`[EMAIL] [${corrId}] EMAIL_SEND_START`);
+    await sendPasswordResetEmail(user.email, rawToken, corrId);
+    console.log(`[EMAIL] [${corrId}] EMAIL_SEND_SUCCESS durationMs=%s`, Date.now() - sendStarted);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const category =
@@ -675,7 +678,7 @@ export async function forgotPassword(email: string, req?: ReqLike) {
             ? "EMAIL_SEND_FAILED"
             : "EMAIL_SEND_FAILED";
     console.error(
-      "[EMAIL] EMAIL_SEND_FAILED durationMs=%s category=%s message=%s",
+      `[EMAIL] [${corrId}] EMAIL_SEND_FAILED durationMs=%s category=%s message=%s`,
       Date.now() - sendStarted,
       category,
       // Never include tokens/API keys — message is already sanitized upstream.

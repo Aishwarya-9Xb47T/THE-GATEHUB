@@ -59,7 +59,11 @@ describe("forgotPassword email delivery contract", () => {
 
     const result = await forgotPassword("user@example.com");
     expect(sendPasswordResetEmail).toHaveBeenCalledTimes(1);
-    expect(sendPasswordResetEmail).toHaveBeenCalledWith("user@example.com", "test-raw-token");
+    expect(sendPasswordResetEmail).toHaveBeenCalledWith(
+      "user@example.com",
+      "test-raw-token",
+      expect.anything()
+    );
     expect(result.message).toMatch(/password reset instructions/i);
   });
 
@@ -109,7 +113,7 @@ describe("forgotPassword email delivery contract", () => {
     }
   });
 
-  it("does not attempt password-reset email for Google-only accounts", async () => {
+  it("sends password-reset email for Google-only accounts to establish a local password", async () => {
     findUnique.mockResolvedValue({
       id: "u-google",
       email: "google-only@example.com",
@@ -119,8 +123,16 @@ describe("forgotPassword email delivery contract", () => {
       passwordHash: null,
     });
     const result = await forgotPassword("google-only@example.com");
-    expect(sendPasswordResetEmail).not.toHaveBeenCalled();
-    expect(issueAuthToken).not.toHaveBeenCalled();
+    expect(sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+    expect(sendPasswordResetEmail).toHaveBeenCalledWith(
+      "google-only@example.com",
+      "test-raw-token",
+      expect.anything()
+    );
+    expect(issueAuthToken).toHaveBeenCalledWith({
+      userId: "u-google",
+      type: "password_reset",
+    });
     expect(result.message).toMatch(/password reset instructions/i);
   });
 

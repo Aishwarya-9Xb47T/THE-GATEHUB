@@ -29,6 +29,7 @@ export function ResetPasswordPage() {
   
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -43,6 +44,7 @@ export function ResetPasswordPage() {
     }
 
     setLoading(true);
+    setError(null);
     const res = await api("/auth/reset-password", { 
       method: "POST", 
       body: { token, password: data.password, confirmPassword: data.confirmPassword } 
@@ -50,6 +52,7 @@ export function ResetPasswordPage() {
     setLoading(false);
 
     if (res.error) {
+      setError(res.error);
       toast({ title: "Error", description: res.error, variant: "destructive" });
     } else {
       setSuccess(true);
@@ -94,6 +97,19 @@ export function ResetPasswordPage() {
             <CardContent>
               {!success ? (
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                  {error && (
+                    <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-500 space-y-2" role="alert" data-testid="reset-password-error">
+                      <p className="font-medium">{error}</p>
+                      {/invalid|expired|token/i.test(error) && (
+                        <div>
+                          <Link to="/forgot-password" className="text-xs font-semibold text-primary underline underline-offset-4 hover:opacity-80">
+                            Request a new password reset link &rarr;
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <Label htmlFor="password">New Password</Label>
                     <div className="relative group">
