@@ -122,14 +122,19 @@ export async function getLearnerExperience(
   userId?: string,
   userRole?: string
 ): Promise<LearnerExperiencePackage | null> {
-  const resolved = await resolveCanonicalUniverseId(universeId);
+  let resolved = await resolveCanonicalUniverseId(universeId);
 
   // Bridge classic Course → canonical LU (same resolver as progress/experience).
   // Sync Course enrollment → LU enrollment so /student/course/:courseId/learn works.
   const course = await prisma.course.findUnique({
     where: { id: universeId },
-    select: { id: true, title: true },
+    select: { id: true, title: true, instructorId: true, status: true },
   });
+  if (course && !resolved) {
+    const { syncPremiumUniverseStatusFromCourse } = await import("../services/productRoutingService.js");
+    await syncPremiumUniverseStatusFromCourse(course.id, course.status as "published" | "draft", course.instructorId);
+    resolved = await resolveCanonicalUniverseId(universeId);
+  }
   if (course && userId) {
     const courseEnrollment = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId, courseId: course.id } },

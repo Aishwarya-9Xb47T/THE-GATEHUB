@@ -219,7 +219,7 @@ export async function publishCourseFromDsl(
   if (courseId) {
     const existing = await prisma.course.findUnique({
       where: { id: courseId },
-      select: { instructorId: true, aiContent: true, price: true, status: true },
+      select: { instructorId: true, aiContent: true, price: true, status: true, publishedAt: true },
     });
 
     if (!existing) throw new Error("Course not found for republish");
@@ -241,7 +241,8 @@ export async function publishCourseFromDsl(
         categoryId: resolvedCategory.categoryId,
         subcategoryId: resolvedCategory.subcategoryId,
         thumbnail: parsed.course.thumbnail,
-        status: existing.status === "published" ? "published" : "draft",
+        status: "published",
+        publishedAt: existing.status === "published" && existing.publishedAt ? existing.publishedAt : new Date(),
         aiContent: mergeAcademicStudioMeta(existing.aiContent, academicMeta),
         sections: { create: buildSectionsCreate(parsed) },
       },
@@ -266,6 +267,16 @@ export async function publishCourseFromDsl(
       });
     }
 
+    const { syncPremiumUniverseStatusFromCourse, invalidatePremiumCourseIdCache } = await import(
+      "../services/productRoutingService.js"
+    );
+    await syncPremiumUniverseStatusFromCourse(course.id, "published", userId);
+    const { syncProductFromCourse } = await import("../services/productCatalogService.js");
+    await syncProductFromCourse(course.id).catch(() => {});
+    invalidatePremiumCourseIdCache();
+    const { appCache } = await import("../utils/cache.js");
+    appCache.invalidate("courses:");
+
     return course;
   }
 
@@ -282,7 +293,8 @@ export async function publishCourseFromDsl(
       categoryId: resolvedCategory.categoryId,
       subcategoryId: resolvedCategory.subcategoryId,
       thumbnail: parsed.course.thumbnail,
-      status: "draft",
+      status: "published",
+      publishedAt: new Date(),
       instructorId: userId,
       aiContent: mergeAcademicStudioMeta(null, academicMeta),
       sections: { create: buildSectionsCreate(parsed) },
@@ -314,6 +326,16 @@ export async function publishCourseFromDsl(
       resourceCourseId: course.id,
     });
   }
+
+  const { syncPremiumUniverseStatusFromCourse, invalidatePremiumCourseIdCache } = await import(
+    "../services/productRoutingService.js"
+  );
+  await syncPremiumUniverseStatusFromCourse(course.id, "published", userId);
+  const { syncProductFromCourse } = await import("../services/productCatalogService.js");
+  await syncProductFromCourse(course.id).catch(() => {});
+  invalidatePremiumCourseIdCache();
+  const { appCache } = await import("../utils/cache.js");
+  appCache.invalidate("courses:");
 
   return course;
 }

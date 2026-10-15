@@ -673,23 +673,242 @@ export async function syncPremiumUniverseStatusFromCourse(
 ): Promise<void> {
   const universes = await prisma.learningUniverse.findMany({
     where: { instructorId },
-    select: { id: true, structuredData: true },
+    select: { id: true, structuredData: true, title: true },
   });
-  const linked = findPremiumUniverseForLinkedCourse(courseId, universes);
-  if (!linked) return;
+  let linked = findPremiumUniverseForLinkedCourse(courseId, universes);
 
-  await prisma.learningUniverse.update({
-    where: { id: linked.id },
-    data: {
-      status,
-      publishedAt: status === "published" ? new Date() : null,
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    include: {
+      sections: {
+        orderBy: { order: "asc" },
+        include: {
+          lectures: {
+            orderBy: { order: "asc" },
+            include: {
+              quiz: {
+                include: {
+                  questions: {
+                    orderBy: { order: "asc" },
+                    include: { options: { orderBy: { order: "asc" } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   });
 
-  if (status === "published") {
-    await syncCatalogOnPublish(linked.id);
+  if (!course) return;
+
+  if (!linked) {
+    const matchingTitle = universes.find(
+      (u) => u.title.trim().toLowerCase() === course.title.trim().toLowerCase()
+    );
+    if (matchingTitle) {
+      linked = matchingTitle;
+      const structured = readStructuredRecord(linked.structuredData);
+      await prisma.learningUniverse.update({
+        where: { id: linked.id },
+        data: {
+          structuredData: {
+            ...structured,
+            productType: PRODUCT_TYPES.PREMIUM_COURSE,
+            linkedCourseId: course.id,
+            catalogVisibility: [CATALOG_VISIBILITY.PREMIUM_LIBRARY, CATALOG_VISIBILITY.FEATURED_HOME],
+          } as object,
+        },
+      }).catch(() => {});
+    }
+  }
+
+  let universeId: string;
+
+  if (!linked) {
+    let createdUniverse: { id: string } | null = null;
+    try {
+      createdUniverse = await prisma.learningUniverse.create({
+        data: {
+          title: course.title,
+          subtitle: course.subtitle,
+          description: course.description || course.title,
+          price: course.price,
+          thumbnail: course.thumbnail,
+          bannerUrl: course.bannerUrl,
+          bannerType: course.bannerType,
+          difficulty: normalizeDifficulty(course.difficulty) || "beginner",
+          language: course.language || "en",
+          status,
+          publishedAt: status === "published" ? (course.publishedAt || new Date()) : null,
+          instructorId,
+          categoryId: course.categoryId,
+          dslSource: "",
+          structuredData: {
+            productType: PRODUCT_TYPES.PREMIUM_COURSE,
+            linkedCourseId: course.id,
+            catalogVisibility: [CATALOG_VISIBILITY.PREMIUM_LIBRARY, CATALOG_VISIBILITY.FEATURED_HOME],
+            creationSource: "manual",
+          },
+        },
+      });
+    } catch {
+      try {
+        createdUniverse = await prisma.learningUniverse.create({
+          data: {
+            title: course.title,
+            subtitle: course.subtitle,
+            description: course.description || course.title,
+            price: course.price,
+            thumbnail: course.thumbnail,
+            bannerUrl: course.bannerUrl,
+            bannerType: course.bannerType,
+            difficulty: normalizeDifficulty(course.difficulty) || "beginner",
+            language: course.language || "en",
+            status,
+            publishedAt: status === "published" ? (course.publishedAt || new Date()) : null,
+            instructorId,
+            dslSource: "",
+            structuredData: {
+              productType: PRODUCT_TYPES.PREMIUM_COURSE,
+              linkedCourseId: course.id,
+              catalogVisibility: [CATALOG_VISIBILITY.PREMIUM_LIBRARY, CATALOG_VISIBILITY.FEATURED_HOME],
+              creationSource: "manual",
+            },
+          },
+        });
+      } catch (createErr) {
+        console.error("[syncPremiumUniverseStatusFromCourse] Failed to create backing LearningUniverse:", createErr);
+        return;
+      }
+    }
+    universeId = createdUniverse.id;
+
+    try {
+      let aiObj: Record<string, unknown> = {};
+      if (course.aiContent) {
+        try {
+          aiObj = JSON.parse(course.aiContent);
+        } catch {}
+      }
+      const existingStudio = (aiObj.academicStudio as Record<string, unknown>) || {};
+      aiObj.productType = PRODUCT_TYPES.PREMIUM_COURSE;
+      aiObj.academicStudio = {
+        ...existingStudio,
+        learningUniverseId: universeId,
+      };
+      await prisma.course.update({
+        where: { id: course.id },
+        data: { aiContent: JSON.stringify(aiObj) },
+      });
+    } catch (linkErr) {
+      console.error("[syncPremiumUniverseStatusFromCourse] Failed to link Course.aiContent:", linkErr);
+    }
   } else {
-    await syncCatalogOnUnpublish(linked.id);
+    universeId = linked.id;
+    await prisma.learningUniverse.update({
+      where: { id: universeId },
+      data: {
+        status,
+        publishedAt: status === "published" ? (course.publishedAt || new Date()) : null,
+        title: course.title,
+        subtitle: course.subtitle,
+        description: course.description || course.title,
+        price: course.price,
+        thumbnail: course.thumbnail,
+        bannerUrl: course.bannerUrl,
+        difficulty: normalizeDifficulty(course.difficulty) || "beginner",
+      },
+    }).catch(() => {});
+  }
+
+  await syncCourseSectionsToUniverseTracks(course, universeId);
+
+  if (status === "published") {
+    await syncCatalogOnPublish(universeId);
+  } else {
+    await syncCatalogOnUnpublish(universeId);
+  }
+}
+
+async function syncCourseSectionsToUniverseTracks(
+  course: {
+    id: string;
+    title: string;
+    description?: string | null;
+    sections: Array<{
+      id: string;
+      title: string;
+      order: number;
+      lectures: Array<{
+        id: string;
+        title: string;
+        type: string;
+        content?: string | null;
+        videoUrl?: string | null;
+        videoType?: string | null;
+        order: number;
+      }>;
+    }>;
+  },
+  universeId: string
+): Promise<void> {
+  if (!course.sections || course.sections.length === 0) return;
+
+  try {
+    const existingTracks = await prisma.learningUniverseTrack.findMany({
+      where: { learningUniverseId: universeId },
+      include: { modules: { include: { lessons: true } } },
+    });
+
+    const hasLessons = existingTracks.some((t) => t.modules.some((m) => m.lessons.length > 0));
+    if (hasLessons) return;
+
+    const track = await prisma.learningUniverseTrack.create({
+      data: {
+        title: course.title,
+        description: course.description || course.title,
+        learningUniverseId: universeId,
+        order: 0,
+      },
+    });
+
+    for (const section of course.sections) {
+      const mod = await prisma.learningUniverseModule.create({
+        data: {
+          title: section.title,
+          description: section.title,
+          trackId: track.id,
+          order: section.order,
+        },
+      });
+
+      for (const lecture of section.lectures) {
+        const lesson = await prisma.learningUniverseLesson.create({
+          data: {
+            title: lecture.title,
+            moduleId: mod.id,
+            order: lecture.order,
+            contentBlocks: lecture.content ? ([{ type: "markdown", content: lecture.content }] as any) : undefined,
+          },
+        });
+
+        if (lecture.videoUrl) {
+          await prisma.learningUniverseVideo.create({
+            data: {
+              lessonId: lesson.id,
+              url: lecture.videoUrl,
+              type: lecture.videoType || "youtube",
+              title: lecture.title,
+              order: 0,
+            },
+          }).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[syncCourseSectionsToUniverseTracks] Error synchronizing sections:", err);
   }
 }
 
@@ -740,7 +959,8 @@ export async function ensurePremiumLinkedCoursesPublished(): Promise<void> {
       resolveProductCardImage(bannerUrl, thumbnail);
 
     for (const universe of publishedUniverses) {
-      if (inferProductType(universe.structuredData) !== PRODUCT_TYPES.PREMIUM_COURSE) continue;
+      const pt = inferProductType(universe.structuredData);
+      if (pt !== PRODUCT_TYPES.PREMIUM_COURSE && pt !== PRODUCT_TYPES.LEARNING_UNIVERSE) continue;
       const linkedCourseId = readStructuredRecord(universe.structuredData).linkedCourseId;
       if (typeof linkedCourseId !== "string") continue;
       const image = cardImage(universe.bannerUrl, universe.thumbnail);

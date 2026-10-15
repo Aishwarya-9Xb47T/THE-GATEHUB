@@ -285,10 +285,10 @@ export async function list(req: AuthRequest, res: Response) {
         premiumCourseIds = premiumCourseIds.filter((id) => featuredSet.has(id));
       }
     }
-    // Landing fallback — never show an empty catalog when published paid courses exist
+    // Landing fallback — never show an empty catalog when published courses exist
     if (featuredOnly && premiumCourseIds.length === 0) {
       const fallback = await prisma.course.findMany({
-        where: { status: "published", price: { gt: 0 } },
+        where: { status: "published" },
         select: { id: true },
         orderBy: { publishedAt: "desc" },
         take: limit,
@@ -600,6 +600,15 @@ export async function create(req: AuthRequest, res: Response) {
     },
     include: { categoryRel: true },
   });
+
+  if (course.status === "published") {
+    await syncPremiumUniverseStatusFromCourse(course.id, "published", req.user.id);
+    const { syncProductFromCourse } = await import("../services/productCatalogService.js");
+    await syncProductFromCourse(course.id).catch(() => {});
+    invalidatePremiumCourseIdCache();
+    appCache.invalidate("courses:");
+  }
+
   res.status(201).json({ success: true, course: normalizeCourseCategory(course) });
 }
 
@@ -919,12 +928,21 @@ export async function createCourseWithAuthoring(req: AuthRequest, res: Response)
 
   const summary = `Course: ${data.title}. ${data.description?.slice(0, 200) || ""}`;
   const landingData = await generateCourseLandingPage(data.title, summary);
-  await prisma.course.update({
+  const updatedCourse = await prisma.course.update({
     where: { id: course.id },
     data: { aiLandingData: JSON.stringify(landingData) },
+    include: { categoryRel: true },
   });
 
-  res.status(201).json({ success: true, course: normalizeCourseCategory(course) });
+  if (course.status === "published") {
+    await syncPremiumUniverseStatusFromCourse(course.id, "published", req.user.id);
+    const { syncProductFromCourse } = await import("../services/productCatalogService.js");
+    await syncProductFromCourse(course.id).catch(() => {});
+    invalidatePremiumCourseIdCache();
+    appCache.invalidate("courses:");
+  }
+
+  res.status(201).json({ success: true, course: normalizeCourseCategory(updatedCourse) });
 }
 
 export async function generateAILandingPage(req: AuthRequest, res: Response) {
