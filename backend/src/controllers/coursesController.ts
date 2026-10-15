@@ -1508,17 +1508,20 @@ export async function remove(req: AuthRequest, res: Response) {
   res.json({ success: true });
 }
 
-export async function populateCourseSectionsFromBackingStore(courseId: string) {
+export async function populateCourseSectionsFromBackingStore(
+  courseId: string,
+  options?: { force?: boolean; universeId?: string }
+) {
   try {
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: { sections: { include: { lectures: true } } },
     });
     if (!course) return null;
-    if (course.sections && course.sections.length > 0) return course;
+    if (course.sections && course.sections.length > 0 && !options?.force) return course;
 
-    let luId: string | undefined;
-    if (course.aiContent) {
+    let luId: string | undefined = options?.universeId;
+    if (!luId && course.aiContent) {
       try {
         const parsed = JSON.parse(course.aiContent);
         luId = parsed.academicStudio?.learningUniverseId;
@@ -1591,6 +1594,29 @@ export async function populateCourseSectionsFromBackingStore(courseId: string) {
     }
 
     if (lu && lu.tracks.length > 0) {
+      if (options?.force && course.sections && course.sections.length > 0) {
+        await prisma.section.deleteMany({ where: { courseId } });
+      }
+
+      if (!course.aiContent || !course.aiContent.includes(lu.id)) {
+        try {
+          const prevAi = course.aiContent ? JSON.parse(course.aiContent) : {};
+          await prisma.course.update({
+            where: { id: courseId },
+            data: {
+              aiContent: JSON.stringify({
+                ...prevAi,
+                productType: "premium-course",
+                academicStudio: {
+                  learningUniverseId: lu.id,
+                  sourceProjectId: lu.sourceProjectId,
+                },
+              }),
+            },
+          });
+        } catch {}
+      }
+
       const sectionCreates: any[] = [];
       let sectionOrder = 0;
 

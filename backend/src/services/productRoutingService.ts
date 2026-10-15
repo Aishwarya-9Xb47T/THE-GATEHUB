@@ -113,9 +113,9 @@ export function defaultCatalogVisibilityForProduct(productType: ProductType): Ca
     case PRODUCT_TYPES.FREE_RESOURCE:
       return [CATALOG_VISIBILITY.FREE_LIBRARY];
     case PRODUCT_TYPES.PREMIUM_COURSE:
-      return [CATALOG_VISIBILITY.PREMIUM_LIBRARY];
+      return [CATALOG_VISIBILITY.PREMIUM_LIBRARY, CATALOG_VISIBILITY.FEATURED_HOME];
     default:
-      return [CATALOG_VISIBILITY.LEARNING_UNIVERSE_LIBRARY];
+      return [CATALOG_VISIBILITY.LEARNING_UNIVERSE_LIBRARY, CATALOG_VISIBILITY.FEATURED_HOME];
   }
 }
 
@@ -280,8 +280,8 @@ export async function syncCatalogOnPublish(universeId: string): Promise<void> {
     }
 
     if (linkedCourseId) {
-      await prisma.course
-        .update({
+      try {
+        await prisma.course.update({
           where: { id: linkedCourseId },
           data: {
             status: "published",
@@ -295,8 +295,36 @@ export async function syncCatalogOnPublish(universeId: string): Promise<void> {
             categoryId: universe.categoryId ?? undefined,
             difficulty: normalizeDifficulty(universe.difficulty),
           },
-        })
-        .catch(() => {});
+        });
+      } catch (updateErr) {
+        console.warn("[syncCatalogOnPublish] Course update with categoryId failed, retrying without categoryId:", updateErr);
+        try {
+          await prisma.course.update({
+            where: { id: linkedCourseId },
+            data: {
+              status: "published",
+              publishedAt: new Date(),
+              title: universe.title,
+              subtitle: universe.subtitle ?? undefined,
+              description: universe.description ?? undefined,
+              price: universe.price,
+              thumbnail: cardImage,
+              bannerUrl: universe.bannerUrl || cardImage,
+              difficulty: normalizeDifficulty(universe.difficulty),
+            },
+          });
+        } catch (err2) {
+          console.error("[syncCatalogOnPublish] Failed to update course status to published:", err2);
+        }
+      }
+
+      // Populate curriculum sections & lectures from backing Learning Universe
+      try {
+        const { populateCourseSectionsFromBackingStore } = await import("../controllers/coursesController.js");
+        await populateCourseSectionsFromBackingStore(linkedCourseId, { force: true, universeId });
+      } catch (popErr) {
+        console.error("[syncCatalogOnPublish] Failed to populate course sections from LU:", popErr);
+      }
     }
   } else if (linkedCourseId) {
     await prisma.course

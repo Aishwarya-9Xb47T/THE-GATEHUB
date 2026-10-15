@@ -446,7 +446,7 @@ router.post("/:id/rehydrate-project", authenticate, requireRole("instructor", "a
 
 router.post("/publish", authenticate, requireRole("instructor", "admin"), upload.array("assets", 100), async (req: AuthRequest, res) => {
   try {
-    const { dslSource: rawDsl, structuredData: rawStructured, projectId, universeId, price, snapshotHash, editorVersion } = req.body;
+    const { dslSource: rawDsl, structuredData: rawStructured, projectId, universeId, price, productType, snapshotHash, editorVersion } = req.body;
     let fileOverlay: Array<{ name: string; content: string }> | undefined;
     if (typeof req.body?.fileOverlay === "string") {
       try {
@@ -576,7 +576,8 @@ router.post("/publish", authenticate, requireRole("instructor", "admin"), upload
         projectId: effectiveProjectId,
         universeId: universeId as string | undefined,
         userId,
-        price: Number(price) || 0,
+        price: typeof price === "number" ? price : (Number(price) || 0),
+        productType: productType ? String(productType) : undefined,
         files: filesToProcess,
         dslSource,
         skipPdfCompile: false,

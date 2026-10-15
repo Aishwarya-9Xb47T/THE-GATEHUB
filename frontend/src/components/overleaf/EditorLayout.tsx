@@ -84,6 +84,7 @@ import { sanitizeProjectFileContent, isTextLikeProjectPath } from "@/lib/latexEd
 import { LuAutosaveManager } from "@/lib/luAuthoring/autosaveManager";
 import { buildFullTextFileOverlay, fetchServerSnapshotHash } from "@/lib/luAuthoring/projectSnapshot";
 import { PRODUCT_TYPES, type ProductType } from "@/lib/productTypes";
+import { loadBrandingSession } from "@/lib/courseBranding/types";
 
 interface EditorLayoutProps {
   projectId: string;
@@ -1389,10 +1390,15 @@ export function EditorLayout({
         flushSavedCount,
       });
 
+      const branding = loadBrandingSession();
+      const effectivePrice = typeof branding?.price === "number" ? branding.price : undefined;
+
       const res = await publishLearningUniverse(targetCode, projectId, universeId, {
         snapshotHash: publishSnapshotHash,
         fileOverlay: publishFileOverlay,
         editorVersion: autosaveRef.current?.getEditorVersion(),
+        price: effectivePrice,
+        productType,
       });
       if (res.error) throw new Error(res.error);
 
@@ -1405,6 +1411,10 @@ export function EditorLayout({
           ? (publishedUniverse as { id?: string }).id
           : undefined) ?? universeId;
 
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+      queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+      queryClient.invalidateQueries({ queryKey: ["learning-universes"] });
+      queryClient.invalidateQueries({ queryKey: ["learning-universes", "mine"] });
       queryClient.invalidateQueries({ queryKey: ["learner-experience"] });
       queryClient.invalidateQueries({ queryKey: ["learning-universe"] });
       if (publishedId) {
@@ -1412,6 +1422,14 @@ export function EditorLayout({
         queryClient.invalidateQueries({ queryKey: ["learning-universe", publishedId] });
       }
       queryClient.invalidateQueries({ queryKey: ["lu-state", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["landing"] });
+      queryClient.invalidateQueries({ queryKey: ["landing", "featured-courses"] });
+      queryClient.invalidateQueries({ queryKey: ["landing", "learning-universes"] });
+      queryClient.invalidateQueries({ queryKey: ["instructor-earnings-summary"] });
+      try {
+        localStorage.removeItem("gatehub_landing_featured_courses");
+        localStorage.removeItem("gatehub_landing_universes");
+      } catch {}
 
       console.info("[Publish] complete", {
         projectId,

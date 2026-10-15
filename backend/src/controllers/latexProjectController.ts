@@ -47,7 +47,7 @@ export async function createProject(req: AuthRequest, res: Response) {
   if (!title) throw new AppError(400, "Project title is required");
 
   const template = getTemplate(typeof templateId === "string" ? templateId : "blank");
-  const fileEntries = templateFolderEntries(template);
+  const fileEntries = templateFolderEntries(template, title);
 
   const project = await prisma.$transaction(async (tx) => {
     const p = await tx.latexProject.create({

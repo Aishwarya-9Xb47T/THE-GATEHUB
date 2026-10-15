@@ -57,6 +57,7 @@ export interface LuPublishPipelineOptions {
   universeId?: string;
   userId: string;
   price?: number;
+  productType?: string;
   files?: Express.Multer.File[];
   dslSource?: string;
   skipPdfCompile?: boolean;
@@ -387,7 +388,10 @@ export async function runLuPublishPipeline(
 
   structuredData = mergePublishStructuredData(
     existingStructured,
-    structuredData as unknown as Record<string, unknown>
+    {
+      ...(structuredData as unknown as Record<string, unknown>),
+      ...(options.productType ? { productType: options.productType } : {}),
+    }
   ) as LearningUniverseStructured & Record<string, unknown>;
 
   if (options.projectId) {
@@ -422,6 +426,7 @@ export async function runLuPublishPipeline(
       {
         projectId: options.projectId,
         universeId: options.universeId,
+        productType: options.productType,
         parsed,
         compiledPackage: publishSnapshot?.compiledPackage,
       },

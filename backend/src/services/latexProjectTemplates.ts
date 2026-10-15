@@ -250,14 +250,18 @@ export function getTemplate(id?: string): ProjectTemplate {
   return PROJECT_TEMPLATES[key] ?? PROJECT_TEMPLATES.blank;
 }
 
-export function templateFolderEntries(template: ProjectTemplate): Array<{
+export function templateFolderEntries(
+  template: ProjectTemplate,
+  projectTitle?: string
+): Array<{
   name: string;
   path: string;
   isFolder: boolean;
   content: string;
 }> {
   if (template.id === "learning-universe-v2") {
-    const { project, files } = buildScaffoldV2Files("Learning Universe Course");
+    const title = projectTitle?.trim() || "Learning Universe Course";
+    const { project, files } = buildScaffoldV2Files(title);
     const mainTex = buildMainTexFromProject(project);
     const entries: Array<{ name: string; path: string; isFolder: boolean; content: string }> = [
       { name: "main.tex", path: "/main.tex", isFolder: false, content: mainTex },

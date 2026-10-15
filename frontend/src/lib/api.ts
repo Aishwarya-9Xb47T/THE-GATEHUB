@@ -314,6 +314,8 @@ export async function publishLearningUniverse<T>(
     snapshotHash?: string;
     fileOverlay?: Array<{ name: string; content: string }>;
     editorVersion?: number;
+    price?: number;
+    productType?: string;
   }
 ): Promise<{ data?: T; error?: string }> {
   return api("/learning-universes/publish", {
@@ -325,6 +327,8 @@ export async function publishLearningUniverse<T>(
       snapshotHash: options?.snapshotHash,
       fileOverlay: options?.fileOverlay,
       editorVersion: options?.editorVersion,
+      price: options?.price,
+      productType: options?.productType,
     },
   });
 }

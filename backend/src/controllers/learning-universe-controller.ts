@@ -58,6 +58,7 @@ if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
 export interface PublishLearningUniverseOptions {
   projectId?: string;
   universeId?: string;
+  productType?: string;
   /** Pre-parsed universe structure (quiz, video, metadata) — document bodies come from compiledPackage. */
   parsed?: ParsedLearningUniverse;
   /** Canonical compiled document package from luLessonCompiler — required for LU v2 publish. */
@@ -484,12 +485,16 @@ export async function publishLearningUniverse(
   const parsedStructured: Record<string, unknown> = {
     ...parsed,
     sourceProjectId: options.projectId,
+    ...(options.productType ? { productType: options.productType } : {}),
   };
 
   if (options.universeId) {
     const existing = await prisma.learningUniverse.findUnique({
       where: { id: options.universeId },
       select: {
+        id: true,
+        title: true,
+        description: true,
         instructorId: true,
         price: true,
         subtitle: true,
@@ -504,10 +509,17 @@ export async function publishLearningUniverse(
     if (!existing) throw new Error("Learning Universe not found for republish");
     if (existing.instructorId !== userId) throw new Error("Unauthorized to republish this Learning Universe");
 
-    const effectivePrice = price > 0 ? price : existing.price;
+    const effectivePrice = price > 0 ? price : (existing.price || 0);
     const cardThumbnail =
       existing.bannerUrl || parsed.universe.thumbnail || existing.thumbnail;
     const structuredData = mergePublishStructuredData(existing.structuredData, parsedStructured);
+
+    const rawTitle = parsed.universe.title?.trim();
+    const isPlaceholderTitle = !rawTitle || rawTitle === "Learning Universe Course" || rawTitle === "Untitled";
+    const publishedTitle = isPlaceholderTitle ? (existing.title || "Learning Universe Course") : rawTitle;
+
+    const rawDescription = parsed.universe.description?.trim();
+    const publishedDescription = rawDescription ? rawDescription : (existing.description || existing.subtitle || "");
 
     const tracksCreate = buildTracksCreate(parsed);
 
@@ -519,8 +531,8 @@ export async function publishLearningUniverse(
       return tx.learningUniverse.update({
         where: { id: options.universeId },
         data: {
-          title: parsed.universe.title || undefined,
-          description: parsed.universe.description,
+          title: publishedTitle,
+          description: publishedDescription,
           subtitle: existing.subtitle,
           thumbnail: cardThumbnail,
           bannerUrl: existing.bannerUrl,
@@ -702,6 +714,10 @@ export async function rehydrateProjectFromUniverse(universeId: string, userId: s
     const mainTex = buildMainTexFromProject(projectJson);
     await writeLuProjectToDb(project.id, projectJson, files, mainTex);
     await linkUniverseAssetsToProject(universeId, universe, project.id);
+    await prisma.learningUniverse.update({
+      where: { id: universeId },
+      data: { sourceProjectId: project.id },
+    });
     return prisma.latexProject.findUnique({ where: { id: project.id }, include: { files: true } });
   }
 
@@ -722,6 +738,10 @@ export async function rehydrateProjectFromUniverse(universeId: string, userId: s
   });
 
   await linkUniverseAssetsToProject(universeId, universe, project.id);
+  await prisma.learningUniverse.update({
+    where: { id: universeId },
+    data: { sourceProjectId: project.id },
+  });
 
   const { migrateSingleFileToProject } = await import("../services/luProject/migrateSingleFileToProject.js");
   const migration = await migrateSingleFileToProject(project.id);
