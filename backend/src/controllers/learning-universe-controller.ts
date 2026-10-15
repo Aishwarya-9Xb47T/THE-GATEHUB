@@ -1145,22 +1145,20 @@ export async function createLearningUniverseDraft(userId: string, input: Learnin
     },
   });
 
-  if (productType !== "learning-universe") {
-    await syncProductListingRecord({
-      universeId: universe.id,
-      productType,
-      instructorId: userId,
-      title: input.title,
-      subtitle: input.subtitle,
-      description: input.description || input.subtitle || "",
-      thumbnail,
-      bannerUrl: input.bannerUrl || thumbnail,
-      categoryId: validCategoryId || undefined,
-      difficulty: input.difficulty,
-      price: input.price,
-      creationSource: "branding-draft",
-    });
-  }
+  await syncProductListingRecord({
+    universeId: universe.id,
+    productType,
+    instructorId: userId,
+    title: input.title,
+    subtitle: input.subtitle,
+    description: input.description || input.subtitle || "",
+    thumbnail,
+    bannerUrl: input.bannerUrl || thumbnail,
+    categoryId: validCategoryId || undefined,
+    difficulty: input.difficulty,
+    price: input.price,
+    creationSource: "branding-draft",
+  });
 
   return universe;
 }

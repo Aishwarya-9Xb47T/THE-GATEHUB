@@ -379,6 +379,8 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     });
   }
 
+  const courseIds = new Set(courses.map((c) => c.id));
+
   const enriched = courses.map((course) => {
     const normalized = normalizeCourseCategory(course);
     const fromAiContent = parseCourseAcademicStudioEdit(course.aiContent);
@@ -398,6 +400,45 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     const thumbnail = course.thumbnail || linkedUniverse?.thumbnail || bannerUrl;
     return { ...normalized, status, academicStudioEdit, bannerUrl, thumbnail };
   });
+
+  // Safely include any published learning universe owned by this instructor whose canonical course record is not yet linked
+  for (const universe of universes) {
+    if (universe.status !== "published") continue;
+    const structured = universe.structuredData as Record<string, unknown> | null;
+    const linkedCourseId =
+      typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
+    if (linkedCourseId && courseIds.has(linkedCourseId)) continue;
+
+    enriched.push({
+      id: universe.id,
+      title: (universe as any).title || "Published Course",
+      subtitle: (universe as any).subtitle || null,
+      description: (universe as any).description || null,
+      price: (universe as any).price || 0,
+      thumbnail: universe.thumbnail || universe.bannerUrl || null,
+      bannerUrl: universe.bannerUrl || universe.thumbnail || null,
+      bannerType: null,
+      difficulty: (universe as any).difficulty || "beginner",
+      language: "en",
+      status: "published",
+      averageRating: 0,
+      reviewCount: 0,
+      publishedAt: (universe as any).publishedAt || new Date(),
+      createdAt: (universe as any).createdAt || new Date(),
+      updatedAt: (universe as any).updatedAt || new Date(),
+      instructorId: req.user.id,
+      category: null,
+      subcategory: null,
+      categoryId: (universe as any).categoryId || null,
+      subcategoryId: null,
+      categoryRel: null,
+      academicStudioEdit: {
+        learningUniverseId: universe.id,
+        sourceProjectId: universe.sourceProjectId ?? undefined,
+      },
+      _count: { enrollments: 0, sections: 0, reviews: 0 },
+    } as any);
+  }
 
   res.json({ success: true, courses: enriched });
 }

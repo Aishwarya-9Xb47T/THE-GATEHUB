@@ -199,4 +199,45 @@ describe("LaTeX Editor Course Publishing & Visibility Regression Tests", () => {
     expect(republish.aiArchitect).toEqual({ blueprint: { modules: [{ title: "M1" }] } });
     expect(republish.linkedCourseId).toBe("course-arch-1");
   });
+
+  // Test 11: Universal canonical course support — LEARNING_UNIVERSE default visibility
+  it("Test 11 — LEARNING_UNIVERSE includes FEATURED_HOME in default catalog visibility", () => {
+    const visibility = defaultCatalogVisibilityForProduct(PRODUCT_TYPES.LEARNING_UNIVERSE);
+    expect(visibility).toContain(CATALOG_VISIBILITY.FEATURED_HOME);
+    expect(visibility).toContain(CATALOG_VISIBILITY.LEARNING_UNIVERSE_LIBRARY);
+  });
+
+  // Test 12: Inferred product types recognize linked courses
+  it("Test 12 — inferProductType identifies premium courses and learning universes correctly", () => {
+    const premiumWithLink = { linkedCourseId: "c-100" };
+    expect(inferProductType(premiumWithLink)).toBe(PRODUCT_TYPES.PREMIUM_COURSE);
+
+    const luWithoutLink = {};
+    expect(inferProductType(luWithoutLink)).toBe(PRODUCT_TYPES.LEARNING_UNIVERSE);
+  });
+
+  // Test 13: Draft isolation for catalog visibility
+  it("Test 13 — Draft status isolation prevents unpublished courses from being marked published", () => {
+    const draftStatus = resolvePremiumCourseDisplayStatus("draft", "draft");
+    expect(draftStatus).toBe("draft");
+
+    const archivedStatus = resolvePremiumCourseDisplayStatus("draft", "archived");
+    expect(archivedStatus).toBe("draft");
+  });
+
+  // Test 14: Category ID normalization safety
+  it("Test 14 — Merging preserves structured metadata and does not drop existing fields", () => {
+    const existing = {
+      productType: PRODUCT_TYPES.LEARNING_UNIVERSE,
+      linkedCourseId: "c-200",
+      catalogVisibility: [CATALOG_VISIBILITY.FEATURED_HOME],
+    };
+    const incoming = {
+      sourceProjectId: "p-200",
+    };
+    const merged = mergePublishStructuredData(existing, incoming);
+    expect(merged.productType).toBe(PRODUCT_TYPES.LEARNING_UNIVERSE);
+    expect(merged.linkedCourseId).toBe("c-200");
+    expect(merged.catalogVisibility).toContain(CATALOG_VISIBILITY.FEATURED_HOME);
+  });
 });

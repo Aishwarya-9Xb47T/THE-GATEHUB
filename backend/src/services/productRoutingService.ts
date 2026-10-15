@@ -261,11 +261,14 @@ export async function syncCatalogOnPublish(universeId: string): Promise<void> {
     })
     .catch(() => {});
 
-  if (productType === PRODUCT_TYPES.PREMIUM_COURSE) {
+  const shouldPublishCanonicalCourse =
+    productType === PRODUCT_TYPES.PREMIUM_COURSE || productType === PRODUCT_TYPES.LEARNING_UNIVERSE;
+
+  if (shouldPublishCanonicalCourse) {
     if (!linkedCourseId) {
       const synced = await syncProductListingRecord({
         universeId,
-        productType: PRODUCT_TYPES.PREMIUM_COURSE,
+        productType,
         instructorId: universe.instructorId,
         title: universe.title,
         subtitle: universe.subtitle ?? undefined,
@@ -325,14 +328,14 @@ export async function syncCatalogOnPublish(universeId: string): Promise<void> {
       } catch (popErr) {
         console.error("[syncCatalogOnPublish] Failed to populate course sections from LU:", popErr);
       }
+
+      try {
+        const { syncProductFromCourse } = await import("./productCatalogService.js");
+        await syncProductFromCourse(linkedCourseId);
+      } catch (prodErr) {
+        console.error("[syncCatalogOnPublish] Failed to sync product from course:", prodErr);
+      }
     }
-  } else if (linkedCourseId) {
-    await prisma.course
-      .update({
-        where: { id: linkedCourseId },
-        data: { status: "draft" },
-      })
-      .catch(() => {});
   }
 
   const { syncProductFromLearningUniverse } = await import("./productCatalogService.js");
@@ -487,53 +490,96 @@ export async function syncProductListingRecord(input: ProductSyncInput): Promise
       },
     });
     listingEntityId = input.universeId;
-  } else if (input.productType === PRODUCT_TYPES.PREMIUM_COURSE) {
+  } else if (
+    input.productType === PRODUCT_TYPES.PREMIUM_COURSE ||
+    input.productType === PRODUCT_TYPES.LEARNING_UNIVERSE
+  ) {
     if (linkedCourseId) {
       const existingCourse = await prisma.course.findFirst({
         where: { id: linkedCourseId, instructorId: input.instructorId },
       });
       if (existingCourse) {
-        await prisma.course.update({
-          where: { id: linkedCourseId },
-          data: {
-            title: input.title,
-            subtitle: input.subtitle,
-            description: desc,
-            thumbnail: input.thumbnail || input.bannerUrl || undefined,
-            bannerUrl: input.bannerUrl || input.thumbnail || undefined,
-            categoryId: input.categoryId || undefined,
-            difficulty: normalizeDifficulty(input.difficulty),
-            price: typeof input.price === "number" ? input.price : existingCourse.price,
-          },
-        });
+        try {
+          await prisma.course.update({
+            where: { id: linkedCourseId },
+            data: {
+              title: input.title,
+              subtitle: input.subtitle,
+              description: desc,
+              thumbnail: input.thumbnail || input.bannerUrl || undefined,
+              bannerUrl: input.bannerUrl || input.thumbnail || undefined,
+              categoryId: input.categoryId || undefined,
+              difficulty: normalizeDifficulty(input.difficulty),
+              price: typeof input.price === "number" ? input.price : existingCourse.price,
+            },
+          });
+        } catch {
+          await prisma.course.update({
+            where: { id: linkedCourseId },
+            data: {
+              title: input.title,
+              subtitle: input.subtitle,
+              description: desc,
+              thumbnail: input.thumbnail || input.bannerUrl || undefined,
+              bannerUrl: input.bannerUrl || input.thumbnail || undefined,
+              difficulty: normalizeDifficulty(input.difficulty),
+              price: typeof input.price === "number" ? input.price : existingCourse.price,
+            },
+          }).catch(() => {});
+        }
       } else {
         linkedCourseId = undefined;
       }
     }
 
     if (!linkedCourseId) {
-      const course = await prisma.course.create({
-        data: {
-          title: input.title,
-          subtitle: input.subtitle,
-          description: desc,
-          price: typeof input.price === "number" ? input.price : 0,
-          thumbnail: input.thumbnail || input.bannerUrl || undefined,
-          bannerUrl: input.bannerUrl || input.thumbnail || undefined,
-          categoryId: input.categoryId || undefined,
-          difficulty: normalizeDifficulty(input.difficulty),
-          language: "en",
-          status: "draft",
-          instructorId: input.instructorId,
-          aiContent: JSON.stringify({
-            productType: PRODUCT_TYPES.PREMIUM_COURSE,
-            academicStudio: {
-              learningUniverseId: input.universeId,
-              sourceProjectId: input.sourceProjectId,
-            },
-          }),
-        },
-      });
+      let course;
+      try {
+        course = await prisma.course.create({
+          data: {
+            title: input.title,
+            subtitle: input.subtitle,
+            description: desc,
+            price: typeof input.price === "number" ? input.price : 0,
+            thumbnail: input.thumbnail || input.bannerUrl || undefined,
+            bannerUrl: input.bannerUrl || input.thumbnail || undefined,
+            categoryId: input.categoryId || undefined,
+            difficulty: normalizeDifficulty(input.difficulty),
+            language: "en",
+            status: "draft",
+            instructorId: input.instructorId,
+            aiContent: JSON.stringify({
+              productType: input.productType,
+              academicStudio: {
+                learningUniverseId: input.universeId,
+                sourceProjectId: input.sourceProjectId,
+              },
+            }),
+          },
+        });
+      } catch {
+        course = await prisma.course.create({
+          data: {
+            title: input.title,
+            subtitle: input.subtitle,
+            description: desc,
+            price: typeof input.price === "number" ? input.price : 0,
+            thumbnail: input.thumbnail || input.bannerUrl || undefined,
+            bannerUrl: input.bannerUrl || input.thumbnail || undefined,
+            difficulty: normalizeDifficulty(input.difficulty),
+            language: "en",
+            status: "draft",
+            instructorId: input.instructorId,
+            aiContent: JSON.stringify({
+              productType: input.productType,
+              academicStudio: {
+                learningUniverseId: input.universeId,
+                sourceProjectId: input.sourceProjectId,
+              },
+            }),
+          },
+        });
+      }
       linkedCourseId = course.id;
     }
     listingEntityId = linkedCourseId;
@@ -604,7 +650,8 @@ export function findPremiumUniverseForLinkedCourse<T extends { id: string; struc
   universes: T[]
 ): T | undefined {
   return universes.find((u) => {
-    if (inferProductType(u.structuredData) !== PRODUCT_TYPES.PREMIUM_COURSE) return false;
+    const pt = inferProductType(u.structuredData);
+    if (pt !== PRODUCT_TYPES.PREMIUM_COURSE && pt !== PRODUCT_TYPES.LEARNING_UNIVERSE) return false;
     const linked = readStructuredRecord(u.structuredData).linkedCourseId;
     return linked === courseId;
   });
@@ -754,7 +801,7 @@ export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Pr
       const linked = readStructuredRecord(universe.structuredData).linkedCourseId;
       if (typeof linked === "string") freeLinkedCourseIds.add(linked);
     }
-    if (pt === PRODUCT_TYPES.PREMIUM_COURSE) {
+    if (pt === PRODUCT_TYPES.PREMIUM_COURSE || pt === PRODUCT_TYPES.LEARNING_UNIVERSE) {
       const linked = readStructuredRecord(universe.structuredData).linkedCourseId;
       if (typeof linked === "string") {
         premiumLuByLinkedCourse.set(linked, { status: universe.status });
@@ -790,7 +837,8 @@ export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Pr
       if (lu && isFreeLearningProduct(inferProductType(lu.structuredData))) continue;
       if (
         lu &&
-        inferProductType(lu.structuredData) === PRODUCT_TYPES.PREMIUM_COURSE &&
+        (inferProductType(lu.structuredData) === PRODUCT_TYPES.PREMIUM_COURSE ||
+          inferProductType(lu.structuredData) === PRODUCT_TYPES.LEARNING_UNIVERSE) &&
         lu.status !== "published"
       ) {
         continue;
@@ -803,7 +851,8 @@ export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Pr
         ? allUniverses.some(
             (u) =>
               u.id === linkedLuId &&
-              inferProductType(u.structuredData) === PRODUCT_TYPES.PREMIUM_COURSE &&
+              (inferProductType(u.structuredData) === PRODUCT_TYPES.PREMIUM_COURSE ||
+                inferProductType(u.structuredData) === PRODUCT_TYPES.LEARNING_UNIVERSE) &&
               u.status === "published"
           )
         : false);
@@ -830,7 +879,8 @@ export async function resolveFeaturedHomePremiumCourseIds(precomputedPremiumIds?
   const featured: string[] = [];
   for (const u of universes) {
     if (!hasCatalogVisibility(u.structuredData, CATALOG_VISIBILITY.FEATURED_HOME)) continue;
-    if (inferProductType(u.structuredData) !== PRODUCT_TYPES.PREMIUM_COURSE) continue;
+    const pt = inferProductType(u.structuredData);
+    if (pt !== PRODUCT_TYPES.PREMIUM_COURSE && pt !== PRODUCT_TYPES.LEARNING_UNIVERSE) continue;
     const linked = readStructuredRecord(u.structuredData).linkedCourseId;
     if (typeof linked === "string" && premiumIds.has(linked)) featured.push(linked);
   }
