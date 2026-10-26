@@ -386,13 +386,7 @@
 }
 
 .docs-article-header__glow {
-  position: absolute;
-  top: -2rem;
-  left: -2rem;
-  right: -2rem;
-  height: 8rem;
-  background: radial-gradient(ellipse at 30% 0%, hsl(var(--primary) / 0.08), transparent 70%);
-  pointer-events: none;
+  display: none;
 }
 
 .docs-article-header__badges {
@@ -1153,11 +1147,7 @@
 }
 
 .help-home__hero-glow {
-  position: absolute;
-  inset: -1rem -2rem auto;
-  height: 10rem;
-  background: radial-gradient(ellipse at 20% 0%, hsl(var(--primary) / 0.1), transparent 70%);
-  pointer-events: none;
+  display: none;
 }
 
 .help-home__title {
