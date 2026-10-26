@@ -52,6 +52,7 @@ export function MyCoursesInstructor() {
     } else {
       toast({ title: `Course ${newStatus} successfully`, variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     }
   };
 
@@ -64,6 +65,7 @@ export function MyCoursesInstructor() {
     onSuccess: () => {
       toast({ title: "Course deleted", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
       setCourseToDelete(null);
       setConfirmName("");
     },

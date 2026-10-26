@@ -4,7 +4,7 @@ import express from "express";
 import { getPublishedLearningUniverses, getFeaturedHomeLearningUniverses, getLandingShowcaseLearningUniverses, getLearningUniverseById, rehydrateProjectFromUniverse, createLearningUniverseDraft, updateLearningUniverseBranding } from "../controllers/learning-universe-controller.js";
 import { runLuPublishPipeline } from "../services/luProject/luPublishPipeline.js";
 import { ensureProjectForStructuredPublish } from "../services/luProject/ensureStructuredPublishProject.js";
-import { syncCatalogOnPublish } from "../services/productRoutingService.js";
+import { syncCatalogOnPublish, invalidatePremiumCourseIdCache } from "../services/productRoutingService.js";
 import { emitLearningUniverseDsl } from "../services/learningUniverseDslEmitter.js";
 import type { LearningUniverseStructured } from "../services/learningUniverseSchema.js";
 import * as luEnrollmentController from "../controllers/learningUniverseEnrollmentController.js";
@@ -781,7 +781,9 @@ router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (r
       } catch (syncErr) {
         console.warn("[LU delete] catalog sync after archive failed:", syncErr);
       }
+      invalidatePremiumCourseIdCache();
       appCache.invalidate("universes:");
+      appCache.invalidate("courses:");
 
       return res.json({
         success: true,
@@ -840,7 +842,9 @@ router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (r
       }
     }
 
+    invalidatePremiumCourseIdCache();
     appCache.invalidate("universes:");
+    appCache.invalidate("courses:");
     res.json({ success: true, action: "deleted" });
   } catch (err) {
     console.error(err);
