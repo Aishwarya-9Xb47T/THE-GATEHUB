@@ -382,8 +382,45 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     return res.json(cached);
   }
 
-  const courses = await prisma.course.findMany({
+  // 1. Fetch learning universes owned by this instructor to trace bidirectional linking
+  const universes = await prisma.learningUniverse.findMany({
     where: { instructorId: req.user.id },
+    select: {
+      id: true,
+      sourceProjectId: true,
+      structuredData: true,
+      status: true,
+      bannerUrl: true,
+      thumbnail: true,
+      title: true,
+      subtitle: true,
+      description: true,
+      price: true,
+      difficulty: true,
+      publishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      categoryId: true,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  // Extract all linkedCourseIds from universes owned by this instructor
+  const universeLinkedCourseIds = universes
+    .map((u) => {
+      const structured = u.structuredData as Record<string, unknown> | null;
+      return typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
+    })
+    .filter((id): id is string => Boolean(id));
+
+  // 2. Query all courses authored by this instructor, OR linked to an author-owned universe
+  const courses = await prisma.course.findMany({
+    where: {
+      OR: [
+        { instructorId: req.user.id },
+        ...(universeLinkedCourseIds.length > 0 ? [{ id: { in: universeLinkedCourseIds } }] : []),
+      ],
+    },
     select: {
       id: true,
       title: true,
@@ -413,27 +450,23 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     orderBy: { updatedAt: "desc" },
   });
 
-  const universes = await prisma.learningUniverse.findMany({
-    where: { instructorId: req.user.id },
-    select: {
-      id: true,
-      sourceProjectId: true,
-      structuredData: true,
-      status: true,
-      bannerUrl: true,
-      thumbnail: true,
-      title: true,
-      subtitle: true,
-      description: true,
-      price: true,
-      difficulty: true,
-      publishedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      categoryId: true,
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+  // Self-heal & authorize: If any linked course was unassigned, safely sync it to this universe author;
+  // Never overwrite or expose a course owned by another instructor.
+  const authorizedCourses: typeof courses = [];
+  for (const course of courses) {
+    if (!course.instructorId) {
+      await prisma.course
+        .update({
+          where: { id: course.id },
+          data: { instructorId: req.user.id },
+        })
+        .catch(() => {});
+      course.instructorId = req.user.id;
+      authorizedCourses.push(course);
+    } else if (course.instructorId === req.user.id) {
+      authorizedCourses.push(course);
+    }
+  }
 
   const studioEditByCourseId = new Map<string, { learningUniverseId: string; sourceProjectId?: string }>();
   const premiumUniverseByLinkedCourseId = new Map<string, typeof universes[0]>();
@@ -457,9 +490,9 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     }
   }
 
-  const courseIds = new Set(courses.map((c) => c.id));
+  const courseIds = new Set(authorizedCourses.map((c) => c.id));
 
-  const enriched = courses.map((course) => {
+  const enriched = authorizedCourses.map((course) => {
     const fromAiContent = parseCourseAcademicStudioEdit(course.aiContent);
     const { aiContent, ...cleanCourse } = course;
     const normalized = normalizeCourseCategory(cleanCourse);
@@ -480,29 +513,33 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     return { ...normalized, status, academicStudioEdit, bannerUrl, thumbnail };
   });
 
-  // Safely include any published learning universe owned by this instructor whose canonical course record is not yet linked
+  // Safely include any learning universe owned by this instructor whose canonical course record is not yet linked
+  // (e.g. newly created drafts from LaTeX or AI Architect, or visual path drafts)
   for (const universe of universes) {
-    if (universe.status !== "published") continue;
     const structured = universe.structuredData as Record<string, unknown> | null;
     const linkedCourseId =
       typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
     if (linkedCourseId && courseIds.has(linkedCourseId)) continue;
 
+    const status = (universe.status === "published" ? "published" : "draft") as "published" | "draft";
+    const bannerUrl = universe.bannerUrl || universe.thumbnail || null;
+    const thumbnail = universe.thumbnail || universe.bannerUrl || null;
+
     enriched.push({
       id: universe.id,
-      title: universe.title || "Published Course",
+      title: universe.title || (status === "published" ? "Published Course" : "Draft Course"),
       subtitle: universe.subtitle || null,
       description: universe.description || null,
       price: universe.price || 0,
-      thumbnail: universe.thumbnail || universe.bannerUrl || null,
-      bannerUrl: universe.bannerUrl || universe.thumbnail || null,
+      thumbnail,
+      bannerUrl,
       bannerType: null,
       difficulty: universe.difficulty || "beginner",
       language: "en",
-      status: "published",
+      status,
       averageRating: 0,
       reviewCount: 0,
-      publishedAt: universe.publishedAt || new Date(),
+      publishedAt: status === "published" ? (universe.publishedAt || universe.createdAt || new Date()) : null,
       createdAt: universe.createdAt || new Date(),
       updatedAt: universe.updatedAt || new Date(),
       instructorId: req.user.id,
@@ -687,9 +724,10 @@ export async function create(req: AuthRequest, res: Response) {
     await syncPremiumUniverseStatusFromCourse(course.id, "published", req.user.id);
     const { syncProductFromCourse } = await import("../services/productCatalogService.js");
     await syncProductFromCourse(course.id).catch(() => {});
-    invalidatePremiumCourseIdCache();
-    appCache.invalidate("courses:");
   }
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   res.status(201).json({ success: true, course: normalizeCourseCategory(course) });
 }
@@ -783,6 +821,10 @@ export async function generateAICourse(req: AuthRequest, res: Response) {
     where: { id: course.id },
     data: { aiLandingData: JSON.stringify(landingData) }
   });
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   res.status(201).json({ success: true, course });
 }
@@ -1020,9 +1062,11 @@ export async function createCourseWithAuthoring(req: AuthRequest, res: Response)
     await syncPremiumUniverseStatusFromCourse(course.id, "published", req.user.id);
     const { syncProductFromCourse } = await import("../services/productCatalogService.js");
     await syncProductFromCourse(course.id).catch(() => {});
-    invalidatePremiumCourseIdCache();
-    appCache.invalidate("courses:");
   }
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   res.status(201).json({ success: true, course: normalizeCourseCategory(updatedCourse) });
 }
@@ -1167,6 +1211,7 @@ export async function update(req: AuthRequest, res: Response) {
 
   invalidatePremiumCourseIdCache();
   appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   // Non-blocking auto-description generation if lectures or title changed
   triggerAutoDescription(id).catch(err => console.error("Auto-description failed", err));
@@ -1640,6 +1685,7 @@ export async function remove(req: AuthRequest, res: Response) {
 
   invalidatePremiumCourseIdCache();
   appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   const { deleteStoredPublicPath } = await import("../middlewares/persistUpload.js");
   for (const stored of storedUrls) {

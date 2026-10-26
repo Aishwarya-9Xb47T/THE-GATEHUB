@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
+import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { api } from "@/lib/api";
@@ -59,6 +60,7 @@ interface LocationState {
 export function CreateCourseManualPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.add);
   const [loading, setLoading] = useState(false);
   const [authoringPackage, setAuthoringPackage] = useState<AuthoringPackage | null>(null);
@@ -143,6 +145,8 @@ export function CreateCourseManualPage() {
           body: { ...data, authoringPackage },
         });
         if (res.error) throw new Error(res.error);
+        void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+        void queryClient.invalidateQueries({ queryKey: ["courses"] });
         toast({ title: "Course created with full curriculum", variant: "success" });
         navigate(`/instructor/course/${res.data!.course.id}/edit`);
       } else {
@@ -157,6 +161,8 @@ export function CreateCourseManualPage() {
           },
         });
         if (res.error) throw new Error(res.error);
+        void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+        void queryClient.invalidateQueries({ queryKey: ["courses"] });
         toast({ title: "Course created", variant: "success" });
         navigate(`/instructor/course/${res.data!.course.id}/edit`);
       }
