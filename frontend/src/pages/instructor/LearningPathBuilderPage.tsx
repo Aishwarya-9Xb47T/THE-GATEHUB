@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -412,6 +413,7 @@ export function LearningPathBuilderPage() {
 
 function LearningPathBuilderInner() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get("edit");
   const draftUniverseId = searchParams.get("universe");
@@ -760,11 +762,15 @@ function LearningPathBuilderInner() {
     setIsSaving(true);
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(normalizePageUniverse(universe)));
+      void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+      void queryClient.invalidateQueries({ queryKey: ["courses"] });
+      void queryClient.invalidateQueries({ queryKey: ["learning-universes", "mine"] });
+      void queryClient.invalidateQueries({ queryKey: ["learning-universes"] });
       toast({ title: "Draft saved locally" });
     } finally {
       setIsSaving(false);
     }
-  }, [universe, toast]);
+  }, [universe, toast, queryClient]);
 
   const handlePublish = async () => {
     setIsPublishing(true);
@@ -781,6 +787,15 @@ function LearningPathBuilderInner() {
       }
       const published = (res.data as { data?: { id: string } })?.data || res.data as { id?: string };
       const id = published?.id;
+
+      void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+      void queryClient.invalidateQueries({ queryKey: ["courses"] });
+      void queryClient.invalidateQueries({ queryKey: ["learning-universes", "mine"] });
+      void queryClient.invalidateQueries({ queryKey: ["learning-universes"] });
+      void queryClient.invalidateQueries({ queryKey: ["landing"] });
+      void queryClient.invalidateQueries({ queryKey: ["landing", "featured-courses"] });
+      void queryClient.invalidateQueries({ queryKey: ["landing", "learning-universes"] });
+
       if (id) {
         localStorage.removeItem(DRAFT_KEY);
         clearAssets();

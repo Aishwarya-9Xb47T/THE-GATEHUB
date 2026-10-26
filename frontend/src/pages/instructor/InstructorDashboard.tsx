@@ -58,7 +58,8 @@ export function InstructorDashboard() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
-    staleTime: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const {
@@ -73,7 +74,8 @@ export function InstructorDashboard() {
       if (res.error) throw new Error(res.error);
       return res.data?.data ?? [];
     },
-    staleTime: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: earningsData } = useQuery({

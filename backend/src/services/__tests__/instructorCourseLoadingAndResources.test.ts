@@ -117,8 +117,8 @@ describe("Instructor Course Loading & Resources Navigation Performance Regressio
         sourceProjectId: "proj-1",
       });
       expect(returnedCourse.status).toBe("published");
-      // Verify Cache-Control header
-      expect(headers["Cache-Control"]).toBe("private, no-cache, stale-while-revalidate=60");
+      // Verify Cache-Control header ensures real-time fresh rendering without browser caching
+      expect(headers["Cache-Control"]).toBe("no-store, no-cache, must-revalidate, proxy-revalidate");
 
       // Verify appCache has cached the result
       const cached = appCache.get(`courses:instructor:inst-1`);

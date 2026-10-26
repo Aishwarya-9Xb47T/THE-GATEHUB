@@ -276,6 +276,7 @@ export async function publishCourseFromDsl(
     invalidatePremiumCourseIdCache();
     const { appCache } = await import("../utils/cache.js");
     appCache.invalidate("courses:");
+    appCache.invalidate("universes:");
 
     return course;
   }
@@ -336,6 +337,7 @@ export async function publishCourseFromDsl(
   invalidatePremiumCourseIdCache();
   const { appCache } = await import("../utils/cache.js");
   appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   return course;
 }

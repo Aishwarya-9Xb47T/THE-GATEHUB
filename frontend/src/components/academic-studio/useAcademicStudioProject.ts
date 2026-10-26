@@ -195,6 +195,13 @@ export function useAcademicStudioProject(config: AcademicStudioConfig) {
 
             console.log(`${LOG} Project created: ${project.id}`);
 
+            if (sourceId) {
+              await api(`/learning-universes/${sourceId}/branding`, {
+                method: "PATCH",
+                body: { sourceProjectId: project.id },
+              }).catch(() => {});
+            }
+
             const mainFile = project.files.find((f) => f.name === "main.tex");
             if (mainFile && template !== "learning-universe-v2" && dslFallback?.trim()) {
               const putRes = await api(`/latex-projects/${project.id}/files/content`, {

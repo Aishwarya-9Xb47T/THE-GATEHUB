@@ -38,13 +38,15 @@ describe("queryCachePersist Security & Classification", () => {
       expect(isUserPrivateQueryKey(["learning", "my"])).toBe(true);
       expect(isUserPrivateQueryKey(["my-certificates"])).toBe(true);
       expect(isUserPrivateQueryKey(["my-enrollments"])).toBe(true);
-      expect(isUserPrivateQueryKey(["courses", "my-instructor"])).toBe(true);
+      expect(isUserPrivateQueryKey(["courses", "my-instructor"])).toBe(false); // Memory-only to guarantee fresh data
       expect(isUserPrivateQueryKey(["cart"])).toBe(true);
       expect(isUserPrivateQueryKey(["wishlist"])).toBe(true);
     });
 
-    it("does not classify admin queries as user-private (admin remains memory-only)", () => {
+    it("does not classify admin or instructor management queries as persistable to disk", () => {
       expect(isUserPrivateQueryKey(["admin", "analytics"])).toBe(false);
+      expect(isUserPrivateQueryKey(["instructor", "dashboard"])).toBe(false);
+      expect(isUserPrivateQueryKey(["courses", "my-instructor"])).toBe(false);
     });
   });
 

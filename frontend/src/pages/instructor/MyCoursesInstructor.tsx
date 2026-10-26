@@ -38,7 +38,8 @@ export function MyCoursesInstructor() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
-    staleTime: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const handleTogglePublish = async (courseId: string, currentStatus: string) => {
