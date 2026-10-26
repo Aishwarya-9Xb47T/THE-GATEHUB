@@ -24,7 +24,6 @@ export function LandingRouteFallback() {
               </div>
             </div>
           </div>
-          <div className="landing-hero__domains border-t border-border/40 h-24 animate-pulse bg-muted/15" aria-hidden />
         </section>
       </main>
     </div>

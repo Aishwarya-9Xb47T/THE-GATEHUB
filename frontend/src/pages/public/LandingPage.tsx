@@ -4,12 +4,6 @@ import { ArrowRight } from "lucide-react";
 import { ShimmerHeading } from "@/components/landing/ShimmerHeading";
 import { LandingExploreSectionFallback } from "@/components/landing/LandingSectionFallbacks";
 
-const TechnologyEcosystemMarquee = lazy(() =>
-  import("@/components/landing/TechnologyEcosystemMarquee").then((m) => ({
-    default: m.TechnologyEcosystemMarquee,
-  }))
-);
-
 const EcosystemValueSection = lazy(() =>
   import("@/components/landing/EcosystemValueSection").then((m) => ({
     default: m.EcosystemValueSection,
@@ -17,12 +11,6 @@ const EcosystemValueSection = lazy(() =>
 );
 
 import { LandingExploreCoursesSection } from "@/pages/public/landing/LandingExploreCoursesSection";
-
-function HeroMarqueeFallback() {
-  return (
-    <div className="landing-hero__domains border-t border-border/40 h-24 animate-pulse bg-muted/15" aria-hidden />
-  );
-}
 
 function EcosystemFallback() {
   return (
@@ -59,12 +47,6 @@ export function LandingPage() {
               </div>
             </div>
           </div>
-
-          <Suspense fallback={<HeroMarqueeFallback />}>
-            <div className="landing-hero__domains border-t border-border/40">
-              <TechnologyEcosystemMarquee />
-            </div>
-          </Suspense>
         </section>
 
         <Suspense fallback={<EcosystemFallback />}>

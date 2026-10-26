@@ -792,13 +792,13 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    justify-content: flex-start;
-    min-height: calc(100svh - 4rem);
-    padding-bottom: 2rem;
+    justify-content: center;
+    align-items: center;
+    padding-top: clamp(3rem, 6vh, 5.5rem);
+    padding-bottom: clamp(3.5rem, 7vh, 6rem);
   }
 
   .landing-hero__shell {
-    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -806,9 +806,8 @@
     max-width: none;
     margin-inline: 0;
     padding-inline: var(--app-gutter-xl);
-    padding-block: clamp(1.5rem, 4vh, 3rem);
+    padding-block: 0;
     position: relative;
-    transform: translateY(clamp(-2rem, -4vh, -0.5rem));
     overflow: visible;
     box-sizing: border-box;
   }
@@ -842,16 +841,6 @@
 
   .landing-hero__actions {
     gap: 16px;
-  }
-
-  .landing-hero__domains {
-    width: 100%;
-    flex-shrink: 0;
-    overflow: hidden;
-    box-sizing: border-box;
-    padding-top: 1.25rem;
-    padding-bottom: 0.5rem;
-    margin-top: auto;
   }
 
   .landing-hero__glow {
@@ -1281,12 +1270,13 @@
 
     .landing-hero {
       min-height: auto;
-      padding-bottom: 1.5rem;
+      padding-top: 2.25rem;
+      padding-bottom: 2.75rem;
     }
 
     .landing-hero__shell {
       transform: none;
-      padding-block: 1.5rem 1rem;
+      padding-block: 0;
     }
 
     .landing-cta {
@@ -1584,84 +1574,7 @@
   }
 }
 
-/* ── Technology ecosystem marquee (outside @layer for reliable animation) ── */
 
-.tech-ecosystem {
-  width: 100%;
-  max-width: 100%;
-  margin-inline: auto;
-  padding-bottom: clamp(1rem, 2vw, 1.75rem);
-  box-sizing: border-box;
-  overflow: hidden;
-}
-
-.tech-ecosystem__container {
-  width: 100%;
-  max-width: none;
-  margin-inline: auto;
-  padding-inline: var(--app-gutter-xl);
-  box-sizing: border-box;
-  display: flex;
-  justify-content: center;
-}
-
-.tech-ecosystem__marquee-bleed {
-  width: 100%;
-  max-width: 100%;
-  margin-inline: 0;
-  box-sizing: border-box;
-  overflow: hidden;
-  position: relative;
-  mask-image: linear-gradient(
-    to right,
-    transparent 0%,
-    black clamp(1.5rem, 4vw, 4rem),
-    black calc(100% - clamp(1.5rem, 4vw, 4rem)),
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0%,
-    black clamp(1.5rem, 4vw, 4rem),
-    black calc(100% - clamp(1.5rem, 4vw, 4rem)),
-    transparent 100%
-  );
-}
-
-.tech-ecosystem__title {
-  text-align: center;
-  margin-bottom: clamp(1rem, 1.75vw, 1.375rem);
-  padding-inline: clamp(8px, 1vw, 16px);
-}
-
-.tech-ecosystem__rows {
-  display: none;
-  flex-direction: column;
-  gap: clamp(8px, 1vw, 12px);
-  box-sizing: border-box;
-}
-
-.tech-ecosystem__rows--mobile {
-  display: flex;
-}
-
-@media (min-width: 768px) {
-  .tech-ecosystem__rows--mobile {
-    display: none;
-  }
-  .tech-ecosystem__rows--tablet {
-    display: flex;
-  }
-}
-
-@media (min-width: 1024px) {
-  .tech-ecosystem__rows--tablet {
-    display: none;
-  }
-  .tech-ecosystem__rows--desktop {
-    display: flex;
-  }
-}
 
 /* Premium seamless infinite marquee */
 .infinite-marquee {
