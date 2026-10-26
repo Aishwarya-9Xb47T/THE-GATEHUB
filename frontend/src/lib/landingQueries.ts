@@ -36,7 +36,7 @@ interface StoredLandingCache<T> {
   data: T;
 }
 
-export function getCachedLandingCourses(): LandingCoursesResponse {
+export function getCachedLandingCourses(): LandingCoursesResponse | undefined {
   if (typeof window !== "undefined" && window.localStorage) {
     try {
       const stored = localStorage.getItem("gatehub_landing_featured_courses");
@@ -50,7 +50,7 @@ export function getCachedLandingCourses(): LandingCoursesResponse {
           Array.isArray((parsed as StoredLandingCache<LandingCoursesResponse>).data?.courses)
         ) {
           const wrapper = parsed as StoredLandingCache<LandingCoursesResponse>;
-          if (Date.now() - wrapper.savedAt < LANDING_CACHE_TTL_MS) {
+          if (Date.now() - wrapper.savedAt < LANDING_CACHE_TTL_MS && wrapper.data.courses.length > 0) {
             return wrapper.data;
           }
         } else {
@@ -62,10 +62,10 @@ export function getCachedLandingCourses(): LandingCoursesResponse {
       /* ignore */
     }
   }
-  return { success: true, courses: [] };
+  return undefined;
 }
 
-export function getCachedLandingUniverses(): any[] {
+export function getCachedLandingUniverses(): any[] | undefined {
   if (typeof window !== "undefined" && window.localStorage) {
     try {
       const stored = localStorage.getItem("gatehub_landing_universes");
@@ -79,7 +79,7 @@ export function getCachedLandingUniverses(): any[] {
           Array.isArray((parsed as StoredLandingCache<any[]>).data)
         ) {
           const wrapper = parsed as StoredLandingCache<any[]>;
-          if (Date.now() - wrapper.savedAt < LANDING_CACHE_TTL_MS) {
+          if (Date.now() - wrapper.savedAt < LANDING_CACHE_TTL_MS && wrapper.data.length > 0) {
             return wrapper.data;
           }
         } else {
@@ -91,7 +91,7 @@ export function getCachedLandingUniverses(): any[] {
       /* ignore */
     }
   }
-  return [];
+  return undefined;
 }
 
 export const landingCoursesQueryOptions = {
@@ -118,7 +118,7 @@ export const landingCoursesQueryOptions = {
   gcTime: LANDING_GC_MS,
   retry: 2,
   retryDelay: 1000,
-  refetchOnMount: true,
+  refetchOnMount: "always" as const,
   refetchOnWindowFocus: true,
 };
 
@@ -232,7 +232,7 @@ export const landingUniversesQueryOptions = {
   gcTime: LANDING_GC_MS,
   retry: 2,
   retryDelay: 1000,
-  refetchOnMount: true,
+  refetchOnMount: "always" as const,
   refetchOnWindowFocus: true,
 };
 

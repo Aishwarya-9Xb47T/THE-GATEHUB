@@ -141,5 +141,66 @@ describe("queryCachePersist Security & Classification", () => {
       expect(() => restoreQueryCache(client)).not.toThrow();
       expect(client.getQueryData(["categories"])).toBeUndefined();
     });
+
+    it("skips empty public catalogue entries on restore so they never poison the cache", () => {
+      const client = new QueryClient();
+      localStorage.setItem(
+        PUBLIC_CACHE_STORAGE_KEY,
+        JSON.stringify([
+          {
+            queryKey: ["landing", "featured-courses"],
+            data: { success: true, courses: [] },
+            updatedAt: Date.now(),
+          },
+          {
+            queryKey: ["courses", "browse"],
+            data: { courses: [] },
+            updatedAt: Date.now(),
+          },
+          {
+            queryKey: ["landing", "learning-universes"],
+            data: [],
+            updatedAt: Date.now(),
+          },
+          {
+            queryKey: ["categories"],
+            data: [{ id: "c1", name: "AI" }],
+            updatedAt: Date.now(),
+          },
+        ])
+      );
+
+      restoreQueryCache(client);
+
+      expect(client.getQueryData(["landing", "featured-courses"])).toBeUndefined();
+      expect(client.getQueryData(["courses", "browse"])).toBeUndefined();
+      expect(client.getQueryData(["landing", "learning-universes"])).toBeUndefined();
+      // Valid non-empty entries like categories should be restored
+      expect(client.getQueryData(["categories"])).toBeDefined();
+    });
+
+    it("restores valid non-empty public catalogue entries", () => {
+      const client = new QueryClient();
+      localStorage.setItem(
+        PUBLIC_CACHE_STORAGE_KEY,
+        JSON.stringify([
+          {
+            queryKey: ["landing", "featured-courses"],
+            data: { success: true, courses: [{ id: "c1", title: "Web Dev" }] },
+            updatedAt: Date.now(),
+          },
+        ])
+      );
+
+      restoreQueryCache(client);
+
+      const data = client.getQueryData<{ success: boolean; courses: Array<{ id: string }> }>([
+        "landing",
+        "featured-courses",
+      ]);
+      expect(data).toBeDefined();
+      expect(data?.courses).toHaveLength(1);
+      expect(data?.courses[0].id).toBe("c1");
+    });
   });
 });

@@ -23,8 +23,16 @@ export function LandingExploreCoursesSection() {
 
   const items = mergeLandingExploreItems(universesQuery.data, coursesQuery.data?.courses);
   const hasAnyData = items.length > 0;
-  const isInitialLoading = !hasAnyData && (universesQuery.isLoading || coursesQuery.isLoading);
-  const isError = !hasAnyData && !universesQuery.isLoading && !coursesQuery.isLoading && (universesQuery.isError || coursesQuery.isError);
+  const isInitialLoading =
+    !hasAnyData &&
+    (universesQuery.isLoading ||
+      coursesQuery.isLoading ||
+      universesQuery.isPending ||
+      coursesQuery.isPending);
+  const isError =
+    !hasAnyData &&
+    !isInitialLoading &&
+    (universesQuery.isError || coursesQuery.isError);
 
   useEffect(() => {
     if (items.length > 0) {
@@ -56,8 +64,18 @@ export function LandingExploreCoursesSection() {
         {isInitialLoading ? (
           <LandingCatalogSkeleton />
         ) : isError ? (
-          <div className="text-center py-12 text-muted-foreground">
-            Unable to load courses. Please refresh the page.
+          <div className="text-center py-12 text-muted-foreground flex flex-col items-center gap-3">
+            <p>Unable to load courses. Please refresh the page.</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void coursesQuery.refetch();
+                void universesQuery.refetch();
+              }}
+            >
+              Retry
+            </Button>
           </div>
         ) : items.length === 0 ? (
           <div className="text-center py-12">

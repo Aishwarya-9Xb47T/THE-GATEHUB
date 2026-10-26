@@ -25,18 +25,25 @@ const queryClient = new QueryClient({
 // Restore persisted queries from localStorage immediately before initial render
 restoreQueryCache(queryClient);
 
-// Ensure landing query cache has initial data seeded so course cards render at frame 0
-if (!queryClient.getQueryData(landingCoursesQueryOptions.queryKey)) {
-  queryClient.setQueryData(
-    landingCoursesQueryOptions.queryKey,
-    landingCoursesQueryOptions.initialData()
-  );
+// Ensure landing query cache has initial data seeded ONLY if non-empty cached data exists
+const initialCourses = landingCoursesQueryOptions.initialData?.();
+if (initialCourses && initialCourses.courses && initialCourses.courses.length > 0) {
+  if (!queryClient.getQueryData(landingCoursesQueryOptions.queryKey)) {
+    queryClient.setQueryData(
+      landingCoursesQueryOptions.queryKey,
+      initialCourses
+    );
+  }
 }
-if (!queryClient.getQueryData(landingUniversesQueryOptions.queryKey)) {
-  queryClient.setQueryData(
-    landingUniversesQueryOptions.queryKey,
-    landingUniversesQueryOptions.initialData()
-  );
+
+const initialUniverses = landingUniversesQueryOptions.initialData?.();
+if (Array.isArray(initialUniverses) && initialUniverses.length > 0) {
+  if (!queryClient.getQueryData(landingUniversesQueryOptions.queryKey)) {
+    queryClient.setQueryData(
+      landingUniversesQueryOptions.queryKey,
+      initialUniverses
+    );
+  }
 }
 
 // Start background cache sync to localStorage

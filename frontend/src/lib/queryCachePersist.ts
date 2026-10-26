@@ -124,6 +124,16 @@ export function restoreQueryCache(queryClient: QueryClient): void {
         // Enforce max age limit (24 hours)
         if (entry.updatedAt && now - entry.updatedAt > MAX_CACHE_AGE_MS) continue;
 
+        // Skip empty public catalogue entries so they never poison the cache or block fetching
+        if (isPublicQueryKey(entry.queryKey)) {
+          const first = String(entry.queryKey[0]);
+          if (first === "landing" || first === "courses" || first === "learning-universes") {
+            const courses = (entry.data as Record<string, unknown>)?.courses;
+            if (Array.isArray(courses) && courses.length === 0) continue;
+            if (Array.isArray(entry.data) && entry.data.length === 0) continue;
+          }
+        }
+
         try {
           queryClient.setQueryData(entry.queryKey, entry.data, {
             updatedAt: entry.updatedAt || now,
@@ -171,6 +181,16 @@ export function setupQueryCachePersistence(queryClient: QueryClient): () => void
         const isPrivate = isUserPrivateQueryKey(query.queryKey);
 
         if (!isPublic && !isPrivate) continue;
+
+        // Never persist empty public catalogue entries to disk as authoritative data
+        if (isPublic) {
+          const first = String(query.queryKey[0]);
+          if (first === "landing" || first === "courses" || first === "learning-universes") {
+            const courses = (query.state.data as Record<string, unknown>)?.courses;
+            if (Array.isArray(courses) && courses.length === 0) continue;
+            if (Array.isArray(query.state.data) && query.state.data.length === 0) continue;
+          }
+        }
 
         // Skip massive payloads (> 400KB)
         const serialized = JSON.stringify(query.state.data);
