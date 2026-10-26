@@ -95,6 +95,9 @@ export function InstructorDashboard() {
     onSuccess: () => {
       toast({ title: "Learning Universe deleted", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["learning-universes", "mine"] });
+      queryClient.invalidateQueries({ queryKey: ["learning-universes"] });
+      queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
       setUniverseToDelete(null);
       setConfirmName("");
     },
