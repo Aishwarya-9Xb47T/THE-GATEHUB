@@ -60,7 +60,11 @@ export function isUserPrivateQueryKey(queryKey: readonly unknown[]): boolean {
   const first = String(queryKey[0]);
   const second = queryKey.length > 1 ? String(queryKey[1]) : "";
 
-  if (first === "admin") return false; // Admin data should remain in memory only, never persisted to disk
+  // Admin and instructor course management data must remain in memory only, never persisted to disk,
+  // guaranteeing that newly created, edited, or published courses are always immediately fetched fresh.
+  if (first === "admin" || first === "instructor") return false;
+  if (first === "courses" && (second === "my-instructor" || second === "mine" || second === "drafts")) return false;
+  if (first === "learning-universes" && (second === "mine" || second === "drafts")) return false;
 
   if (
     first === "learning" ||
@@ -68,9 +72,7 @@ export function isUserPrivateQueryKey(queryKey: readonly unknown[]): boolean {
     first === "my-enrollments" ||
     first === "lu-enrollments" ||
     first === "cart" ||
-    first === "wishlist" ||
-    (first === "courses" && second === "my-instructor") ||
-    first === "instructor"
+    first === "wishlist"
   ) {
     return true;
   }
@@ -124,9 +126,14 @@ export function restoreQueryCache(queryClient: QueryClient): void {
         // Enforce max age limit (24 hours)
         if (entry.updatedAt && now - entry.updatedAt > MAX_CACHE_AGE_MS) continue;
 
+        const first = String(entry.queryKey[0]);
+        const second = entry.queryKey.length > 1 ? String(entry.queryKey[1]) : "";
+        if (first === "instructor" || first === "admin") continue;
+        if (first === "courses" && (second === "my-instructor" || second === "mine" || second === "drafts")) continue;
+        if (first === "learning-universes" && (second === "mine" || second === "drafts")) continue;
+
         // Skip empty public catalogue entries so they never poison the cache or block fetching
         if (isPublicQueryKey(entry.queryKey)) {
-          const first = String(entry.queryKey[0]);
           if (first === "landing" || first === "courses" || first === "learning-universes") {
             const courses = (entry.data as Record<string, unknown>)?.courses;
             if (Array.isArray(courses) && courses.length === 0) continue;

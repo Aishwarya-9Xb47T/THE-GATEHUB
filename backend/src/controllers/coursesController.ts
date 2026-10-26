@@ -24,6 +24,7 @@ import {
   invalidatePremiumCourseIdCache,
   inferProductType,
   PRODUCT_TYPES,
+  readStructuredRecord,
 } from "../services/productRoutingService.js";
 import { appCache } from "../utils/cache.js";
 import fs from "fs";
@@ -378,7 +379,9 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
   const cacheKey = `courses:instructor:${req.user.id}`;
   const cached = appCache.get<{ success: boolean; courses: any[] }>(cacheKey);
   if (cached) {
-    res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     return res.json(cached);
   }
 
@@ -405,11 +408,11 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     orderBy: { updatedAt: "desc" },
   });
 
-  // Extract all linkedCourseIds from universes owned by this instructor
+  // Extract all linkedCourseIds from universes owned by this instructor using safe record parser
   const universeLinkedCourseIds = universes
     .map((u) => {
-      const structured = u.structuredData as Record<string, unknown> | null;
-      return typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
+      const structured = readStructuredRecord(u.structuredData);
+      return typeof structured.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
     })
     .filter((id): id is string => Boolean(id));
 
@@ -472,9 +475,9 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
   const premiumUniverseByLinkedCourseId = new Map<string, typeof universes[0]>();
 
   for (const universe of universes) {
-    const structured = universe.structuredData as Record<string, unknown> | null;
+    const structured = readStructuredRecord(universe.structuredData);
     const linkedCourseId =
-      typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
+      typeof structured.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
     if (linkedCourseId) {
       studioEditByCourseId.set(linkedCourseId, {
         learningUniverseId: universe.id,
@@ -491,6 +494,7 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
   }
 
   const courseIds = new Set(authorizedCourses.map((c) => c.id));
+  const representedUniverseIds = new Set<string>();
 
   const enriched = authorizedCourses.map((course) => {
     const fromAiContent = parseCourseAcademicStudioEdit(course.aiContent);
@@ -504,7 +508,16 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
             sourceProjectId: fromAiContent?.sourceProjectId ?? fromUniverse?.sourceProjectId,
           }
         : null;
+
+    if (academicStudioEdit?.learningUniverseId) {
+      representedUniverseIds.add(academicStudioEdit.learningUniverseId);
+    }
+
     const linkedUniverse = premiumUniverseByLinkedCourseId.get(course.id);
+    if (linkedUniverse) {
+      representedUniverseIds.add(linkedUniverse.id);
+    }
+
     const status = linkedUniverse
       ? resolvePremiumCourseDisplayStatus(course.status, linkedUniverse.status)
       : course.status;
@@ -516,10 +529,11 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
   // Safely include any learning universe owned by this instructor whose canonical course record is not yet linked
   // (e.g. newly created drafts from LaTeX or AI Architect, or visual path drafts)
   for (const universe of universes) {
-    const structured = universe.structuredData as Record<string, unknown> | null;
+    const structured = readStructuredRecord(universe.structuredData);
     const linkedCourseId =
-      typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
+      typeof structured.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
     if (linkedCourseId && courseIds.has(linkedCourseId)) continue;
+    if (representedUniverseIds.has(universe.id)) continue;
 
     const status = (universe.status === "published" ? "published" : "draft") as "published" | "draft";
     const bannerUrl = universe.bannerUrl || universe.thumbnail || null;
@@ -557,8 +571,10 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
   }
 
   const responsePayload = { success: true, courses: enriched };
-  appCache.set(cacheKey, responsePayload, 60);
-  res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+  appCache.set(cacheKey, responsePayload, 15);
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.json(responsePayload);
 }
 

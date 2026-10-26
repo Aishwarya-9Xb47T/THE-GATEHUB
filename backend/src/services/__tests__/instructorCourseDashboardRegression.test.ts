@@ -395,4 +395,67 @@ describe("Instructor Course Dashboard Regression & Multi-Workflow Tests", () => 
       data: expect.anything(),
     });
   });
+
+  // Scenario 10: Deduplication via course aiContent pointing to universe id
+  it("Scenario 10: Existing course with aiContent pointing to a Learning Universe is never duplicated even if universe.structuredData.linkedCourseId is unset", async () => {
+    const mockCanonicalCourse = {
+      id: "course-with-aicontent",
+      title: "Algorithms in LaTeX",
+      status: "published",
+      instructorId: "inst-a",
+      aiContent: JSON.stringify({ academicStudio: { learningUniverseId: "lu-algo-1" } }),
+      _count: { enrollments: 0, sections: 0, reviews: 0 },
+    };
+
+    const mockUniverseWithoutExplicitLink = {
+      id: "lu-algo-1",
+      title: "Algorithms in LaTeX",
+      status: "published",
+      instructorId: "inst-a",
+      structuredData: {
+        productType: "premium-course",
+        // linkedCourseId is omitted or unset
+      },
+    };
+
+    courseFindMany.mockResolvedValue([mockCanonicalCourse]);
+    luFindMany.mockResolvedValue([mockUniverseWithoutExplicitLink]);
+
+    const req: any = { user: { id: "inst-a", role: "instructor" } };
+    let jsonResult: any = null;
+    const res: any = {
+      setHeader: jest.fn(),
+      json: (data: any) => {
+        jsonResult = data;
+      },
+    };
+
+    await listMyInstructor(req, res);
+
+    expect(jsonResult.success).toBe(true);
+    expect(jsonResult.courses).toHaveLength(1);
+    expect(jsonResult.courses[0].id).toBe("course-with-aicontent");
+    expect(jsonResult.courses[0].academicStudioEdit?.learningUniverseId).toBe("lu-algo-1");
+  });
+
+  // Scenario 11: Response headers guarantee fresh content (no stale-while-revalidate for private instructor list)
+  it("Scenario 11: listMyInstructor always sends no-store, no-cache headers to guarantee real-time fresh rendering in browser", async () => {
+    courseFindMany.mockResolvedValue([]);
+    luFindMany.mockResolvedValue([]);
+
+    const req: any = { user: { id: "inst-a", role: "instructor" } };
+    const res: any = {
+      setHeader: jest.fn(),
+      json: jest.fn(),
+    };
+
+    await listMyInstructor(req, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    expect(res.setHeader).toHaveBeenCalledWith("Pragma", "no-cache");
+    expect(res.setHeader).toHaveBeenCalledWith("Expires", "0");
+  });
 });
