@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Menu, X, LogOut, Youtube } from "lucide-react";
-import { useUserStore } from "@/store/userStore";
+import { useUserStore, getHomeRoute, isAdminRole } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 import { Button } from "@/components/ui/button";
 import { UnifiedAvatar } from "@/components/common/UnifiedAvatar";
@@ -16,6 +16,7 @@ import {
   prefetchHelpRoute,
   prefetchStudentDashboardRoute,
   prefetchInstructorDashboardRoute,
+  prefetchAdminDashboardRoute,
   prefetchLandingRoute,
 } from "@/lib/routePrefetch";
 import { clearUserQueryCache } from "@/lib/queryCachePersist";
@@ -137,8 +138,12 @@ export function PublicLayout() {
                 <div className="flex items-center gap-4">
                   <Button 
                     variant="ghost" 
-                    onClick={() => navigate(user.role === "instructor" ? "/instructor" : "/student")}
-                    onMouseEnter={() => (user.role === "instructor" ? prefetchInstructorDashboardRoute() : prefetchStudentDashboardRoute())}
+                    onClick={() => navigate(getHomeRoute(user.role))}
+                    onMouseEnter={() => {
+                      if (isAdminRole(user.role)) prefetchAdminDashboardRoute();
+                      else if (user.role === "instructor") prefetchInstructorDashboardRoute();
+                      else prefetchStudentDashboardRoute();
+                    }}
                     className="type-nav"
                   >
                     Dashboard
@@ -252,7 +257,7 @@ export function PublicLayout() {
                     <Button 
                       variant="ghost" 
                       onClick={() => {
-                        navigate(user.role === "instructor" ? "/instructor" : "/student");
+                        navigate(getHomeRoute(user.role));
                         setIsMobileMenuOpen(false);
                       }}
                       className="w-full justify-start"

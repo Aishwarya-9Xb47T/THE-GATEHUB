@@ -350,6 +350,7 @@ model Course {
   presentations Presentation[]
 
   @@index([instructorId])
+  @@index([instructorId, updatedAt])
   @@index([categoryId])
   @@index([subcategoryId])
   @@index([status])
@@ -1118,6 +1119,7 @@ model ResourceCourse {
   instructor  User     @relation("ResourceCourses", fields: [instructorId], references: [id], onDelete: Cascade)
 
   @@index([instructorId])
+  @@index([instructorId, updatedAt])
   @@index([createdAt])
   @@index([published])
 }
@@ -1180,6 +1182,7 @@ model LearningUniverse {
   currentPublishVersion LearningUniversePublishVersion? @relation("CurrentPublishVersion", fields: [currentPublishVersionId], references: [id], onDelete: SetNull)
 
   @@index([instructorId])
+  @@index([instructorId, updatedAt])
   @@index([categoryId])
   @@index([status])
   @@index([createdAt])

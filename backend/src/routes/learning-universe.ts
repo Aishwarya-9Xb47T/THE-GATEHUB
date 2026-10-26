@@ -85,6 +85,14 @@ router.get("/my-enrollments", authenticate, luEnrollmentController.myEnrollments
 router.get("/mine", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    const cacheKey = `universes:mine:${req.user.id}`;
+    const cached = appCache.get<{ success: boolean; data: any[] }>(cacheKey);
+    if (cached) {
+      res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+      return res.json(cached);
+    }
+
     const universes = await prisma.learningUniverse.findMany({
       where: { instructorId: req.user.id },
       orderBy: { updatedAt: "desc" },
@@ -93,6 +101,7 @@ router.get("/mine", authenticate, requireRole("instructor", "admin"), async (req
         title: true,
         status: true,
         thumbnail: true,
+        bannerUrl: true,
         price: true,
         updatedAt: true,
         structuredData: true,
@@ -100,7 +109,12 @@ router.get("/mine", authenticate, requireRole("instructor", "admin"), async (req
       },
     });
     const { filterUniversesForInstructorMine } = await import("../services/productRoutingService.js");
-    res.json({ success: true, data: filterUniversesForInstructorMine(universes) });
+    const filtered = filterUniversesForInstructorMine(universes);
+    const stripped = filtered.map(({ structuredData, ...rest }) => rest);
+    const result = { success: true, data: stripped };
+    appCache.set(cacheKey, result, 60);
+    res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+    res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: "Failed to list your learning universes" });

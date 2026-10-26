@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import { useToastStore } from '@/store/toastStore';
-import { useUserStore } from '@/store/userStore';
+import { useUserStore, isAdminRole, getHomeRoute } from '@/store/userStore';
 import { api } from '@/lib/api';
 import { BrandHomeButton } from '@/components/common/Logo';
 import { AppAssistantFooter } from '@/assistant/AppAssistantFooter';
@@ -53,7 +53,7 @@ export default function ResourcesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const isInstructor = user?.role === 'instructor' || user?.role === 'admin';
+  const canManage = Boolean(user && (user.role === 'instructor' || isAdminRole(user.role)));
 
   useEffect(() => {
     fetchCourses();
@@ -62,8 +62,7 @@ export default function ResourcesPage() {
   const fetchCourses = async () => {
     setIsLoading(true);
     try {
-      const endpoint = isInstructor ? '/resources/courses/instructor' : '/resources/courses';
-      const response = await api<ResourceCourse[]>(endpoint);
+      const response = await api<ResourceCourse[]>('/resources/courses');
       if (response.data) {
         const safeCourses = response.data.map(course => ({
           ...course,
@@ -102,8 +101,8 @@ export default function ResourcesPage() {
         <div className="app-workspace w-full max-w-none h-full px-6 flex items-center justify-between">
           <BrandHomeButton />
           
-          <div className="flex items-center gap-4">
-            {isInstructor && (
+          <div className="flex items-center gap-3">
+            {canManage && (
               <Button 
                 onClick={() => navigate('/manage-courses')}
                 variant="outline"
@@ -113,12 +112,29 @@ export default function ResourcesPage() {
                 Manage Courses
               </Button>
             )}
+            {user ? (
+              <Button
+                onClick={() => navigate(getHomeRoute(user.role))}
+                variant="ghost"
+                className="rounded-full font-bold"
+              >
+                Dashboard
+              </Button>
+            ) : (
+              <Button
+                onClick={() => navigate('/login')}
+                variant="ghost"
+                className="rounded-full font-bold"
+              >
+                Sign In
+              </Button>
+            )}
             <Button 
               onClick={() => navigate('/')}
               variant="ghost"
               className="rounded-full font-bold"
             >
-              Main Dashboard
+              Home
             </Button>
           </div>
         </div>
@@ -139,7 +155,7 @@ export default function ResourcesPage() {
               Access high-quality, structured tutorials and interactive coding playgrounds designed to master modern technology.
             </p>
             <div className="flex flex-wrap gap-4">
-              {isInstructor && (
+              {canManage && (
                 <Button onClick={handleManageCourses} size="lg" className="bg-[#04AA6D] hover:bg-[#059862] text-white gap-2 shadow-lg shadow-emerald-500/20 rounded-2xl h-14 px-8 font-semibold transition-all hover:-translate-y-1">
                   <Layout className="w-5 h-5" /> Manage Courses
                 </Button>
@@ -198,7 +214,7 @@ export default function ResourcesPage() {
                     <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-500">
                       <GraduationCap className="w-6 h-6" />
                     </div>
-                    {isInstructor && (
+                    {canManage && (
                       <Button 
                         variant="ghost" 
                         size="icon" 

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { ShimmerHeading } from "@/components/landing/ShimmerHeading";
 import { LandingExploreSectionFallback } from "@/components/landing/LandingSectionFallbacks";
+import { useUserStore } from "@/store/userStore";
 
 const EcosystemValueSection = lazy(() =>
   import("@/components/landing/EcosystemValueSection").then((m) => ({
@@ -19,6 +20,9 @@ function EcosystemFallback() {
 }
 
 export function LandingPage() {
+  const { user } = useUserStore();
+  const ctaDestination = user ? "/resources" : "/register";
+
   return (
     <div className="landing-page bg-background text-foreground selection:bg-primary/20">
       <main className="landing-main">
@@ -38,7 +42,7 @@ export function LandingPage() {
               </p>
 
               <div className="landing-hero__actions flex flex-col sm:flex-row items-center justify-center">
-                <Link to="/register" className="landing-btn landing-btn--primary w-full sm:w-auto">
+                <Link to={ctaDestination} className="landing-btn landing-btn--primary w-full sm:w-auto">
                   Start Learning
                 </Link>
                 <a href="#courses" className="landing-btn landing-btn--secondary w-full sm:w-auto">
@@ -74,7 +78,7 @@ export function LandingPage() {
             <p className="landing-subheading landing-cta__description">
               Learn with purpose. Build with confidence. Graduate with credentials that matter.
             </p>
-            <Link to="/register" className="landing-btn landing-btn--primary">
+            <Link to={ctaDestination} className="landing-btn landing-btn--primary">
               Get Started for Free <ArrowRight className="w-5 h-5" />
             </Link>
           </div>

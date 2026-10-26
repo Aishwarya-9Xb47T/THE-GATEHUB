@@ -285,6 +285,14 @@ export const togglePublishCourse = async (req: AuthRequest, res: Response) => {
 export const getInstructorResourceCourses = async (req: AuthRequest, res: Response) => {
   try {
     const instructorId = req.user!.id;
+
+    const cacheKey = `resources:instructor:${instructorId}`;
+    const cached = appCache.get<any[]>(cacheKey);
+    if (cached) {
+      res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+      return res.json(cached);
+    }
+
     const { filterUniversesForFreeLibrary } = await import("../services/productRoutingService.js");
 
     const [courses, universes] = await Promise.all([
@@ -358,6 +366,8 @@ export const getInstructorResourceCourses = async (req: AuthRequest, res: Respon
     const merged = [...luBacked, ...legacy];
     const uniqueCourses = Array.from(new Map(merged.map((c) => [c.id, c])).values());
 
+    appCache.set(cacheKey, uniqueCourses, 60);
+    res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
     res.json(uniqueCourses);
   } catch (error) {
     console.error("Error getting instructor resource courses:", error);

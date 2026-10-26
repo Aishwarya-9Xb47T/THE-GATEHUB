@@ -22,6 +22,8 @@ import {
   resolvePremiumCourseDisplayStatus,
   syncPremiumUniverseStatusFromCourse,
   invalidatePremiumCourseIdCache,
+  inferProductType,
+  PRODUCT_TYPES,
 } from "../services/productRoutingService.js";
 import { appCache } from "../utils/cache.js";
 import fs from "fs";
@@ -372,9 +374,39 @@ export async function list(req: AuthRequest, res: Response) {
 
 export async function listMyInstructor(req: AuthRequest, res: Response) {
   if (!req.user) throw new AppError(401, "Unauthorized");
+
+  const cacheKey = `courses:instructor:${req.user.id}`;
+  const cached = appCache.get<{ success: boolean; courses: any[] }>(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+    return res.json(cached);
+  }
+
   const courses = await prisma.course.findMany({
     where: { instructorId: req.user.id },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      subtitle: true,
+      description: true,
+      price: true,
+      thumbnail: true,
+      bannerUrl: true,
+      bannerType: true,
+      difficulty: true,
+      language: true,
+      status: true,
+      averageRating: true,
+      reviewCount: true,
+      publishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      instructorId: true,
+      category: true,
+      subcategory: true,
+      categoryId: true,
+      subcategoryId: true,
+      aiContent: true,
       categoryRel: { select: { id: true, name: true, slug: true } },
       _count: { select: { enrollments: true, sections: true, reviews: true } },
     },
@@ -390,26 +422,47 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
       status: true,
       bannerUrl: true,
       thumbnail: true,
+      title: true,
+      subtitle: true,
+      description: true,
+      price: true,
+      difficulty: true,
+      publishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      categoryId: true,
     },
+    orderBy: { updatedAt: "desc" },
   });
 
   const studioEditByCourseId = new Map<string, { learningUniverseId: string; sourceProjectId?: string }>();
+  const premiumUniverseByLinkedCourseId = new Map<string, typeof universes[0]>();
+
   for (const universe of universes) {
     const structured = universe.structuredData as Record<string, unknown> | null;
     const linkedCourseId =
       typeof structured?.linkedCourseId === "string" ? structured.linkedCourseId : undefined;
-    if (!linkedCourseId) continue;
-    studioEditByCourseId.set(linkedCourseId, {
-      learningUniverseId: universe.id,
-      sourceProjectId: universe.sourceProjectId ?? undefined,
-    });
+    if (linkedCourseId) {
+      studioEditByCourseId.set(linkedCourseId, {
+        learningUniverseId: universe.id,
+        sourceProjectId: universe.sourceProjectId ?? undefined,
+      });
+
+      const pt = inferProductType(universe.structuredData);
+      if (pt === PRODUCT_TYPES.PREMIUM_COURSE || pt === PRODUCT_TYPES.LEARNING_UNIVERSE) {
+        if (!premiumUniverseByLinkedCourseId.has(linkedCourseId)) {
+          premiumUniverseByLinkedCourseId.set(linkedCourseId, universe);
+        }
+      }
+    }
   }
 
   const courseIds = new Set(courses.map((c) => c.id));
 
   const enriched = courses.map((course) => {
-    const normalized = normalizeCourseCategory(course);
     const fromAiContent = parseCourseAcademicStudioEdit(course.aiContent);
+    const { aiContent, ...cleanCourse } = course;
+    const normalized = normalizeCourseCategory(cleanCourse);
     const fromUniverse = studioEditByCourseId.get(course.id);
     const academicStudioEdit =
       fromAiContent || fromUniverse
@@ -418,7 +471,7 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
             sourceProjectId: fromAiContent?.sourceProjectId ?? fromUniverse?.sourceProjectId,
           }
         : null;
-    const linkedUniverse = findPremiumUniverseForLinkedCourse(course.id, universes);
+    const linkedUniverse = premiumUniverseByLinkedCourseId.get(course.id);
     const status = linkedUniverse
       ? resolvePremiumCourseDisplayStatus(course.status, linkedUniverse.status)
       : course.status;
@@ -437,25 +490,25 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
 
     enriched.push({
       id: universe.id,
-      title: (universe as any).title || "Published Course",
-      subtitle: (universe as any).subtitle || null,
-      description: (universe as any).description || null,
-      price: (universe as any).price || 0,
+      title: universe.title || "Published Course",
+      subtitle: universe.subtitle || null,
+      description: universe.description || null,
+      price: universe.price || 0,
       thumbnail: universe.thumbnail || universe.bannerUrl || null,
       bannerUrl: universe.bannerUrl || universe.thumbnail || null,
       bannerType: null,
-      difficulty: (universe as any).difficulty || "beginner",
+      difficulty: universe.difficulty || "beginner",
       language: "en",
       status: "published",
       averageRating: 0,
       reviewCount: 0,
-      publishedAt: (universe as any).publishedAt || new Date(),
-      createdAt: (universe as any).createdAt || new Date(),
-      updatedAt: (universe as any).updatedAt || new Date(),
+      publishedAt: universe.publishedAt || new Date(),
+      createdAt: universe.createdAt || new Date(),
+      updatedAt: universe.updatedAt || new Date(),
       instructorId: req.user.id,
       category: null,
       subcategory: null,
-      categoryId: (universe as any).categoryId || null,
+      categoryId: universe.categoryId || null,
       subcategoryId: null,
       categoryRel: null,
       academicStudioEdit: {
@@ -466,7 +519,10 @@ export async function listMyInstructor(req: AuthRequest, res: Response) {
     } as any);
   }
 
-  res.json({ success: true, courses: enriched });
+  const responsePayload = { success: true, courses: enriched };
+  appCache.set(cacheKey, responsePayload, 60);
+  res.setHeader("Cache-Control", "private, no-cache, stale-while-revalidate=60");
+  res.json(responsePayload);
 }
 
 export async function getOne(req: AuthRequest, res: Response) {

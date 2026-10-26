@@ -56,7 +56,7 @@ export function LandingExploreCoursesSection() {
           <p className="landing-subheading mx-auto">
             Structured learning paths and expert-led programs — all in one place.
           </p>
-          <Link to="/login" className="landing-btn landing-btn--ghost mt-8 group">
+          <Link to="/resources" className="landing-btn landing-btn--ghost mt-8 group">
             View all courses <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
