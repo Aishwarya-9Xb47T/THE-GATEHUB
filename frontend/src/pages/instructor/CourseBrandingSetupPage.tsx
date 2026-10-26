@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CourseBrandingWizard } from "@/components/course-branding/CourseBrandingWizard";
@@ -59,6 +60,7 @@ function brandingPageTitle(productType: ProductType, editing: boolean): string {
 
 export function CourseBrandingSetupPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const studio = (searchParams.get("studio") || "academic") as StudioType;
   const method = searchParams.get("method");
@@ -178,6 +180,11 @@ export function CourseBrandingSetupPage() {
       universeId = res.data?.data?.id;
       if (!universeId) throw new Error("Failed to create draft");
     }
+
+    void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+    void queryClient.invalidateQueries({ queryKey: ["courses"] });
+    void queryClient.invalidateQueries({ queryKey: ["learning-universes", "mine"] });
+    void queryClient.invalidateQueries({ queryKey: ["learning-universes"] });
 
     saveBrandingSession({ ...data, universeId, productType });
 

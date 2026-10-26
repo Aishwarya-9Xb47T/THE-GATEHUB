@@ -34,6 +34,7 @@ import {
   inferProductType,
   PRODUCT_TYPES,
   type CatalogVisibilityFlag,
+  invalidatePremiumCourseIdCache,
 } from "../services/productRoutingService.js";
 import {
   readArchitectVideoMappings,
@@ -575,7 +576,9 @@ export async function publishLearningUniverse(
         publishType: "republish",
       });
     }
+    invalidatePremiumCourseIdCache();
     appCache.invalidate("universes:");
+    appCache.invalidate("courses:");
     return universe;
   }
 
@@ -623,8 +626,10 @@ export async function publishLearningUniverse(
       publishType: "publish",
     });
   }
-  appCache.invalidate("universes:");
-  return universe;
+    invalidatePremiumCourseIdCache();
+    appCache.invalidate("universes:");
+    appCache.invalidate("courses:");
+    return universe;
 }
 
 async function linkUniverseAssetsToProject(
@@ -1076,6 +1081,7 @@ export interface LearningUniverseBrandingInput {
   subtitle?: string;
   description?: string;
   categoryId?: string;
+  categoryName?: string;
   difficulty?: string;
   bannerUrl?: string;
   thumbnailUrl?: string;
@@ -1159,6 +1165,10 @@ export async function createLearningUniverseDraft(userId: string, input: Learnin
     price: input.price,
     creationSource: "branding-draft",
   });
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("universes:");
+  appCache.invalidate("courses:");
 
   return universe;
 }
@@ -1293,6 +1303,10 @@ export async function updateLearningUniverseBranding(
       creationSource: "branding-draft",
     });
   }
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("universes:");
+  appCache.invalidate("courses:");
 
   return updated;
 }

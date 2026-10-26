@@ -50,7 +50,9 @@ import {
   validateProductPersistence,
   buildStructuredDataProductMeta,
   readStructuredRecord,
+  invalidatePremiumCourseIdCache,
 } from "../productRoutingService.js";
+import { appCache } from "../../utils/cache.js";
 import { persistRemoteBannerIfNeeded } from "../bannerService.js";
 import { isMissingObjectError } from "../b2StorageService.js";
 
@@ -534,6 +536,10 @@ export async function executeCourseGenerationJob(jobId: string): Promise<void> {
       resultData,
     });
     userActiveJobs.delete(userId);
+
+    invalidatePremiumCourseIdCache();
+    appCache.invalidate("courses:");
+    appCache.invalidate("universes:");
 
     console.info(`[COURSE_GEN] job_completed jobId=${jobId} universeId=${draftId} projectId=${projectId}`);
   } catch (err: any) {

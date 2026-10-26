@@ -9,4 +9,6 @@ export function invalidateCourseContentCaches(
   void queryClient.invalidateQueries({ queryKey: ["course-learn", courseId] });
   void queryClient.invalidateQueries({ queryKey: ["sections", courseId] });
   void queryClient.invalidateQueries({ queryKey: ["courses", courseId] });
+  void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+  void queryClient.invalidateQueries({ queryKey: ["courses"] });
 }

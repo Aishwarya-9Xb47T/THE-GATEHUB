@@ -56,7 +56,9 @@ import {
   buildStructuredDataProductMeta,
   assertProductTypeMatch,
   readStructuredRecord,
+  invalidatePremiumCourseIdCache,
 } from "../services/productRoutingService.js";
+import { appCache } from "../utils/cache.js";
 import { architectAiProviderStatus, ARCHITECT_AI_MISSING_KEY_MESSAGE } from "../services/aiCourseArchitect/openaiClient.js";
 import { persistRemoteBannerIfNeeded } from "../services/bannerService.js";
 import { GeminiRequestError, probeGeminiConnectivity } from "../services/aiCourseArchitect/geminiClient.js";
@@ -717,6 +719,10 @@ export async function architectGenerate(req: AuthRequest, res: Response) {
     validationReport,
     thumbnailUrl: generatedThumbnail,
   };
+
+  invalidatePremiumCourseIdCache();
+  appCache.invalidate("courses:");
+  appCache.invalidate("universes:");
 
   res.status(201).json({
     success: true,

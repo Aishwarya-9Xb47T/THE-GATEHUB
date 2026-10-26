@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
@@ -195,6 +196,7 @@ function ListInput({
 
 export function AICourseArchitectPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const productType = parseProductType(searchParams.get("productType"));
   const toast = useToastStore((s) => s.add);
@@ -697,6 +699,11 @@ export function AICourseArchitectPage() {
           description: `${data.moduleCount || 1} modules, ${data.lessonCount || 1} lessons — opening Academic Studio.`,
           variant: "success",
         });
+
+        void queryClient.invalidateQueries({ queryKey: ["courses", "my-instructor"] });
+        void queryClient.invalidateQueries({ queryKey: ["courses"] });
+        void queryClient.invalidateQueries({ queryKey: ["learning-universes", "mine"] });
+        void queryClient.invalidateQueries({ queryKey: ["learning-universes"] });
 
         await new Promise((r) => setTimeout(r, 600));
         navigate(getAcademicStudioPath(data.universeId, productType));
