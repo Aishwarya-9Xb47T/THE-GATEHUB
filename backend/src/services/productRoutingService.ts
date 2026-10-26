@@ -1077,12 +1077,21 @@ export async function resolvePublishedPremiumCourseIds(forceRefresh = false): Pr
           )
         : false);
 
-    if (course.price <= 0 && !explicitlyPremium) continue;
+    // Free library resources (worksheets / standalone free downloads) remain in free library.
+    // Standard published courses (free or paid) are discoverable in the course catalogue.
+    const isFreeLibraryOnly =
+      backingLu && isFreeLearningProduct(inferProductType(backingLu.structuredData));
+    if (isFreeLibraryOnly) continue;
+
+    // Only skip zero-priced course if it was specifically designated as a free library resource
+    if (course.price <= 0 && !explicitlyPremium && (freeLinkedCourseIds.has(course.id) || freeLuIds.has(course.id))) {
+      continue;
+    }
 
     premiumIds.add(course.id);
   }
 
-  const result = [...premiumIds];
+  const result = Array.from(premiumIds);
   cachedPremiumCourseIds = result;
   cachedPremiumCourseIdsExpiresAt = now + 600 * 1000; // 600s TTL (invalidated on publish/save)
   return result;
@@ -1093,17 +1102,52 @@ export async function resolveFeaturedHomePremiumCourseIds(precomputedPremiumIds?
   const premiumIds = new Set(precomputedPremiumIds ?? (await resolvePublishedPremiumCourseIds()));
   const universes = await prisma.learningUniverse.findMany({
     where: { status: "published" },
-    select: { structuredData: true },
+    select: { id: true, structuredData: true },
   });
 
+  const featuredUniverseIds = new Set<string>();
   const featured: string[] = [];
+  const added = new Set<string>();
+
   for (const u of universes) {
     if (!hasCatalogVisibility(u.structuredData, CATALOG_VISIBILITY.FEATURED_HOME)) continue;
     const pt = inferProductType(u.structuredData);
     if (pt !== PRODUCT_TYPES.PREMIUM_COURSE && pt !== PRODUCT_TYPES.LEARNING_UNIVERSE) continue;
+    featuredUniverseIds.add(u.id);
     const linked = readStructuredRecord(u.structuredData).linkedCourseId;
-    if (typeof linked === "string" && premiumIds.has(linked)) featured.push(linked);
+    if (typeof linked === "string" && premiumIds.has(linked) && !added.has(linked)) {
+      featured.push(linked);
+      added.add(linked);
+    }
   }
+
+  // Also match any course in premiumIds whose aiContent links to a featured published universe
+  if (featuredUniverseIds.size > 0) {
+    const unlinkedPremiumIds = Array.from(premiumIds).filter((id) => !added.has(id));
+    if (unlinkedPremiumIds.length > 0) {
+      const coursesWithAi = await prisma.course.findMany({
+        where: { id: { in: unlinkedPremiumIds }, aiContent: { not: null } },
+        select: { id: true, aiContent: true },
+      });
+      for (const c of coursesWithAi) {
+        if (!c.aiContent) continue;
+        try {
+          const parsed = JSON.parse(c.aiContent) as {
+            academicStudio?: { learningUniverseId?: string };
+            learningUniverseId?: string;
+          };
+          const luId = parsed.academicStudio?.learningUniverseId || parsed.learningUniverseId;
+          if (luId && featuredUniverseIds.has(luId) && !added.has(c.id)) {
+            featured.push(c.id);
+            added.add(c.id);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   return featured;
 }
 

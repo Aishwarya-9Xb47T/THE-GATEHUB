@@ -22,79 +22,70 @@ export interface LandingCoursesResponse {
   }>;
 }
 
-/** Pre-seeded active production courses for 0-millisecond instant initial paint */
 export const SEED_LANDING_COURSES: LandingCoursesResponse = {
   success: true,
-  courses: [
-    {
-      id: "cmuyyrclo006ab4kywr3pypkl",
-      title: "Cyber Security",
-      subtitle: "Professional Cyber Security — Custom",
-      price: 0,
-      thumbnail: "/uploads/banners/1b406ad0-f47b-41bf-95ec-959a1354b3e9.jpg",
-      bannerUrl: "/uploads/banners/1b406ad0-f47b-41bf-95ec-959a1354b3e9.jpg",
-      category: "Cyber Security",
-      categoryRel: { name: "Cyber Security" },
-      instructor: { firstName: "N", lastName: "AISHWARYA" },
-    },
-    {
-      id: "cmt7jc1ff000310g6u2egopr4",
-      title: "Computer Networking",
-      subtitle: "Professional Computer Networking — Custom",
-      price: 0,
-      thumbnail: "/uploads/banners/d78f6c86-a5b1-46d1-a6b1-4ce0cbc7ffd4.jpg",
-      bannerUrl: "/uploads/banners/d78f6c86-a5b1-46d1-a6b1-4ce0cbc7ffd4.jpg",
-      category: "Computer Networking",
-      categoryRel: { name: "Computer Networking" },
-      instructor: { firstName: "N", lastName: "AISHWARYA" },
-    },
-    {
-      id: "cmt7hmqv300aw4c57cvx9e2a7",
-      title: "Deep Learning",
-      subtitle: "Professional Deep Learning — Custom",
-      price: 0,
-      thumbnail: "/uploads/banners/a645f8e8-860b-4d1c-bb49-6a7931254c09.png",
-      bannerUrl: "/uploads/banners/a645f8e8-860b-4d1c-bb49-6a7931254c09.png",
-      category: "Deep Learning",
-      categoryRel: { name: "Deep Learning" },
-      instructor: { firstName: "N", lastName: "AISHWARYA" },
-    },
-    {
-      id: "cmt7hgrys000m4c57gs35qg0z",
-      title: "AIML",
-      subtitle: "Professional AIML — Custom",
-      price: 0,
-      thumbnail: "/uploads/banners/16152995-3b57-4321-82b7-751bdbcc49ae.jpg",
-      bannerUrl: "/uploads/banners/16152995-3b57-4321-82b7-751bdbcc49ae.jpg",
-      category: "Artificial Intelligence",
-      categoryRel: { name: "Artificial Intelligence" },
-      instructor: { firstName: "N", lastName: "AISHWARYA" },
-    },
-  ],
+  courses: [],
 };
 
-function getCachedLandingCourses(): LandingCoursesResponse {
+export const LANDING_CACHE_VERSION = "v2";
+export const LANDING_CACHE_TTL_MS = 10 * 60 * 1000;
+
+interface StoredLandingCache<T> {
+  version: string;
+  savedAt: number;
+  data: T;
+}
+
+export function getCachedLandingCourses(): LandingCoursesResponse {
   if (typeof window !== "undefined" && window.localStorage) {
     try {
       const stored = localStorage.getItem("gatehub_landing_featured_courses");
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed?.courses?.length > 0) return parsed;
+        const parsed = JSON.parse(stored) as StoredLandingCache<LandingCoursesResponse> | LandingCoursesResponse;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          "version" in parsed &&
+          parsed.version === LANDING_CACHE_VERSION &&
+          Array.isArray((parsed as StoredLandingCache<LandingCoursesResponse>).data?.courses)
+        ) {
+          const wrapper = parsed as StoredLandingCache<LandingCoursesResponse>;
+          if (Date.now() - wrapper.savedAt < LANDING_CACHE_TTL_MS) {
+            return wrapper.data;
+          }
+        } else {
+          // Remove unversioned stale cache from prior sessions
+          localStorage.removeItem("gatehub_landing_featured_courses");
+        }
       }
     } catch {
       /* ignore */
     }
   }
-  return SEED_LANDING_COURSES;
+  return { success: true, courses: [] };
 }
 
-function getCachedLandingUniverses(): any[] {
+export function getCachedLandingUniverses(): any[] {
   if (typeof window !== "undefined" && window.localStorage) {
     try {
       const stored = localStorage.getItem("gatehub_landing_universes");
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        const parsed = JSON.parse(stored) as StoredLandingCache<any[]> | any[];
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          "version" in parsed &&
+          parsed.version === LANDING_CACHE_VERSION &&
+          Array.isArray((parsed as StoredLandingCache<any[]>).data)
+        ) {
+          const wrapper = parsed as StoredLandingCache<any[]>;
+          if (Date.now() - wrapper.savedAt < LANDING_CACHE_TTL_MS) {
+            return wrapper.data;
+          }
+        } else {
+          // Remove unversioned stale cache from prior sessions
+          localStorage.removeItem("gatehub_landing_universes");
+        }
       }
     } catch {
       /* ignore */
@@ -111,7 +102,10 @@ export const landingCoursesQueryOptions = {
     const data = res.data?.courses ? res.data : { success: true, courses: [] };
     if (typeof window !== "undefined" && window.localStorage && data.courses.length > 0) {
       try {
-        localStorage.setItem("gatehub_landing_featured_courses", JSON.stringify(data));
+        localStorage.setItem(
+          "gatehub_landing_featured_courses",
+          JSON.stringify({ version: LANDING_CACHE_VERSION, savedAt: Date.now(), data })
+        );
       } catch {
         /* ignore */
       }
@@ -119,11 +113,13 @@ export const landingCoursesQueryOptions = {
     return data;
   },
   initialData: getCachedLandingCourses,
-  staleTime: LANDING_STALE_MS,
+  initialDataUpdatedAt: () => 0,
+  staleTime: 60 * 1000,
   gcTime: LANDING_GC_MS,
   retry: 2,
   retryDelay: 1000,
-  refetchOnMount: false,
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
 };
 
 export type LandingUniversesResponse = any[];
@@ -220,7 +216,10 @@ export const landingUniversesQueryOptions = {
     const data = normalizeLandingUniverses(res.data);
     if (typeof window !== "undefined" && window.localStorage && Array.isArray(data)) {
       try {
-        localStorage.setItem("gatehub_landing_universes", JSON.stringify(data));
+        localStorage.setItem(
+          "gatehub_landing_universes",
+          JSON.stringify({ version: LANDING_CACHE_VERSION, savedAt: Date.now(), data })
+        );
       } catch {
         /* ignore */
       }
@@ -228,11 +227,13 @@ export const landingUniversesQueryOptions = {
     return data;
   },
   initialData: getCachedLandingUniverses,
-  staleTime: LANDING_STALE_MS,
+  initialDataUpdatedAt: () => 0,
+  staleTime: 60 * 1000,
   gcTime: LANDING_GC_MS,
   retry: 2,
   retryDelay: 1000,
-  refetchOnMount: false,
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
 };
 
 /** Warm landing JS + API caches before navigation (home hover / focus / idle). */

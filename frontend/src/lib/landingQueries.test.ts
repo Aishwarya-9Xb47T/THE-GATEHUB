@@ -6,10 +6,10 @@ import {
 } from "./landingQueries";
 
 describe("landing query cache policy", () => {
-  it("does not force refetch on every mount", () => {
-    expect(landingCoursesQueryOptions.refetchOnMount).toBe(false);
-    expect(landingUniversesQueryOptions.refetchOnMount).toBe(false);
-    expect(landingCoursesQueryOptions.staleTime).toBeGreaterThanOrEqual(5 * 60 * 1000);
+  it("forces revalidation on mount while allowing temporary cache paint", () => {
+    expect(landingCoursesQueryOptions.refetchOnMount).toBe(true);
+    expect(landingUniversesQueryOptions.refetchOnMount).toBe(true);
+    expect(landingCoursesQueryOptions.initialDataUpdatedAt()).toBe(0);
   });
 });
 
@@ -127,17 +127,16 @@ describe("mergeLandingExploreItems", () => {
     });
   });
 
-  describe("landingCoursesQueryOptions initialData resilience", () => {
-    it("provides initialData so landing never renders empty skeletons", () => {
+  describe("landingCoursesQueryOptions cache revalidation resilience", () => {
+    it("returns empty catalogue rather than fake hardcoded courses when no cache exists", () => {
+      localStorage.removeItem("gatehub_landing_featured_courses");
       const initial = landingCoursesQueryOptions.initialData();
       expect(initial).toBeDefined();
       expect(initial.success).toBe(true);
-      expect(initial.courses.length).toBeGreaterThan(0);
-      expect(initial.courses[0]).toHaveProperty("id");
-      expect(initial.courses[0]).toHaveProperty("title");
+      expect(initial.courses).toEqual([]);
     });
 
-    it("restores cached live courses from localStorage if present", () => {
+    it("restores cached live courses from versioned localStorage if within TTL", () => {
       const customCourses = {
         success: true,
         courses: [
@@ -149,13 +148,29 @@ describe("mergeLandingExploreItems", () => {
           },
         ],
       };
-      localStorage.setItem("gatehub_landing_featured_courses", JSON.stringify(customCourses));
+      localStorage.setItem(
+        "gatehub_landing_featured_courses",
+        JSON.stringify({ version: "v2", savedAt: Date.now(), data: customCourses })
+      );
 
       const initial = landingCoursesQueryOptions.initialData();
       expect(initial.courses[0].id).toBe("live-updated-course");
       expect(initial.courses[0].title).toBe("Newly Published Live Course");
 
       localStorage.removeItem("gatehub_landing_featured_courses");
+    });
+
+    it("purges stale unversioned legacy cache to prevent browser discrepancy lockouts", () => {
+      const legacyCourses = {
+        success: true,
+        courses: [{ id: "stale-old-course", title: "Stale Old Course", price: 0 }],
+      };
+      localStorage.setItem("gatehub_landing_featured_courses", JSON.stringify(legacyCourses));
+
+      const initial = landingCoursesQueryOptions.initialData();
+      // Unversioned legacy cache must be purged and empty fallback returned
+      expect(initial.courses).toEqual([]);
+      expect(localStorage.getItem("gatehub_landing_featured_courses")).toBeNull();
     });
   });
 });

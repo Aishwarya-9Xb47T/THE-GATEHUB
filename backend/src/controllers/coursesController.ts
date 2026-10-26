@@ -272,6 +272,7 @@ export async function list(req: AuthRequest, res: Response) {
     }
   }
 
+  let featuredSet = new Set<string>();
   if (premiumCatalogOnly) {
     const {
       resolvePublishedPremiumCourseIds,
@@ -280,9 +281,22 @@ export async function list(req: AuthRequest, res: Response) {
     let premiumCourseIds = await resolvePublishedPremiumCourseIds();
     if (featuredOnly) {
       const featuredIds = await resolveFeaturedHomePremiumCourseIds(premiumCourseIds);
-      if (featuredIds.length) {
-        const featuredSet = new Set(featuredIds);
-        premiumCourseIds = premiumCourseIds.filter((id) => featuredSet.has(id));
+      featuredSet = new Set(featuredIds);
+      if (featuredQuery === "home") {
+        // Priority to explicitly featured courses, then supplement up to limit with the latest published courses
+        const combinedIds: string[] = [];
+        for (const id of featuredIds) {
+          if (!combinedIds.includes(id)) combinedIds.push(id);
+        }
+        for (const id of premiumCourseIds) {
+          if (combinedIds.length >= limit) break;
+          if (!combinedIds.includes(id)) combinedIds.push(id);
+        }
+        premiumCourseIds = combinedIds;
+      } else {
+        if (featuredIds.length) {
+          premiumCourseIds = premiumCourseIds.filter((id) => featuredSet.has(id));
+        }
       }
     }
     // Landing fallback — never show an empty catalog when published courses exist
@@ -331,9 +345,21 @@ export async function list(req: AuthRequest, res: Response) {
     take: limit,
   });
 
+  let sortedCourses = courses;
+  if (featuredQuery === "home" && featuredSet.size > 0) {
+    sortedCourses = courses.slice().sort((a, b) => {
+      const aFeatured = featuredSet.has(a.id) ? 1 : 0;
+      const bFeatured = featuredSet.has(b.id) ? 1 : 0;
+      if (aFeatured !== bFeatured) return bFeatured - aFeatured;
+      const aDate = a.publishedAt ? new Date(a.publishedAt).getTime() : new Date(a.createdAt).getTime();
+      const bDate = b.publishedAt ? new Date(b.publishedAt).getTime() : new Date(b.createdAt).getTime();
+      return bDate - aDate;
+    });
+  }
+
   const responsePayload = {
     success: true,
-    courses: courses.map(normalizeCourseCategory),
+    courses: sortedCourses.map(normalizeCourseCategory),
   };
 
   if (cacheKey) {
