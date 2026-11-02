@@ -12,6 +12,7 @@ import {
 } from "../services/luProject/luProjectAssetResolver.js";
 import { isAdminRole } from "../utils/roles.js";
 import { persistMulterFile } from "../middlewares/persistUpload.js";
+import { checkInstructorApproved } from "../services/instructorApprovalService.js";
 
 async function assertProjectAccess(projectId: string, userId: string, role?: string) {
   const project = await prisma.latexProject.findUnique({
@@ -43,6 +44,13 @@ export async function getProjects(req: AuthRequest, res: Response) {
 export async function createProject(req: AuthRequest, res: Response) {
   const userId = req.user!.id;
   const { title, lectureId, template: templateId } = req.body;
+
+  if (!isAdminRole(req.user?.role)) {
+    const approval = await checkInstructorApproved(userId);
+    if (!approval.approved) {
+      throw new AppError(403, approval.message);
+    }
+  }
 
   if (!title) throw new AppError(400, "Project title is required");
 

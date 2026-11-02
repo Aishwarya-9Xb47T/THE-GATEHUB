@@ -36,6 +36,13 @@ model User {
   googleRefreshToken  String?                 @map("google_refresh_token")
   googleTokenExpiry   DateTime?               @map("google_token_expiry")
   googleEmail         String?                 @map("google_email")
+  instructorApprovalStatus   String?                 @default("PENDING") @map("instructor_approval_status")
+  instructorApprovedAt       DateTime?               @map("instructor_approved_at")
+  instructorApprovedById     String?                 @map("instructor_approved_by_id")
+  instructorApprovalNotes    String?                 @map("instructor_approval_notes")
+  instructorRejectionReason  String?                 @map("instructor_rejection_reason")
+  instructorApprovedBy       User?                   @relation("InstructorApprovalsGiven", fields: [instructorApprovedById], references: [id], onDelete: SetNull)
+  instructorsApproved        User[]                  @relation("InstructorApprovalsGiven")
   createdAt           DateTime                @default(now()) @map("created_at")
   updatedAt           DateTime                @updatedAt @map("updated_at")
   authTokens          AuthToken[]
@@ -120,6 +127,7 @@ model User {
   @@index([email])
   @@index([role])
   @@index([deletedAt])
+  @@index([instructorApprovalStatus])
 }
 
 model AdminAuditLog {

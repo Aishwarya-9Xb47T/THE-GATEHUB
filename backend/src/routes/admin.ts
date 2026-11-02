@@ -6,10 +6,17 @@ import { lazyHandler } from "../utils/lazyHandler.js";
 const adminCtrl = () => import("../controllers/adminController.js");
 const settingsCtrl = () => import("../controllers/adminSettingsController.js");
 const aiCtrl = () => import("../controllers/adminAiController.js");
+const instructorApprovalCtrl = () => import("../controllers/adminInstructorApprovalController.js");
 
 export const adminRouter = Router();
 
 adminRouter.use(authenticate, requireAdmin());
+
+// Instructor Access Management / Approvals
+adminRouter.get("/instructor-approvals", lazyHandler(instructorApprovalCtrl, "listInstructorsAdmin"));
+adminRouter.get("/instructor-approvals/counts", lazyHandler(instructorApprovalCtrl, "getInstructorApprovalCountsAdmin"));
+adminRouter.post("/instructor-approvals/:id/approve", lazyHandler(instructorApprovalCtrl, "approveInstructorAdmin"));
+adminRouter.post("/instructor-approvals/:id/reject", lazyHandler(instructorApprovalCtrl, "rejectInstructorAdmin"));
 
 // Dashboard & analytics (admin + super_admin)
 adminRouter.get("/dashboard", lazyHandler(adminCtrl, "dashboard"));

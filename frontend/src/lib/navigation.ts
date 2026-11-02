@@ -2,7 +2,9 @@
 export const LANDING_PATH = "/";
 
 export function isLandingPath(pathname: string): boolean {
-  return pathname === LANDING_PATH;
+  if (!pathname) return false;
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  return normalized === LANDING_PATH;
 }
 
 export type LearnRouteContext = "student" | "public" | "instructor-preview";

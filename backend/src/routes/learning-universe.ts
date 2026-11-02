@@ -16,6 +16,7 @@ import * as learningAnalyticsController from "../controllers/learningAnalyticsCo
 import { getLearnerExperience } from "../controllers/learningExperienceController.js";
 import { AuthRequest } from "../middlewares/auth.js";
 import { authenticate, requireRole, optionalAuthenticate } from "../middlewares/auth.js";
+import { requireInstructorApproved } from "../middlewares/instructorApproval.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { upload } from "../middlewares/upload.js";
 import { prisma } from "../utils/prisma.js";
@@ -422,7 +423,7 @@ router.get(
 );
 
 // Protected routes (for instructors)
-router.post("/draft", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
+router.post("/draft", authenticate, requireInstructorApproved, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) throw new AppError(401, "Unauthorized");
@@ -458,7 +459,7 @@ router.post("/:id/rehydrate-project", authenticate, requireRole("instructor", "a
   }
 });
 
-router.post("/publish", authenticate, requireRole("instructor", "admin"), upload.array("assets", 100), async (req: AuthRequest, res) => {
+router.post("/publish", authenticate, requireInstructorApproved, upload.array("assets", 100), async (req: AuthRequest, res) => {
   try {
     const { dslSource: rawDsl, structuredData: rawStructured, projectId, universeId, price, productType, snapshotHash, editorVersion } = req.body;
     let fileOverlay: Array<{ name: string; content: string }> | undefined;
@@ -631,7 +632,7 @@ router.post("/publish", authenticate, requireRole("instructor", "admin"), upload
 });
 
 
-router.post("/:id/toggle-publish", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
+router.post("/:id/toggle-publish", authenticate, requireInstructorApproved, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
     const universe = await prisma.learningUniverse.findUnique({ where: { id: req.params.id } });
@@ -662,7 +663,7 @@ router.post("/:id/toggle-publish", authenticate, requireRole("instructor", "admi
   }
 });
 
-router.post("/:id/duplicate", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
+router.post("/:id/duplicate", authenticate, requireInstructorApproved, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) throw new AppError(401, "Unauthorized");

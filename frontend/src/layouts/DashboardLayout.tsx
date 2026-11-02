@@ -25,6 +25,7 @@ import {
   Radio,
   Gamepad2,
   Presentation,
+  ShieldCheck,
 } from "lucide-react";
 import { useUserStore, isAdminRole, isSuperAdminRole } from "@/store/userStore";
 import { formatRoleLabel } from "@/lib/roles";
@@ -181,6 +182,7 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
       case "admin":
         return [
           { to: "/admin", end: true, label: "Dashboard", icon: LayoutDashboard },
+          { to: "/admin/instructor-approvals", label: "Instructor Approvals", icon: ShieldCheck, tour: "instructor-approvals" },
           { to: "/admin/users", label: "Users", icon: Users, tour: "users" },
           { to: "/admin/courses", label: "Courses", icon: BookOpen },
           { to: "/admin/learning-universes", label: "Learning Universes", icon: Globe },

@@ -19,6 +19,7 @@ import { buildInstructorCoursePreviewPath } from "@/lib/instructorPreview";
 
 import * as Pages from "@/routes/lazyPages";
 import { AuthGateProvider } from "@/hooks/useAuthGate";
+import { ApprovedInstructorRoute } from "@/components/auth/ApprovedInstructorRoute";
 
 
 function RouteFallback() {
@@ -222,20 +223,20 @@ export default function App() {
           <Route path="/instructor" element={<ProtectedRoute roles={["instructor"]}><Pages.DashboardLayout role="instructor" /></ProtectedRoute>} >
             <Route index element={<Pages.InstructorDashboard />} />
             <Route path="courses" element={<Pages.MyCoursesInstructor />} />
-            <Route path="courses/new" element={<Pages.CreateCoursePage />} />
-            <Route path="courses/new/branding" element={<Pages.CourseBrandingSetupPage />} />
-            <Route path="courses/new/manual" element={<Pages.CreateCourseManualPage />} />
-            <Route path="courses/new/ai" element={<Pages.CreateCourseAIPage />} />
-            <Route path="ai-architect" element={<Pages.AICourseArchitectPage />} />
+            <Route path="courses/new" element={<ApprovedInstructorRoute><Pages.CreateCoursePage /></ApprovedInstructorRoute>} />
+            <Route path="courses/new/branding" element={<ApprovedInstructorRoute><Pages.CourseBrandingSetupPage /></ApprovedInstructorRoute>} />
+            <Route path="courses/new/manual" element={<ApprovedInstructorRoute><Pages.CreateCourseManualPage /></ApprovedInstructorRoute>} />
+            <Route path="courses/new/ai" element={<ApprovedInstructorRoute><Pages.CreateCourseAIPage /></ApprovedInstructorRoute>} />
+            <Route path="ai-architect" element={<ApprovedInstructorRoute><Pages.AICourseArchitectPage /></ApprovedInstructorRoute>} />
             <Route
               path="courses/new/academic"
               element={<Navigate to="/instructor/courses/new/branding?studio=academic&productType=premium-course" replace />}
             />
             <Route path="course/:courseId/edit" element={<Pages.CurriculumBuilderPage />} />
             <Route path="course/:courseId/lectures/:lectureId/quiz" element={<Pages.QuizBuilderPage />} />
-            <Route path="learning-universe/new" element={<Pages.CreateLearningUniversePage />} />
-            <Route path="learning-universe/new/branding" element={<Pages.CourseBrandingSetupPage />} />
-            <Route path="learning-universe/new/visual" element={<Pages.LearningPathBuilderPage />} />
+            <Route path="learning-universe/new" element={<ApprovedInstructorRoute><Pages.CreateLearningUniversePage /></ApprovedInstructorRoute>} />
+            <Route path="learning-universe/new/branding" element={<ApprovedInstructorRoute><Pages.CourseBrandingSetupPage /></ApprovedInstructorRoute>} />
+            <Route path="learning-universe/new/visual" element={<ApprovedInstructorRoute><Pages.LearningPathBuilderPage /></ApprovedInstructorRoute>} />
             <Route path="students" element={<Pages.InstructorStudents />} />
             <Route path="project-reviews" element={<Pages.InstructorProjectReviewPage />} />
             <Route path="certificates" element={<Pages.InstructorCertificatesPage />} />
@@ -276,6 +277,7 @@ export default function App() {
 
           <Route path="/admin" element={<ProtectedRoute roles={["admin", "super_admin"]}><Pages.DashboardLayout role="admin" /></ProtectedRoute>} >
             <Route index element={<Pages.AdminDashboard />} />
+            <Route path="instructor-approvals" element={<Pages.AdminInstructorApprovals />} />
             <Route path="users" element={<Pages.AdminUsers />} />
             <Route path="courses" element={<Pages.AdminCourses />} />
             <Route path="learning-universes" element={<Pages.AdminLearningUniverses />} />
@@ -306,7 +308,7 @@ export default function App() {
             <Route path="/instructor/course/:courseId/lectures/:lectureId/notes" element={<Pages.NotesEditorPage />} />
             <Route path="/instructor/latex-editor" element={<Pages.TeacherLatexEditorPage />} />
             <Route path="/instructor/latex-editor/:projectId" element={<Pages.TeacherLatexEditorPage />} />
-            <Route path="/instructor/learning-universe/new/academic" element={<Pages.AcademicAuthoringStudioPage />} />
+            <Route path="/instructor/learning-universe/new/academic" element={<ApprovedInstructorRoute><Pages.AcademicAuthoringStudioPage /></ApprovedInstructorRoute>} />
             <Route path="/teacher/latex-editor" element={<Pages.TeacherLatexEditorPage />} />
           </Route>
 

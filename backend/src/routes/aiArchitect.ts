@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { authenticate, requireRole } from "../middlewares/auth.js";
 import type { Role } from "../middlewares/auth.js";
+import { requireInstructorApproved } from "../middlewares/instructorApproval.js";
 import {
   architectBlueprint,
   architectGenerate,
@@ -62,7 +63,7 @@ aiArchitectRouter.get(
 aiArchitectRouter.post(
   "/jobs",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectHeavyLimiter,
   architectCreateJob
 );
@@ -70,21 +71,21 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/jobs/:jobId/resume",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectResumeJob
 );
 
 aiArchitectRouter.post(
   "/jobs/:jobId/retry-stage",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectRetryFailedStage
 );
 
 aiArchitectRouter.post(
   "/jobs/:jobId/retry-everything",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectRetryEverything
 );
 
@@ -98,7 +99,7 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/research",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectHeavyLimiter,
   architectResearch
 );
@@ -106,14 +107,14 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/validate-curriculum",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectValidateCurriculum
 );
 
 aiArchitectRouter.post(
   "/blueprint",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectHeavyLimiter,
   architectBlueprint
 );
@@ -121,7 +122,7 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/generate",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectHeavyLimiter,
   architectGenerate
 );
@@ -129,7 +130,7 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/quality-review",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectHeavyLimiter,
   architectQualityReview
 );
@@ -137,7 +138,7 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/regenerate",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectHeavyLimiter,
   architectRegenerate
 );
@@ -145,7 +146,7 @@ aiArchitectRouter.post(
 aiArchitectRouter.post(
   "/banner-suggestions",
   authenticate,
-  requireRole("instructor", "admin" as Role),
+  requireInstructorApproved,
   architectBannerSuggestions
 );
 

@@ -97,12 +97,6 @@ export default function VideoPlayerPage() {
           </div>
         )}
       </main>
-      
-      <footer className="p-6 bg-[#1e293b] text-center border-t border-white/10">
-        <p className="text-white/40 text-xs font-bold uppercase tracking-widest">
-          THE GATEHUB Video Experience • Professional Learning
-        </p>
-      </footer>
     </div>
   );
 }

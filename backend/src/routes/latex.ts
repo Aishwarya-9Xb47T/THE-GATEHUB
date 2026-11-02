@@ -6,7 +6,8 @@ import {
   updateLatexDocument,
   uploadLatexImage,
 } from "../controllers/latexController.js";
-import { authenticate, requireRole } from "../middlewares/auth.js";
+import { authenticate, requireRole, optionalAuthenticate } from "../middlewares/auth.js";
+import { requireInstructorApproved } from "../middlewares/instructorApproval.js";
 import { latexUpload } from "../middlewares/latexUpload.js";
 import { recordTimelineEvent } from "../services/latexVersionService.js";
 
@@ -24,7 +25,7 @@ latexRouter.post("/compile", (req, res, next) => {
   return compileLatex(req, res, next);
 });
 
-latexRouter.use(authenticate, requireRole("instructor", "admin"));
+latexRouter.use(authenticate, requireInstructorApproved);
 
 latexRouter.post("/create", createLatexDocument);
 latexRouter.post("/upload-image", latexUpload.single("image"), uploadLatexImage);

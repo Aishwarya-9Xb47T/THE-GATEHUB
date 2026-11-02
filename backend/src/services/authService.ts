@@ -49,6 +49,7 @@ function sanitizeUser(user: {
   role: string;
   avatar: string | null;
   emailVerified?: boolean;
+  instructorApprovalStatus?: string | null;
 }) {
   return {
     id: user.id,
@@ -58,6 +59,8 @@ function sanitizeUser(user: {
     role: user.role,
     avatar: user.avatar,
     emailVerified: !!user.emailVerified,
+    instructorApprovalStatus:
+      user.instructorApprovalStatus ?? (user.role === "instructor" ? "PENDING" : undefined),
   };
 }
 
@@ -188,6 +191,7 @@ export async function register(data: RegisterInput, req?: ReqLike) {
     avatar: string | null;
     tokenVersion: number;
     emailVerified: boolean;
+    instructorApprovalStatus: string | null;
   };
 
   try {
@@ -201,6 +205,7 @@ export async function register(data: RegisterInput, req?: ReqLike) {
         emailVerified,
         emailVerifiedAt: emailVerified ? new Date() : null,
         authProvider: "local",
+        instructorApprovalStatus: requestedRole === "instructor" ? "PENDING" : (isAdminRole(requestedRole) ? "APPROVED" : null),
       },
       select: {
         id: true,
@@ -211,6 +216,7 @@ export async function register(data: RegisterInput, req?: ReqLike) {
         avatar: true,
         tokenVersion: true,
         emailVerified: true,
+        instructorApprovalStatus: true,
       },
     });
   } catch (err: unknown) {
@@ -363,6 +369,7 @@ const GOOGLE_LOGIN_USER_SELECT = {
   deletedAt: true,
   authProvider: true,
   emailVerified: true,
+  instructorApprovalStatus: true,
 } as const;
 
 function googleAuthError(status: number, code: string, message: string, retryable = false) {
@@ -605,7 +612,7 @@ export async function logout(
 }
 
 export async function getMe(userId: string) {
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       id: true,
@@ -620,9 +627,32 @@ export async function getMe(userId: string) {
       emailVerifiedAt: true,
       lastLoginAt: true,
       pendingEmail: true,
+      instructorApprovalStatus: true,
+      instructorApprovedAt: true,
+      instructorApprovalNotes: true,
+      instructorRejectionReason: true,
     },
   });
   if (!user || user.suspended) throw new AppError(404, "User not found");
+
+  // Migration fallback: if legacy instructor has no approval status recorded
+  if (user.role === "instructor" && !user.instructorApprovalStatus) {
+    const hasExistingContent =
+      (await prisma.course.count({ where: { instructorId: user.id } })) > 0 ||
+      (await prisma.learningUniverse.count({ where: { instructorId: user.id } })) > 0 ||
+      (await prisma.latexProject.count({ where: { ownerId: user.id } })) > 0;
+
+    const resolvedStatus = hasExistingContent ? "APPROVED" : "PENDING";
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        instructorApprovalStatus: resolvedStatus,
+        ...(hasExistingContent ? { instructorApprovedAt: new Date(), instructorApprovalNotes: "Auto-grandfathered existing instructor" } : {}),
+      },
+    }).catch(() => {});
+    user.instructorApprovalStatus = resolvedStatus;
+  }
+
   return user;
 }
 

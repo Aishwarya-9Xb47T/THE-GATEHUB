@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GlobalFooter } from "@/components/common/GlobalFooter";
 import { BrandHomeButton } from "@/components/common/Logo";
 import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 
@@ -333,8 +332,6 @@ export function RegisterPage() {
           </Card>
         </motion.div>
       </div>
-
-      <GlobalFooter />
     </div>
   );
 }

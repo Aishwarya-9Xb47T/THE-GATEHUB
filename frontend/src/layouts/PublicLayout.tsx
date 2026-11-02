@@ -20,11 +20,13 @@ import {
   prefetchLandingRoute,
 } from "@/lib/routePrefetch";
 import { clearUserQueryCache } from "@/lib/queryCachePersist";
+import { isLandingPath } from "@/lib/navigation";
 
 export function PublicLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const isLearnExperience = /\/learn(\/|$)/.test(location.pathname);
+  const isLanding = isLandingPath(location.pathname);
   const { user, logout } = useUserStore();
   const toast = useToastStore((s) => s.add);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -77,7 +79,7 @@ export function PublicLayout() {
   return (
     <div className={cn("app-shell", isLearnExperience && "app-shell--immersive h-dvh min-h-0 overflow-hidden")}>
       {/* Top Announcement Banner for Platform Development */}
-      {location.pathname === "/" && <DevelopmentNoticeBanner />}
+      {isLanding && <DevelopmentNoticeBanner />}
 
       {/* Top Navigation */}
       <header
@@ -317,7 +319,7 @@ export function PublicLayout() {
       </main>
 
       {/* Footer — hidden during immersive learn experience */}
-      {!isLearnExperience && <GlobalFooter />}
+      {isLanding && <GlobalFooter />}
     </div>
   );
 }

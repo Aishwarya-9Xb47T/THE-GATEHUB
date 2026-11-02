@@ -102,6 +102,7 @@ export const AcademicAuthoringStudioPage = named(
 export const AdminLearningUniverses = named(() => import("@/pages/admin/AdminLearningUniverses"), "AdminLearningUniverses");
 export const AdminDashboard = named(() => import("@/pages/admin/AdminDashboard"), "AdminDashboard");
 export const AdminUsers = named(() => import("@/pages/admin/AdminUsers"), "AdminUsers");
+export const AdminInstructorApprovals = named(() => import("@/pages/admin/AdminInstructorApprovals"), "AdminInstructorApprovals");
 export const AdminCourses = named(() => import("@/pages/admin/AdminCourses"), "AdminCourses");
 export const AdminCategories = named(() => import("@/pages/admin/AdminCategories"), "AdminCategories");
 export const AdminReports = named(() => import("@/pages/admin/AdminReports"), "AdminReports");

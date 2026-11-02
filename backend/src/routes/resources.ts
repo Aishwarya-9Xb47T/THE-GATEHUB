@@ -1,16 +1,17 @@
 import { Router } from "express";
 import * as resourceController from "../controllers/resourceController.js";
 import { authenticate, requireRole, Role } from "../middlewares/auth.js";
+import { requireInstructorApproved } from "../middlewares/instructorApproval.js";
 
 export const resourceRouter = Router();
 
 // Resource course routes
-resourceRouter.post("/courses", authenticate, requireRole("instructor", "admin" as Role), resourceController.createResourceCourse);
+resourceRouter.post("/courses", authenticate, requireInstructorApproved, resourceController.createResourceCourse);
 resourceRouter.get("/courses", resourceController.getAllResourceCourses);
 resourceRouter.get("/courses/instructor", authenticate, requireRole("instructor", "admin" as Role), resourceController.getInstructorResourceCourses);
 resourceRouter.get("/courses/:id", resourceController.getResourceCourse);
 resourceRouter.patch("/courses/:id", authenticate, requireRole("instructor", "admin" as Role), resourceController.updateResourceCourse);
-resourceRouter.post("/courses/:id/toggle-publish", authenticate, requireRole("instructor", "admin" as Role), resourceController.togglePublishCourse);
+resourceRouter.post("/courses/:id/toggle-publish", authenticate, requireInstructorApproved, resourceController.togglePublishCourse);
 resourceRouter.delete("/courses/:courseId", authenticate, requireRole("instructor", "admin" as Role), resourceController.deleteCourse);
 resourceRouter.delete("/:courseId", authenticate, requireRole("instructor", "admin" as Role), resourceController.deleteCourse);
 

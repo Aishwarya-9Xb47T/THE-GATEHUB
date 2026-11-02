@@ -78,6 +78,7 @@ export async function dashboard(_req: AuthRequest, res: Response) {
     dailyActiveUsers,
     weeklyActiveUsers,
     reviewCount,
+    pendingInstructorApprovals,
     recentUsers,
     recentCourses,
   ] = await Promise.all([
@@ -108,6 +109,7 @@ export async function dashboard(_req: AuthRequest, res: Response) {
     prisma.user.count({ where: { lastLoginAt: { gte: oneDayAgo }, deletedAt: null } }),
     prisma.user.count({ where: { lastLoginAt: { gte: sevenDaysAgo }, deletedAt: null } }),
     prisma.review.count(),
+    prisma.user.count({ where: { role: "instructor", instructorApprovalStatus: "PENDING", deletedAt: null } }),
     prisma.user.findMany({
       take: 5,
       where: { deletedAt: null },
@@ -128,6 +130,7 @@ export async function dashboard(_req: AuthRequest, res: Response) {
       totalStudents,
       totalInstructors,
       totalAdmins,
+      pendingInstructorApprovals,
       courseCount: totalCourses,
       publishedCourses,
       draftCourses,

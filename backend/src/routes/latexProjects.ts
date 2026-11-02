@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../middlewares/auth.js";
+import { requireInstructorApproved } from "../middlewares/instructorApproval.js";
 import { latexUpload } from "../middlewares/latexUpload.js";
 import { lazyHandler } from "../utils/lazyHandler.js";
 
@@ -13,8 +14,8 @@ export const latexProjectsRouter = Router();
 latexProjectsRouter.use(authenticate);
 
 latexProjectsRouter.get("/", lazyHandler(projectCtrl, "getProjects"));
-latexProjectsRouter.post("/", lazyHandler(projectCtrl, "createProject"));
-latexProjectsRouter.post("/lecture/:lectureId/ensure", lazyHandler(projectCtrl, "ensureLectureProject"));
+latexProjectsRouter.post("/", requireInstructorApproved, lazyHandler(projectCtrl, "createProject"));
+latexProjectsRouter.post("/lecture/:lectureId/ensure", requireInstructorApproved, lazyHandler(projectCtrl, "ensureLectureProject"));
 latexProjectsRouter.get("/:projectId", lazyHandler(projectCtrl, "getProject"));
 latexProjectsRouter.get("/:projectId/asset-url", lazyHandler(projectCtrl, "resolveProjectAssetUrl"));
 
