@@ -61,7 +61,7 @@ export function LandingPage() {
         <section className="landing-cta relative overflow-hidden text-center bg-transparent dark:bg-background transition-colors border-t border-border/40">
           <div className="landing-cta__glow" aria-hidden />
           <div className="landing-shell relative z-10">
-            <div className="landing-section-heading-wrap app-lead-width mx-auto">
+            <div className="landing-section-heading-wrap mx-auto">
               <ShimmerHeading as="h2" className="landing-section-heading landing-cta__heading font-display">
                 Your Next Chapter in Technology Starts Here.
               </ShimmerHeading>
