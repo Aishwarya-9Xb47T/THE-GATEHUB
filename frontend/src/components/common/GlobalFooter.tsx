@@ -74,18 +74,7 @@ export function GlobalFooter() {
 
           <div className="site-footer__rule" aria-hidden />
 
-          <motion.div className="site-footer__credit" {...fade(0.18, motionOff)}>
-            <span className="site-footer__label">Platform Vision &amp; Leadership</span>
-            <span className="site-footer__name">Shoeb Ahmad</span>
-            <span className="site-footer__roles">
-              Founder <span aria-hidden>•</span> Platform Director <span aria-hidden>•</span> Admin{" "}
-              <span aria-hidden>•</span> Lead Instructor
-            </span>
-          </motion.div>
-
-          <div className="site-footer__rule" aria-hidden />
-
-          <motion.div className="site-footer__social" {...fade(0.2, motionOff)}>
+          <motion.div className="site-footer__social" {...fade(0.18, motionOff)}>
             <ShimmerHeading as="h3" className="site-footer__social-heading font-display">
               CONNECT WITH THE GATEHUB
             </ShimmerHeading>
@@ -129,7 +118,7 @@ export function GlobalFooter() {
           <motion.nav
             className="site-footer__nav"
             aria-label="Footer navigation"
-            {...fade(0.24, motionOff)}
+            {...fade(0.22, motionOff)}
           >
             <Link to="/help" className="site-footer__nav-link">
               Help Center
@@ -148,7 +137,7 @@ export function GlobalFooter() {
             </Link>
           </motion.nav>
 
-          <motion.p className="site-footer__copyright" {...fade(0.28, motionOff)}>
+          <motion.p className="site-footer__copyright" {...fade(0.26, motionOff)}>
             © {new Date().getFullYear()} THE GATEHUB. All rights reserved.
           </motion.p>
         </div>

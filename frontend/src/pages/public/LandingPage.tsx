@@ -1,23 +1,8 @@
-import { lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { ShimmerHeading } from "@/components/landing/ShimmerHeading";
-import { LandingExploreSectionFallback } from "@/components/landing/LandingSectionFallbacks";
 import { useUserStore } from "@/store/userStore";
-
-const EcosystemValueSection = lazy(() =>
-  import("@/components/landing/EcosystemValueSection").then((m) => ({
-    default: m.EcosystemValueSection,
-  }))
-);
-
 import { LandingExploreCoursesSection } from "@/pages/public/landing/LandingExploreCoursesSection";
-
-function EcosystemFallback() {
-  return (
-    <section className="ecosystem-value relative border-t border-border min-h-[320px] animate-pulse bg-muted/10" aria-hidden />
-  );
-}
 
 export function LandingPage() {
   const { user } = useUserStore();
@@ -52,10 +37,6 @@ export function LandingPage() {
             </div>
           </div>
         </section>
-
-        <Suspense fallback={<EcosystemFallback />}>
-          <EcosystemValueSection />
-        </Suspense>
 
         <LandingExploreCoursesSection />
 
