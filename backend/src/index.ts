@@ -67,6 +67,7 @@ import { assessmentFeatureFlagsRouter } from "./assessment-platform/routes/featu
 import classroomStudioRouter from "./routes/classroomStudio.js";
 import { multimodalKnowledgeRouter } from "./routes/multimodalKnowledge.js";
 import { antigravityV2Router } from "./routes/antigravityV2.js";
+import pptLibraryRouter from "./routes/pptLibrary.js";
 import { registerBuiltinQuestionPlugins } from "./assessment-platform/plugins/registerQuestionPlugins.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 import { notFound } from "./middlewares/notFound.js";
@@ -469,6 +470,7 @@ app.use("/api/learning-platforms", learningPlatformsRouter);
 app.use("/api/classroom-studio", classroomStudioRouter);
 app.use("/api/multimodal-knowledge", multimodalKnowledgeRouter);
 app.use("/api/antigravity-v2", antigravityV2Router);
+app.use("/api/ppt-library", pptLibraryRouter);
 
 app.get("/api/health", async (_req, res) => {
   try {

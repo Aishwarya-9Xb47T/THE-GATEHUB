@@ -18,6 +18,7 @@ export default defineConfig({
       "src/lib/resolveLearningUniverseAsset.test.ts",
       "src/pages/instructor/interactive-classroom/InteractiveClassroomEditor.layout.test.tsx",
       "src/pages/auth/ForgotPasswordPage.test.tsx",
+      "src/pages/public/ppt-library/__tests__/PptLibrary.test.tsx",
     ],
   },
   resolve: {

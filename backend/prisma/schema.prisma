@@ -123,6 +123,11 @@ model User {
   classroomParticipations ClassroomParticipant[]
   studentQuestions          StudentQuestion[]
   studentChatMessages       StudentChatMessage[]
+  pptTopicsCreated          PPTTopic[]              @relation("PPTTopicCreator")
+  pptSubtopicsCreated       PPTSubtopic[]           @relation("PPTSubtopicCreator")
+  pptResourcesUploaded      PPTResource[]           @relation("PPTResourceAuthor")
+  pptResourceVersions       PPTResourceVersion[]    @relation("PPTVersionUploader")
+  pptDownloadsLogged        PPTDownloadLog[]        @relation("PPTDownloader")
 
   @@index([email])
   @@index([role])
@@ -3133,4 +3138,146 @@ model StudentChatMessage {
 
   @@index([sessionId])
   @@index([userId])
+}
+
+// ==========================================
+// PPT Library Module
+// ==========================================
+
+model PPTTopic {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  slug         String        @unique
+  description  String?       @db.Text
+  icon         String?
+  displayOrder Int           @default(0) @map("display_order")
+  isActive     Boolean       @default(true) @map("is_active")
+  createdById  String?       @map("created_by_id")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  createdBy    User?         @relation("PPTTopicCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  subtopics    PPTSubtopic[]
+  resources    PPTResource[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@index([displayOrder])
+  @@map("ppt_topics")
+}
+
+model PPTSubtopic {
+  id           String        @id @default(cuid())
+  topicId      String        @map("topic_id")
+  name         String
+  slug         String
+  description  String?       @db.Text
+  displayOrder Int           @default(0) @map("display_order")
+  isActive     Boolean       @default(true) @map("is_active")
+  createdById  String?       @map("created_by_id")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  topic        PPTTopic      @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  createdBy    User?         @relation("PPTSubtopicCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  resources    PPTResource[]
+
+  @@unique([topicId, name])
+  @@unique([topicId, slug])
+  @@index([topicId])
+  @@index([isActive])
+  @@index([displayOrder])
+  @@map("ppt_subtopics")
+}
+
+model PPTResource {
+  id                String               @id @default(cuid())
+  title             String
+  description       String?              @db.Text
+  topicId           String               @map("topic_id")
+  subtopicId        String               @map("subtopic_id")
+  instructorId      String               @map("instructor_id")
+  originalFileName  String               @map("original_file_name")
+  storageKey        String               @map("storage_key")
+  mimeType          String               @map("mime_type")
+  fileSize          Int                  @map("file_size")
+  thumbnailUrl      String?              @map("thumbnail_url")
+  previewStorageKey String?              @map("preview_storage_key")
+  status            String               @default("draft") // draft, published, archived
+  language          String               @default("en")
+  tags              String[]             @default([])
+  academicLevel     String?              @map("academic_level")
+  slideCount        Int?                 @map("slide_count")
+  downloadCount     Int                  @default(0) @map("download_count")
+  viewCount         Int                  @default(0) @map("view_count")
+  publishedAt       DateTime?            @map("published_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  topic             PPTTopic             @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  subtopic          PPTSubtopic          @relation(fields: [subtopicId], references: [id], onDelete: Restrict)
+  instructor        User                 @relation("PPTResourceAuthor", fields: [instructorId], references: [id], onDelete: Cascade)
+  file              PPTResourceFile?
+  versions          PPTResourceVersion[]
+  downloadLogs      PPTDownloadLog[]
+
+  @@index([topicId])
+  @@index([subtopicId])
+  @@index([instructorId])
+  @@index([status])
+  @@index([publishedAt])
+  @@index([createdAt])
+  @@index([downloadCount])
+  @@map("ppt_resources")
+}
+
+model PPTResourceFile {
+  resourceId String      @id @map("resource_id")
+  bytes      Bytes
+  size       Int
+  sha256     String      @db.VarChar(64)
+  mimeType   String      @map("mime_type")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  resource   PPTResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@map("ppt_resource_files")
+}
+
+model PPTResourceVersion {
+  id               String      @id @default(cuid())
+  resourceId       String      @map("resource_id")
+  versionNumber    Int         @default(1) @map("version_number")
+  originalFileName String      @map("original_file_name")
+  storageKey       String      @map("storage_key")
+  fileSize         Int         @map("file_size")
+  mimeType         String      @map("mime_type")
+  changeNote       String?     @map("change_note")
+  uploadedById     String      @map("uploaded_by_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  resource         PPTResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  uploadedBy       User        @relation("PPTVersionUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([resourceId])
+  @@index([versionNumber])
+  @@map("ppt_resource_versions")
+}
+
+model PPTDownloadLog {
+  id           String      @id @default(cuid())
+  resourceId   String      @map("resource_id")
+  userId       String?     @map("user_id")
+  ipAddress    String?     @map("ip_address")
+  userAgent    String?     @map("user_agent")
+  downloadedAt DateTime    @default(now()) @map("downloaded_at")
+
+  resource     PPTResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  user         User?       @relation("PPTDownloader", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([resourceId])
+  @@index([userId])
+  @@index([downloadedAt])
+  @@map("ppt_download_logs")
 }

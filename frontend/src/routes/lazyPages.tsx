@@ -236,4 +236,24 @@ export const ResetPasswordPage = named(() => import("@/pages/auth/ResetPasswordP
 export const GoogleCallbackPage = named(() => import("@/pages/auth/GoogleCallbackPage"), "GoogleCallbackPage");
 export const VerifyEmailPage = named(() => import("@/pages/auth/VerifyEmailPage"), "VerifyEmailPage");
 export const VerifyEmailChangePage = named(() => import("@/pages/auth/VerifyEmailChangePage"), "VerifyEmailChangePage");
+export const PptLibraryPage = named(
+  () => import("@/pages/public/ppt-library/PptLibraryPage"),
+  "PptLibraryPage"
+);
+export const PptViewerPage = named(
+  () => import("@/pages/public/ppt-library/PptViewerPage"),
+  "PptViewerPage"
+);
+export const InstructorPptUploadPage = named(
+  () => import("@/pages/instructor/ppt-library/InstructorPptUploadPage"),
+  "InstructorPptUploadPage"
+);
+export const InstructorPptManagementPage = named(
+  () => import("@/pages/instructor/ppt-library/InstructorPptManagementPage"),
+  "InstructorPptManagementPage"
+);
+export const AdminPptManagementPage = named(
+  () => import("@/pages/admin/ppt-library/AdminPptManagementPage"),
+  "AdminPptManagementPage"
+);
 

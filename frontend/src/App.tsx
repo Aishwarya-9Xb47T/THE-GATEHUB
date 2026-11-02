@@ -135,6 +135,16 @@ export default function App() {
             <Route path="learning-universe/:id/learn/:lessonId/coding-lab/:stepId" element={<Pages.CodingLabWorkspacePage />} />
             <Route path="learning-universe/:id/learn/:lessonId/notebook/:stepId" element={<Pages.NotebookWorkspacePage />} />
             <Route path="learning-universe/:id/learn/:lessonId/research/:stepId" element={<Pages.ResearchWorkspacePage />} />
+            <Route path="ppt-library" element={<Pages.PptLibraryPage />} />
+            <Route path="ppt-library/:pptId/view" element={<Pages.PptViewerPage />} />
+            <Route
+              path="ppt-library/upload"
+              element={
+                <ProtectedRoute roles={["instructor", "admin", "super_admin"]}>
+                  <Pages.InstructorPptUploadPage />
+                </ProtectedRoute>
+              }
+            />
           </Route>
 
           <Route path="/resources" element={<Pages.ResourcesPage />} />
@@ -246,6 +256,15 @@ export default function App() {
             <Route path="earnings" element={<Pages.InstructorEarnings />} />
             <Route path="quiz-room" element={<Pages.QuizRoomDashboardPage />} />
             <Route path="interactive-classroom" element={<Pages.InteractiveClassroomDashboard />} />
+            <Route path="ppt-library" element={<Pages.InstructorPptManagementPage />} />
+            <Route
+              path="ppt-library/upload"
+              element={
+                <ApprovedInstructorRoute>
+                  <Pages.InstructorPptUploadPage />
+                </ApprovedInstructorRoute>
+              }
+            />
             <Route path="interactive-classroom/create" element={<Pages.InteractiveClassroomCreate />} />
             <Route path="interactive-classroom/:presentationId/edit" element={<Pages.InteractiveClassroomEditor />} />
             <Route path="interactive-classroom/presentations/:presentationId/editor" element={<Pages.InteractiveClassroomEditor />} />
@@ -278,6 +297,7 @@ export default function App() {
           <Route path="/admin" element={<ProtectedRoute roles={["admin", "super_admin"]}><Pages.DashboardLayout role="admin" /></ProtectedRoute>} >
             <Route index element={<Pages.AdminDashboard />} />
             <Route path="instructor-approvals" element={<Pages.AdminInstructorApprovals />} />
+            <Route path="ppt-library" element={<Pages.AdminPptManagementPage />} />
             <Route path="users" element={<Pages.AdminUsers />} />
             <Route path="courses" element={<Pages.AdminCourses />} />
             <Route path="learning-universes" element={<Pages.AdminLearningUniverses />} />

@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Menu, X, LogOut, Youtube } from "lucide-react";
+import { Menu, X, LogOut, Youtube, Presentation } from "lucide-react";
 import { useUserStore, getHomeRoute, isAdminRole } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 import { Button } from "@/components/ui/button";
@@ -136,6 +136,17 @@ export function PublicLayout() {
               >
                 <Youtube className="h-5 w-5 text-foreground group-hover:text-red-600 transition-colors" />
               </a>
+              <Button
+                variant="ghost"
+                onClick={() => navigate("/ppt-library")}
+                className={cn(
+                  "type-nav flex items-center gap-2",
+                  location.pathname.startsWith("/ppt-library") && "bg-accent text-accent-foreground"
+                )}
+              >
+                <Presentation className="h-4 w-4 text-primary" />
+                PPT Library
+              </Button>
               {user ? (
                 <div className="flex items-center gap-4">
                   <Button 
@@ -232,6 +243,20 @@ export function PublicLayout() {
                   <Youtube className="h-5 w-5 text-foreground group-hover:text-red-600 transition-colors" />
                   <span className="text-sm font-medium">YouTube</span>
                 </a>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    navigate("/ppt-library");
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={cn(
+                    "w-full justify-start gap-2",
+                    location.pathname.startsWith("/ppt-library") && "bg-accent text-accent-foreground"
+                  )}
+                >
+                  <Presentation className="h-4 w-4 text-primary" />
+                  PPT Library
+                </Button>
                 <div className="flex items-center justify-between pb-4 border-b border-border/20">
                   {user ? (
                     <div className="flex items-center gap-3">
