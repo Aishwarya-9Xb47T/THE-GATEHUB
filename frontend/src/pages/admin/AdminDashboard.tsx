@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Users, BookOpen, CreditCard, Star, GraduationCap, Globe, DollarSign, Activity, FileCheck, Archive, Layers } from "lucide-react";
+import { Users, BookOpen, CreditCard, Star, GraduationCap, Globe, DollarSign, Activity, FileCheck, Archive, Layers, ShieldCheck, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/paymentUtils";
 import { formatRoleLabel } from "@/lib/roles";
 
@@ -12,6 +14,7 @@ interface DashboardRes {
     totalStudents: number;
     totalInstructors: number;
     totalAdmins: number;
+    pendingInstructorApprovals?: number;
     courseCount: number;
     publishedCourses: number;
     draftCourses: number;
@@ -67,6 +70,7 @@ export function AdminDashboard() {
     { label: "Total Users", value: stats.userCount, icon: Users },
     { label: "Students", value: stats.totalStudents, icon: GraduationCap },
     { label: "Instructors", value: stats.totalInstructors, icon: Users },
+    { label: "Pending Approvals", value: stats.pendingInstructorApprovals ?? 0, icon: ShieldCheck },
     { label: "Admins", value: stats.totalAdmins, icon: Users },
     { label: "Total Courses", value: stats.courseCount, icon: BookOpen },
     { label: "Published Courses", value: stats.publishedCourses, icon: BookOpen },
@@ -94,6 +98,33 @@ export function AdminDashboard() {
         <h1 className="page-title">Admin Dashboard</h1>
         <p className="mt-1 type-body-muted">Platform overview — live data from PostgreSQL</p>
       </div>
+
+      {stats && (stats.pendingInstructorApprovals ?? 0) > 0 && (
+        <Card className="border-amber-300/80 bg-amber-50/80 dark:bg-amber-950/30 dark:border-amber-800/80 p-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-400">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="font-semibold text-amber-950 dark:text-amber-200">
+                  {stats.pendingInstructorApprovals} {stats.pendingInstructorApprovals === 1 ? "instructor is" : "instructors are"} awaiting course-creation approval
+                </p>
+                <p className="text-xs text-amber-800/90 dark:text-amber-400/90 mt-0.5">
+                  Review and grant one-time permission to allow authoring across all visual, AI, and LaTeX studios.
+                </p>
+              </div>
+            </div>
+            <Link to="/admin/instructor-approvals">
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5 h-8 font-medium">
+                Review Approvals
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      )}
+
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {isLoading
           ? Array.from({ length: 8 }).map((_, i) => (

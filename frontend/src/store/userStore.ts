@@ -22,6 +22,10 @@ export interface User {
   avatarTimestamp?: number;
   emailVerified?: boolean;
   pendingEmail?: string | null;
+  instructorApprovalStatus?: "PENDING" | "APPROVED" | "REJECTED" | string | null;
+  instructorApprovedAt?: string | null;
+  instructorApprovalNotes?: string | null;
+  instructorRejectionReason?: string | null;
 }
 
 interface UserState {
@@ -40,6 +44,15 @@ export function getHomeRoute(role?: string): string {
   if (isAdminRole(role)) return "/admin";
   if (role === "instructor") return "/instructor";
   return "/student";
+}
+
+export function isInstructorApproved(user?: User | null): boolean {
+  if (!user) return false;
+  if (isAdminRole(user.role)) return true;
+  if (user.role === "instructor") {
+    return user.instructorApprovalStatus === "APPROVED";
+  }
+  return false;
 }
 
 const getStoredToken = (): string | null => {

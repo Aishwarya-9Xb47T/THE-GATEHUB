@@ -6,6 +6,7 @@ import {
 } from "../controllers/coursePublishController.js";
 import { parseCourseDslLatex } from "../controllers/course-dsl-parser.js";
 import { authenticate, optionalAuthenticate, requireRole, Role, AuthRequest } from "../middlewares/auth.js";
+import { requireInstructorApproved } from "../middlewares/instructorApproval.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { downloadCompleteCourse } from "../controllers/enhancedCourseDownloadController.js";
 
@@ -14,7 +15,7 @@ export const courseRouter = Router();
 courseRouter.get("/", optionalAuthenticate, coursesController.list);
 courseRouter.get("/my-instructor", authenticate, requireRole("instructor", "admin" as Role), coursesController.listMyInstructor);
 
-courseRouter.post("/publish-from-dsl", authenticate, requireRole("instructor", "admin" as Role), async (req: AuthRequest, res) => {
+courseRouter.post("/publish-from-dsl", authenticate, requireInstructorApproved, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) throw new AppError(401, "Unauthorized");
@@ -75,10 +76,10 @@ courseRouter.post(
 );
 courseRouter.get("/:id/ai-details", optionalAuthenticate, coursesController.getAIDetails);
 
-courseRouter.post("/", authenticate, requireRole("instructor", "admin" as Role), coursesController.create);
-courseRouter.post("/ai-authoring-preview", authenticate, requireRole("instructor", "admin" as Role), coursesController.previewAICourseAuthoring);
-courseRouter.post("/create-with-authoring", authenticate, requireRole("instructor", "admin" as Role), coursesController.createCourseWithAuthoring);
-courseRouter.post("/generate-ai", authenticate, requireRole("instructor", "admin" as Role), coursesController.generateAICourse);
-courseRouter.post("/:id/generate-landing", authenticate, requireRole("instructor", "admin" as Role), coursesController.generateAILandingPage);
+courseRouter.post("/", authenticate, requireInstructorApproved, coursesController.create);
+courseRouter.post("/ai-authoring-preview", authenticate, requireInstructorApproved, coursesController.previewAICourseAuthoring);
+courseRouter.post("/create-with-authoring", authenticate, requireInstructorApproved, coursesController.createCourseWithAuthoring);
+courseRouter.post("/generate-ai", authenticate, requireInstructorApproved, coursesController.generateAICourse);
+courseRouter.post("/:id/generate-landing", authenticate, requireInstructorApproved, coursesController.generateAILandingPage);
 courseRouter.patch("/:id", authenticate, coursesController.update);
 courseRouter.delete("/:id", authenticate, coursesController.remove);

@@ -12,6 +12,8 @@ import { InstructorCourseCard } from "@/components/instructor/InstructorCourseCa
 import { InstructorLuCard } from "@/components/instructor/InstructorLuCard";
 import { instructorPreviewState } from "@/lib/instructorPreview";
 import { formatINR } from "@/lib/paymentUtils";
+import { InstructorApprovalNotice } from "@/components/instructor/InstructorApprovalNotice";
+import { useUserStore, isInstructorApproved } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 
 interface Course {
@@ -40,6 +42,8 @@ interface LearningUniverse {
 export function InstructorDashboard() {
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.add);
+  const user = useUserStore((s) => s.user);
+  const isApproved = isInstructorApproved(user);
   const location = useLocation();
   const previewReturn = instructorPreviewState(location);
   const [universeToDelete, setUniverseToDelete] = useState<LearningUniverse | null>(null);
@@ -178,6 +182,8 @@ export function InstructorDashboard() {
 
   return (
     <div className="space-y-8">
+      <InstructorApprovalNotice />
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="page-title">Instructor Dashboard</h1>
@@ -196,12 +202,19 @@ export function InstructorDashboard() {
               Reports
             </Link>
           </Button>
-          <Button asChild size="sm">
-            <Link to="/instructor/courses/new">
+          {isApproved ? (
+            <Button asChild size="sm">
+              <Link to="/instructor/courses/new">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Create Course
+              </Link>
+            </Button>
+          ) : (
+            <Button size="sm" disabled title="Awaiting admin approval to create courses" className="opacity-60 cursor-not-allowed">
               <Plus className="mr-1.5 h-4 w-4" />
               Create Course
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -225,12 +238,19 @@ export function InstructorDashboard() {
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-2xl font-bold text-foreground">Your Courses</h2>
-          <Link to="/instructor/courses/new">
-            <Button variant="secondary" className="gap-2">
+          {isApproved ? (
+            <Link to="/instructor/courses/new">
+              <Button variant="secondary" className="gap-2">
+                <Plus className="h-4 w-4" />
+                Create Course
+              </Button>
+            </Link>
+          ) : (
+            <Button variant="secondary" disabled title="Awaiting admin approval to create courses" className="gap-2 opacity-60 cursor-not-allowed">
               <Plus className="h-4 w-4" />
               Create Course
             </Button>
-          </Link>
+          )}
         </div>
 
         {isLoading ? (

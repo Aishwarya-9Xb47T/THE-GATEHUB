@@ -5,7 +5,8 @@ import { prisma } from "../utils/prisma.js";
 import { parseCourseDslLatex, type ParsedCourseDsl, type ParsedCourseLesson } from "./course-dsl-parser.js";
 import { recordProjectVersion } from "../services/latexVersionService.js";
 import { generateCourseLandingPage } from "../services/aiService.js";
-import { resolveLinkedCourseIdForProject } from "../services/productRoutingService.js";
+import { checkInstructorApproved } from "../services/instructorApprovalService.js";
+import { AppError } from "../middlewares/errorHandler.js";
 
 const PROJECTS_DIR = path.join(process.cwd(), process.env.UPLOAD_DIR || "uploads", "projects");
 
@@ -192,6 +193,11 @@ export async function publishCourseFromDsl(
   userId: string,
   options: PublishCourseDslOptions = {}
 ) {
+  const approval = await checkInstructorApproved(userId);
+  if (!approval.approved) {
+    throw new AppError(403, approval.message);
+  }
+
   const parsed = parseCourseDslLatex(latexContent);
   if (!parsed) {
     throw new Error("Could not parse course DSL structure");

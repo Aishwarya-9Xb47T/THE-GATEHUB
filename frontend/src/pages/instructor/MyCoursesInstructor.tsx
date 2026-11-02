@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { useToastStore } from "@/store/toastStore";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InstructorCourseCard } from "@/components/instructor/InstructorCourseCard";
+import { InstructorApprovalNotice } from "@/components/instructor/InstructorApprovalNotice";
+import { useUserStore, isInstructorApproved } from "@/store/userStore";
 import type { CourseAcademicStudioEdit } from "@/lib/instructorCourseEdit";
 
 interface Course {
@@ -28,6 +30,8 @@ interface Course {
 export function MyCoursesInstructor() {
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.add);
+  const user = useUserStore((s) => s.user);
+  const isApproved = isInstructorApproved(user);
   const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
   const [confirmName, setConfirmName] = useState("");
 
@@ -80,14 +84,22 @@ export function MyCoursesInstructor() {
 
   return (
     <div className="space-y-8 pb-20">
+      <InstructorApprovalNotice />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="page-title tracking-tight text-foreground">My Courses</h1>
           <p className="mt-2 text-muted-foreground">Manage and grow your curriculum catalog.</p>
         </div>
-        <Button asChild size="lg" className="rounded-xl shadow-lg shadow-primary/20">
-          <Link to="/instructor/courses/new">Create New Course</Link>
-        </Button>
+        {isApproved ? (
+          <Button asChild size="lg" className="rounded-xl shadow-lg shadow-primary/20">
+            <Link to="/instructor/courses/new">Create New Course</Link>
+          </Button>
+        ) : (
+          <Button size="lg" disabled className="rounded-xl opacity-60 cursor-not-allowed" title="Awaiting admin approval to create courses">
+            Create New Course
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -108,9 +120,15 @@ export function MyCoursesInstructor() {
             <p className="text-muted-foreground max-w-xs mx-auto">
               Start sharing your knowledge by creating your first course today.
             </p>
-            <Button asChild size="lg" className="rounded-xl">
-              <Link to="/instructor/courses/new">Create First Course</Link>
-            </Button>
+            {isApproved ? (
+              <Button asChild size="lg" className="rounded-xl">
+                <Link to="/instructor/courses/new">Create First Course</Link>
+              </Button>
+            ) : (
+              <Button size="lg" disabled className="rounded-xl opacity-60 cursor-not-allowed" title="Awaiting admin approval to create courses">
+                Create First Course
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

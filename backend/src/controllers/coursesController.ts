@@ -26,6 +26,7 @@ import {
   PRODUCT_TYPES,
   readStructuredRecord,
 } from "../services/productRoutingService.js";
+import { checkInstructorApproved } from "../services/instructorApprovalService.js";
 import { appCache } from "../utils/cache.js";
 import fs from "fs";
 import path from "path";
@@ -703,6 +704,12 @@ export function resolveDefaultCourseBanner(category?: string | null, title?: str
 
 export async function create(req: AuthRequest, res: Response) {
   if (!req.user) throw new AppError(401, "Unauthorized");
+  if (!isAdminRole(req.user.role)) {
+    const approval = await checkInstructorApproved(req.user.id);
+    if (!approval.approved) {
+      throw new AppError(403, approval.message);
+    }
+  }
   const data = createSchema.parse(req.body);
 
   const resolvedCategory = await resolveCategoryFields({
@@ -997,6 +1004,12 @@ export async function createCourseWithAuthoring(req: AuthRequest, res: Response)
   if (!req.user || (req.user.role !== "instructor" && !isAdminRole(req.user.role))) {
     throw new AppError(403, "Forbidden");
   }
+  if (!isAdminRole(req.user.role)) {
+    const approval = await checkInstructorApproved(req.user.id);
+    if (!approval.approved) {
+      throw new AppError(403, approval.message);
+    }
+  }
 
   const bodySchema = z.object({
     title: requiredTrimmedString,
@@ -1204,6 +1217,12 @@ export async function update(req: AuthRequest, res: Response) {
   }
 
   if (data.status === "published" && existing.status !== "published") {
+    if (!isAdminRole(req.user.role)) {
+      const approval = await checkInstructorApproved(req.user.id);
+      if (!approval.approved) {
+        throw new AppError(403, approval.message);
+      }
+    }
     updateData.publishedAt = new Date();
   }
   if (data.status === "draft" && existing.status === "published") {
