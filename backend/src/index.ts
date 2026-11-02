@@ -528,6 +528,12 @@ async function initializeBackgroundServices() {
     await getPlatformSettings();
     await bootstrapAiProviders();
     await ensureDocIndexLoaded();
+    try {
+      const { ensureInitialPptCategories } = await import("./services/pptLibraryService.js");
+      await ensureInitialPptCategories();
+    } catch (pptInitErr) {
+      console.warn("[PPT_LIBRARY] Startup initial categories check warning:", pptInitErr);
+    }
     logBannerStudioStartupStatus();
     logArchitectAiStartupStatus();
     const { logClassroomRendererStartup } = await import("./services/classroomStudio/presentationRenderService.js");

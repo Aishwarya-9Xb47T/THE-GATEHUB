@@ -66,6 +66,9 @@ const {
   createSubtopic,
   deleteTopic,
   deleteSubtopic,
+  listTopics,
+  listSubtopicsByTopic,
+  ensureInitialPptCategories,
   uploadAndCreateResource,
   replaceResourceFile,
   recordDownload,
@@ -161,6 +164,37 @@ describe("PPT Library Service Core Functionality", () => {
       const result = await deleteTopic("topic-empty");
       expect(result.success).toBe(true);
       expect(mockPrisma.pPTTopic.delete).toHaveBeenCalledWith({ where: { id: "topic-empty" } });
+    });
+
+    it("seeds initial categories idempotently if topics are missing", async () => {
+      (mockPrisma.pPTTopic.findFirst as any).mockResolvedValue(null);
+      (mockPrisma.pPTTopic.create as any).mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: `topic-${data.slug}`, ...data })
+      );
+      (mockPrisma.pPTSubtopic.findFirst as any).mockResolvedValue(null);
+      (mockPrisma.pPTSubtopic.create as any).mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: `sub-${data.slug}`, ...data })
+      );
+
+      const stats = await ensureInitialPptCategories();
+      expect(stats.topicsCreated).toBe(6);
+      expect(stats.subtopicsCreated).toBeGreaterThanOrEqual(25);
+    });
+
+    it("lists subtopics by parent topic", async () => {
+      (mockPrisma.pPTSubtopic.findMany as any).mockResolvedValue([
+        { id: "sub-1", topicId: "topic-1", name: "Python", slug: "python", _count: { resources: 2 } },
+        { id: "sub-2", topicId: "topic-1", name: "Java", slug: "java", _count: { resources: 0 } },
+      ]);
+
+      const subtopics = await listSubtopicsByTopic("topic-1");
+      expect(subtopics.length).toBe(2);
+      expect(subtopics[0].name).toBe("Python");
+      expect(mockPrisma.pPTSubtopic.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { topicId: "topic-1", isActive: true },
+        })
+      );
     });
   });
 

@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   ShieldAlert,
 } from "lucide-react";
+import { useInvalidatePptCategories } from "@/lib/pptLibrary/usePptQuery";
 import {
   fetchMyResources,
   fetchLibraryTopics,
@@ -94,6 +95,7 @@ export function InstructorPptManagementPage() {
   const [selectedParentTopicId, setSelectedParentTopicId] = useState("");
   const [newSubtopicName, setNewSubtopicName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
+  const { invalidate: invalidateCategories } = useInvalidatePptCategories();
 
   const isApproved =
     isAdminRole(user?.role) ||
@@ -248,6 +250,7 @@ export function InstructorPptManagementPage() {
       setNewTopicDesc("");
       setNewSubtopicName("");
       setShowCategoryModal(false);
+      await invalidateCategories();
       loadData();
     } catch (err: any) {
       toast({ title: "Category creation failed", description: err.message, variant: "destructive" });

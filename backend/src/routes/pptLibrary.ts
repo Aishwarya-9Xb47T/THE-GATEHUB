@@ -56,6 +56,7 @@ const pptUpload = multer({
 router.get("/", optionalAuthenticate, controller.getLibraryResources);
 router.get("/topics", optionalAuthenticate, controller.getLibraryTopics);
 router.get("/topics/:topicId", optionalAuthenticate, controller.getLibraryTopicById);
+router.get("/topics/:topicId/subtopics", optionalAuthenticate, controller.getTopicSubtopics);
 router.get("/my", authenticate, requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN), controller.getMyResources);
 router.get("/admin/all", authenticate, requireAdmin(), controller.getAdminPptLibrary);
 
@@ -76,7 +77,7 @@ router.post(
 router.patch(
   "/topics/:topicId",
   authenticate,
-  requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN),
+  requireAdmin(),
   controller.updateTopic
 );
 router.delete("/topics/:topicId", authenticate, requireAdmin(), controller.deleteTopic);
@@ -91,7 +92,7 @@ router.post(
 router.patch(
   "/subtopics/:subtopicId",
   authenticate,
-  requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN),
+  requireAdmin(),
   controller.updateSubtopic
 );
 router.delete("/subtopics/:subtopicId", authenticate, requireAdmin(), controller.deleteSubtopic);

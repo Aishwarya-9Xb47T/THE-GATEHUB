@@ -322,6 +322,10 @@ async function main() {
   );
 
   const categories = await seedCategories();
+  const pptCreated = await seedPptCategories();
+  if (pptCreated > 0) {
+    console.log(`[SEED] Seeded ${pptCreated} PPT topics/subtopics`);
+  }
   const counts = await contentCounts();
   printReport(true, results, categories, counts);
 
@@ -337,3 +341,124 @@ main()
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());
+
+const INITIAL_PPT_CATEGORIES = [
+  {
+    name: "Programming",
+    description: "Core programming languages, syntax, algorithms, and fundamental computer science concepts.",
+    displayOrder: 1,
+    subtopics: ["Python", "Java", "C Programming", "C++", "Data Structures and Algorithms"],
+  },
+  {
+    name: "Artificial Intelligence",
+    description: "AI paradigms, deep learning, NLP, computer vision, and foundation models.",
+    displayOrder: 2,
+    subtopics: [
+      "Artificial Intelligence Fundamentals",
+      "Machine Learning",
+      "Deep Learning",
+      "Natural Language Processing",
+      "Generative AI",
+      "Computer Vision",
+    ],
+  },
+  {
+    name: "Data Science",
+    description: "Data analysis, statistical modeling, data visualization, and querying techniques.",
+    displayOrder: 3,
+    subtopics: ["Statistics", "Data Analytics", "Data Visualization", "SQL", "Python for Data Science"],
+  },
+  {
+    name: "Web Development",
+    description: "Modern full-stack web technologies, frontend frameworks, APIs, and client-server systems.",
+    displayOrder: 4,
+    subtopics: ["HTML and CSS", "JavaScript", "React.js", "Node.js", "Full Stack Development"],
+  },
+  {
+    name: "Database Management",
+    description: "Relational and NoSQL database management, schema design, and query optimization.",
+    displayOrder: 5,
+    subtopics: ["MySQL", "PostgreSQL", "MongoDB", "Database Design"],
+  },
+  {
+    name: "Cloud Computing",
+    description: "Cloud architectures, virtualization, cloud infrastructure providers, and DevOps practices.",
+    displayOrder: 6,
+    subtopics: ["AWS", "Microsoft Azure", "Google Cloud", "DevOps"],
+  },
+];
+
+function slugifyPpt(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^\w-]+/g, "")
+    .replace(/--+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+}
+
+async function seedPptCategories(): Promise<number> {
+  let created = 0;
+  for (const cat of INITIAL_PPT_CATEGORIES) {
+    const topicSlug = slugifyPpt(cat.name);
+    let topic = await prisma.pPTTopic.findFirst({
+      where: {
+        OR: [{ name: { equals: cat.name, mode: "insensitive" } }, { slug: topicSlug }],
+      },
+    });
+
+    if (!topic) {
+      try {
+        topic = await prisma.pPTTopic.create({
+          data: {
+            name: cat.name,
+            slug: topicSlug,
+            description: cat.description,
+            displayOrder: cat.displayOrder,
+            isActive: true,
+          },
+        });
+        created++;
+      } catch {
+        topic = await prisma.pPTTopic.findFirst({
+          where: {
+            OR: [{ name: { equals: cat.name, mode: "insensitive" } }, { slug: topicSlug }],
+          },
+        });
+      }
+    }
+
+    if (topic) {
+      for (let i = 0; i < cat.subtopics.length; i++) {
+        const subName = cat.subtopics[i];
+        const subSlug = slugifyPpt(subName);
+        const existingSub = await prisma.pPTSubtopic.findFirst({
+          where: {
+            topicId: topic.id,
+            OR: [{ name: { equals: subName, mode: "insensitive" } }, { slug: subSlug }],
+          },
+        });
+
+        if (!existingSub) {
+          try {
+            await prisma.pPTSubtopic.create({
+              data: {
+                topicId: topic.id,
+                name: subName,
+                slug: subSlug,
+                displayOrder: i + 1,
+                isActive: true,
+              },
+            });
+            created++;
+          } catch {
+            // Ignore race condition
+          }
+        }
+      }
+    }
+  }
+  return created;
+}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useInvalidatePptCategories } from "@/lib/pptLibrary/usePptQuery";
 import {
   Presentation,
   Search,
@@ -55,6 +56,7 @@ export function AdminPptManagementPage() {
   const toast = useToastStore((s) => s.add);
 
   const [activeTab, setActiveTab] = useState("all-ppts");
+  const { invalidate: invalidateCategories } = useInvalidatePptCategories();
   const [resources, setResources] = useState<PPTResource[]>([]);
   const [topics, setTopics] = useState<PPTTopic[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,6 +163,7 @@ export function AdminPptManagementPage() {
         });
         toast({ title: "Topic created", variant: "success" });
       }
+      await invalidateCategories();
       setShowAddTopicModal(false);
       setEditingTopic(null);
       setTopicName("");
@@ -176,6 +179,7 @@ export function AdminPptManagementPage() {
     try {
       await deleteTopic(topic.id);
       toast({ title: "Topic deleted", variant: "success" });
+      await invalidateCategories();
       loadData();
     } catch (err: any) {
       toast({ title: "Cannot delete topic", description: err.message, variant: "destructive" });
@@ -206,6 +210,7 @@ export function AdminPptManagementPage() {
     try {
       await deleteSubtopic(subtopicId);
       toast({ title: "Subtopic deleted", variant: "success" });
+      await invalidateCategories();
       loadData();
     } catch (err: any) {
       toast({ title: "Cannot delete subtopic", description: err.message, variant: "destructive" });

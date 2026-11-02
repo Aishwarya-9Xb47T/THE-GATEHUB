@@ -53,6 +53,16 @@ export async function getLibraryTopicById(req: AuthRequest, res: Response, next:
   }
 }
 
+export async function getTopicSubtopics(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const includeInactive = req.user && isAdminRole(req.user.role) && req.query.all === "true";
+    const subtopics = await pptService.listSubtopicsByTopic(req.params.topicId, Boolean(includeInactive));
+    res.json({ success: true, data: subtopics });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getResourceDetail(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const resource = await pptService.getResourceById(req.params.pptId, req.user);
@@ -145,7 +155,9 @@ export async function createTopic(req: AuthRequest, res: Response, next: NextFun
 
 export async function updateTopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (!req.user) throw new AppError(401, "Authentication required");
+    if (!req.user || !isAdminRole(req.user.role)) {
+      throw new AppError(403, "Administrator access required to update topics");
+    }
     const topic = await pptService.updateTopic(req.params.topicId, req.body);
     res.json({ success: true, data: topic });
   } catch (err) {
@@ -180,7 +192,9 @@ export async function createSubtopic(req: AuthRequest, res: Response, next: Next
 
 export async function updateSubtopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (!req.user) throw new AppError(401, "Authentication required");
+    if (!req.user || !isAdminRole(req.user.role)) {
+      throw new AppError(403, "Administrator access required to update subtopics");
+    }
     const subtopic = await pptService.updateSubtopic(req.params.subtopicId, req.body);
     res.json({ success: true, data: subtopic });
   } catch (err) {

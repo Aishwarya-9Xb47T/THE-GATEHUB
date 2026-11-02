@@ -147,6 +147,14 @@ export async function fetchLibraryTopic(topicId: string): Promise<PPTTopic> {
   return res.data.data;
 }
 
+export async function fetchTopicSubtopics(topicId: string, includeInactive = false): Promise<PPTSubtopic[]> {
+  const res = await api<{ success: boolean; data: PPTSubtopic[] }>(
+    `/ppt-library/topics/${topicId}/subtopics${includeInactive ? "?all=true" : ""}`
+  );
+  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch subtopics");
+  return res.data.data;
+}
+
 export async function fetchResourceDetail(pptId: string): Promise<PPTResource> {
   const res = await api<{ success: boolean; data: PPTResource }>(`/ppt-library/${pptId}`);
   if (res.error || !res.data) throw new Error(res.error || "Failed to fetch presentation details");

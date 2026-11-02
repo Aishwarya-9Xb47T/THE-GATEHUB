@@ -19,6 +19,7 @@ export default defineConfig({
       "src/pages/instructor/interactive-classroom/InteractiveClassroomEditor.layout.test.tsx",
       "src/pages/auth/ForgotPasswordPage.test.tsx",
       "src/pages/public/ppt-library/__tests__/PptLibrary.test.tsx",
+      "src/pages/instructor/ppt-library/__tests__/InstructorPptUploadPage.test.tsx",
     ],
   },
   resolve: {

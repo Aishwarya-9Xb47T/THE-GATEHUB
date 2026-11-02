@@ -9,13 +9,23 @@ import {
   ArrowLeft,
   Presentation,
   ShieldAlert,
+  Plus,
+  Loader2,
+  FolderPlus,
+  RefreshCw,
 } from "lucide-react";
 import {
-  fetchLibraryTopics,
   uploadPptResource,
+  createTopic,
+  createSubtopic,
   PPTTopic,
   PPTSubtopic,
 } from "@/lib/pptLibrary/api";
+import {
+  usePptTopics,
+  usePptSubtopics,
+  useInvalidatePptCategories,
+} from "@/lib/pptLibrary/usePptQuery";
 import { useUserStore, isAdminRole } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 import { Button } from "@/components/ui/button";
@@ -24,15 +34,39 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 export function InstructorPptUploadPage() {
   const navigate = useNavigate();
   const { user } = useUserStore();
   const toast = useToastStore((s) => s.add);
 
-  const [topics, setTopics] = useState<PPTTopic[]>([]);
+  // TanStack Query for topics & subtopics
+  const {
+    data: topics = [],
+    isLoading: loadingTopics,
+    isError: errorTopics,
+    refetch: refetchTopics,
+  } = usePptTopics();
+
   const [selectedTopicId, setSelectedTopicId] = useState("");
   const [selectedSubtopicId, setSelectedSubtopicId] = useState("");
+
+  const {
+    data: subtopics = [],
+    isLoading: loadingSubtopics,
+    refetch: refetchSubtopics,
+  } = usePptSubtopics(selectedTopicId);
+
+  const { invalidate } = useInvalidatePptCategories();
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
@@ -46,6 +80,15 @@ export function InstructorPptUploadPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
+  // Category & Subtopic Creation Modal
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [modalMode, setModalMode] = useState<"topic" | "subtopic">("topic");
+  const [modalTopicName, setModalTopicName] = useState("");
+  const [modalTopicDesc, setModalTopicDesc] = useState("");
+  const [modalSubtopicName, setModalSubtopicName] = useState("");
+  const [modalParentTopicId, setModalParentTopicId] = useState("");
+  const [submittingCategory, setSubmittingCategory] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
@@ -54,35 +97,29 @@ export function InstructorPptUploadPage() {
     isAdminRole(user?.role) ||
     (user?.role === "instructor" && (user as any).instructorApprovalStatus === "APPROVED");
 
+  // Auto-select initial topic when loaded if not yet set
   useEffect(() => {
-    fetchLibraryTopics()
-      .then((data) => {
-        setTopics(data);
-        if (data.length > 0) {
-          setSelectedTopicId(data[0].id);
-          if (data[0].subtopics.length > 0) {
-            setSelectedSubtopicId(data[0].subtopics[0].id);
-          }
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load topics:", err);
-      });
-  }, []);
+    if (topics.length > 0 && !selectedTopicId) {
+      setSelectedTopicId(topics[0].id);
+    }
+  }, [topics, selectedTopicId]);
 
-  // Update subtopics when topic changes
-  const activeTopic = topics.find((t) => t.id === selectedTopicId);
-  const availableSubtopics: PPTSubtopic[] = activeTopic?.subtopics || [];
-
+  // When subtopics arrive for the selected topic, select the first if none selected
   useEffect(() => {
-    if (availableSubtopics.length > 0) {
-      if (!availableSubtopics.some((s) => s.id === selectedSubtopicId)) {
-        setSelectedSubtopicId(availableSubtopics[0].id);
+    if (subtopics.length > 0) {
+      if (!subtopics.some((s) => s.id === selectedSubtopicId)) {
+        setSelectedSubtopicId(subtopics[0].id);
       }
     } else {
       setSelectedSubtopicId("");
     }
-  }, [selectedTopicId, availableSubtopics]);
+  }, [subtopics, selectedTopicId]);
+
+  // Topic change handler
+  const handleTopicChange = (newTopicId: string) => {
+    setSelectedTopicId(newTopicId);
+    setSelectedSubtopicId("");
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -131,6 +168,73 @@ export function InstructorPptUploadPage() {
     setThumbnailFile(file);
   };
 
+  // Open modal for new topic
+  const openCreateTopicModal = () => {
+    setModalMode("topic");
+    setModalTopicName("");
+    setModalTopicDesc("");
+    setShowCategoryModal(true);
+  };
+
+  // Open modal for new subtopic
+  const openCreateSubtopicModal = () => {
+    setModalMode("subtopic");
+    setModalSubtopicName("");
+    setModalParentTopicId(selectedTopicId || (topics[0]?.id ?? ""));
+    setShowCategoryModal(true);
+  };
+
+  // Handle category / subtopic creation
+  const handleCreateCategorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (modalMode === "topic") {
+      if (!modalTopicName.trim()) {
+        toast({ title: "Name Required", description: "Please enter a topic name.", variant: "destructive" });
+        return;
+      }
+      try {
+        setSubmittingCategory(true);
+        const res = await createTopic({
+          name: modalTopicName.trim(),
+          description: modalTopicDesc.trim() || undefined,
+        });
+        await invalidate();
+        setSelectedTopicId(res.data.id);
+        setShowCategoryModal(false);
+        toast({ title: "Category Created", description: `"${res.data.name}" is now available.`, variant: "success" });
+      } catch (err: any) {
+        toast({ title: "Failed to create topic", description: err.message, variant: "destructive" });
+      } finally {
+        setSubmittingCategory(false);
+      }
+    } else {
+      if (!modalParentTopicId) {
+        toast({ title: "Topic Required", description: "Please select a parent topic.", variant: "destructive" });
+        return;
+      }
+      if (!modalSubtopicName.trim()) {
+        toast({ title: "Subtopic Name Required", description: "Please enter a subtopic name.", variant: "destructive" });
+        return;
+      }
+      try {
+        setSubmittingCategory(true);
+        const res = await createSubtopic({
+          topicId: modalParentTopicId,
+          name: modalSubtopicName.trim(),
+        });
+        await invalidate(modalParentTopicId);
+        setSelectedTopicId(modalParentTopicId);
+        setSelectedSubtopicId(res.data.id);
+        setShowCategoryModal(false);
+        toast({ title: "Subtopic Created", description: `"${res.data.name}" added successfully.`, variant: "success" });
+      } catch (err: any) {
+        toast({ title: "Failed to create subtopic", description: err.message, variant: "destructive" });
+      } finally {
+        setSubmittingCategory(false);
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -148,10 +252,19 @@ export function InstructorPptUploadPage() {
       return;
     }
 
-    if (!selectedTopicId || !selectedSubtopicId) {
+    if (!selectedTopicId) {
       toast({
         title: "Category Required",
-        description: "Please select both a topic and subtopic.",
+        description: "Please select a category / topic.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedSubtopicId) {
+      toast({
+        title: "Subtopic Required",
+        description: "Please select or create a subtopic for this presentation.",
         variant: "destructive",
       });
       return;
@@ -199,7 +312,6 @@ export function InstructorPptUploadPage() {
         variant: "success",
       });
 
-      // Redirect to viewer or instructor management
       navigate(`/ppt-library/${res.data.id}/view`);
     } catch (err: any) {
       console.error("PPT upload failed:", err);
@@ -334,47 +446,123 @@ export function InstructorPptUploadPage() {
 
               {/* Topic & Subtopic Selector */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Topic / Category Selector */}
                 <div>
-                  <Label htmlFor="ppt-topic" className="text-sm font-semibold">
-                    Topic / Category *
-                  </Label>
-                  <select
-                    id="ppt-topic"
-                    value={selectedTopicId}
-                    onChange={(e) => setSelectedTopicId(e.target.value)}
-                    className="mt-1.5 w-full h-11 px-3 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-hidden focus:ring-2 focus:ring-primary"
-                    required
-                  >
-                    {topics.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="ppt-topic" className="text-sm font-semibold flex items-center gap-1.5">
+                      Topic / Category *
+                      {loadingTopics && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
+                    </Label>
+                    {isApproved && (
+                      <button
+                        type="button"
+                        onClick={openCreateTopicModal}
+                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+                      >
+                        <Plus className="w-3 h-3" />
+                        New Category
+                      </button>
+                    )}
+                  </div>
+
+                  {errorTopics ? (
+                    <div className="mt-1.5 flex items-center justify-between p-2.5 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-xs">
+                      <span>Failed to load categories</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => refetchTopics()}
+                        className="h-6 px-2 text-xs"
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" /> Retry
+                      </Button>
+                    </div>
+                  ) : (
+                    <select
+                      id="ppt-topic"
+                      value={selectedTopicId}
+                      onChange={(e) => handleTopicChange(e.target.value)}
+                      className="mt-1.5 w-full h-11 px-3 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50"
+                      required
+                      disabled={loadingTopics}
+                    >
+                      {loadingTopics ? (
+                        <option value="">Loading categories...</option>
+                      ) : topics.length === 0 ? (
+                        <option value="">No categories available</option>
+                      ) : (
+                        <>
+                          <option value="">Select a Topic / Category...</option>
+                          {topics.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                  )}
+
+                  {!loadingTopics && topics.length === 0 && !errorTopics && (
+                    <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      No categories exist yet. Click &quot;New Category&quot; above to create one.
+                    </p>
+                  )}
                 </div>
 
+                {/* Subtopic Selector */}
                 <div>
-                  <Label htmlFor="ppt-subtopic" className="text-sm font-semibold">
-                    Subtopic *
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="ppt-subtopic" className="text-sm font-semibold flex items-center gap-1.5">
+                      Subtopic *
+                      {loadingSubtopics && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
+                    </Label>
+                    {isApproved && selectedTopicId && (
+                      <button
+                        type="button"
+                        onClick={openCreateSubtopicModal}
+                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add Subtopic
+                      </button>
+                    )}
+                  </div>
+
                   <select
                     id="ppt-subtopic"
                     value={selectedSubtopicId}
                     onChange={(e) => setSelectedSubtopicId(e.target.value)}
-                    className="mt-1.5 w-full h-11 px-3 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-hidden focus:ring-2 focus:ring-primary"
+                    className="mt-1.5 w-full h-11 px-3 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50"
                     required
-                    disabled={availableSubtopics.length === 0}
+                    disabled={!selectedTopicId || loadingSubtopics || subtopics.length === 0}
                   >
-                    {availableSubtopics.length === 0 ? (
-                      <option value="">No subtopics available</option>
+                    {!selectedTopicId ? (
+                      <option value="">Select a category first</option>
+                    ) : loadingSubtopics ? (
+                      <option value="">Loading subtopics...</option>
+                    ) : subtopics.length === 0 ? (
+                      <option value="">No subtopics available under this topic</option>
                     ) : (
-                      availableSubtopics.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))
+                      <>
+                        <option value="">Select a Subtopic...</option>
+                        {subtopics.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </>
                     )}
                   </select>
+
+                  {selectedTopicId && !loadingSubtopics && subtopics.length === 0 && (
+                    <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      No subtopics in this category. Click &quot;Add Subtopic&quot; above to create one.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -493,7 +681,7 @@ export function InstructorPptUploadPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={uploading || !isApproved || !pptFile || !title.trim()}
+                  disabled={uploading || !isApproved || !pptFile || !title.trim() || !selectedTopicId || !selectedSubtopicId}
                   className="min-w-[140px]"
                 >
                   {uploading ? `Uploading (${uploadProgress}%)` : status === "published" ? "Upload & Publish" : "Save Draft"}
@@ -503,7 +691,115 @@ export function InstructorPptUploadPage() {
           </Card>
         </form>
       </div>
+
+      {/* Quick Category / Subtopic Creation Modal */}
+      <Dialog open={showCategoryModal} onOpenChange={setShowCategoryModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderPlus className="w-5 h-5 text-primary" />
+              {modalMode === "topic" ? "Create New Category" : "Add New Subtopic"}
+            </DialogTitle>
+            <DialogDescription>
+              {modalMode === "topic"
+                ? "Add a high-level academic subject or technology field."
+                : "Add a specific specialized topic under the selected category."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateCategorySubmit} className="space-y-4 py-2">
+            {modalMode === "topic" ? (
+              <>
+                <div>
+                  <Label htmlFor="new-cat-name" className="text-sm font-semibold">
+                    Category Name *
+                  </Label>
+                  <Input
+                    id="new-cat-name"
+                    value={modalTopicName}
+                    onChange={(e) => setModalTopicName(e.target.value)}
+                    placeholder="e.g. Distributed Computing"
+                    className="mt-1.5"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-cat-desc" className="text-sm font-semibold">
+                    Description (optional)
+                  </Label>
+                  <Textarea
+                    id="new-cat-desc"
+                    value={modalTopicDesc}
+                    onChange={(e) => setModalTopicDesc(e.target.value)}
+                    placeholder="Brief description of this field..."
+                    rows={2}
+                    className="mt-1.5 resize-none"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label htmlFor="parent-cat-select" className="text-sm font-semibold">
+                    Parent Category *
+                  </Label>
+                  <select
+                    id="parent-cat-select"
+                    value={modalParentTopicId}
+                    onChange={(e) => setModalParentTopicId(e.target.value)}
+                    className="mt-1.5 w-full h-10 px-3 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-hidden focus:ring-2 focus:ring-primary"
+                    required
+                  >
+                    {topics.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="new-sub-name" className="text-sm font-semibold">
+                    Subtopic Name *
+                  </Label>
+                  <Input
+                    id="new-sub-name"
+                    value={modalSubtopicName}
+                    onChange={(e) => setModalSubtopicName(e.target.value)}
+                    placeholder="e.g. MapReduce & Spark"
+                    className="mt-1.5"
+                    required
+                    autoFocus
+                  />
+                </div>
+              </>
+            )}
+
+            <DialogFooter className="gap-2 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowCategoryModal(false)}
+                disabled={submittingCategory}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submittingCategory}>
+                {submittingCategory ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : modalMode === "topic" ? (
+                  "Create Category"
+                ) : (
+                  "Add Subtopic"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
