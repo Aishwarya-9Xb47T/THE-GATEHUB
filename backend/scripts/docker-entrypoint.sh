@@ -57,6 +57,9 @@ echo "[entrypoint] HOME=${HOME:-unset}"
 echo "[entrypoint] SAL_DISABLE_JAVA=${SAL_DISABLE_JAVA:-unset}"
 echo "[entrypoint] SAL_USE_VCLPLUGIN=${SAL_USE_VCLPLUGIN:-unset}"
 
+echo "[entrypoint] Checking for failed migrations to resolve..."
+npx prisma migrate resolve --rolled-back 20261028083000_instructor_admin_approval >/dev/null 2>&1 || true
+
 echo "[entrypoint] Applying Prisma migrations (prisma migrate deploy)..."
 npx prisma migrate deploy
 
