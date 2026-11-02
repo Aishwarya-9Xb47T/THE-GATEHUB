@@ -16,14 +16,24 @@ export function LandingPage() {
           <div className="landing-hero__glow landing-hero__glow--secondary" aria-hidden />
           <div className="landing-hero__shell relative">
             <div className="landing-hero__content">
+              <div className="landing-hero__eyebrow-container mb-4 inline-flex items-center justify-center">
+                <span className="landing-hero__eyebrow">
+                  <span className="landing-hero__eyebrow-dot" aria-hidden="true" />
+                  THE FUTURE OF TECHNOLOGY LEARNING
+                </span>
+              </div>
+
               <ShimmerHeading as="h1" className="landing-hero-heading landing-hero__heading font-display">
-                Master Future Technologies Through Learning, Practice and Real-World Projects
+                Learning, Reimagined.
               </ShimmerHeading>
 
+              <h2 className="landing-hero__supporting-heading">
+                Explore Knowledge. Build Skills. Create What&apos;s Next.
+              </h2>
+
               <p className="landing-subheading landing-hero__subheading">
-                Join a next-generation learning platform where students master technology through structured learning
-                paths, interactive coding labs, real-world projects, AI-powered guidance, and industry-recognized
-                certifications.
+                Go beyond traditional learning with technology-focused courses, hands-on projects, interactive
+                experiences, and opportunities to turn ideas into real-world solutions.
               </p>
 
               <div className="landing-hero__actions flex flex-col sm:flex-row items-center justify-center">
@@ -43,7 +53,7 @@ export function LandingPage() {
         <section className="landing-section-compact bg-transparent dark:bg-background transition-colors border-t border-border/40">
           <div className="landing-shell text-center">
             <Link to="/resources" className="landing-btn landing-btn--primary">
-              Free Learning Resources <ArrowRight className="w-5 h-5" />
+              Free Learning Resources <ArrowRight className="w-5 h-5 ml-1" aria-hidden="true" />
             </Link>
           </div>
         </section>
@@ -52,15 +62,18 @@ export function LandingPage() {
           <div className="landing-cta__glow" aria-hidden />
           <div className="landing-shell relative z-10">
             <div className="landing-section-heading-wrap app-lead-width mx-auto">
-              <ShimmerHeading className="landing-section-heading landing-cta__heading font-display">
-                Start your journey with a platform built for serious technologists.
+              <ShimmerHeading as="h2" className="landing-section-heading landing-cta__heading font-display">
+                Your Next Chapter in Technology Starts Here.
               </ShimmerHeading>
             </div>
+            <h3 className="landing-cta__supporting-heading">
+              Learn with purpose. Build real skills. Turn your ideas into impact.
+            </h3>
             <p className="landing-subheading landing-cta__description">
-              Learn with purpose. Build with confidence. Graduate with credentials that matter.
+              Discover a platform designed to help you grow from curious learner to confident creator.
             </p>
             <Link to={ctaDestination} className="landing-btn landing-btn--primary">
-              Get Started for Free <ArrowRight className="w-5 h-5" />
+              Get Started for Free <ArrowRight className="w-5 h-5 ml-1" aria-hidden="true" />
             </Link>
           </div>
         </section>
