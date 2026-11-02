@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { 
   BookOpen, 
   Plus, 
@@ -49,33 +50,24 @@ export default function ResourcesPage() {
   const navigate = useNavigate();
   const addToast = useToastStore((s) => s.add);
   const { user } = useUserStore();
-  const [courses, setCourses] = useState<ResourceCourse[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-
   const canManage = Boolean(user && (user.role === 'instructor' || isAdminRole(user.role)));
 
-  useEffect(() => {
-    fetchCourses();
-  }, []);
-
-  const fetchCourses = async () => {
-    setIsLoading(true);
-    try {
+  const { data: courses = [], isLoading: isQueryLoading } = useQuery({
+    queryKey: ["resources", "courses"],
+    queryFn: async () => {
       const response = await api<ResourceCourse[]>('/resources/courses');
-      if (response.data) {
-        const safeCourses = response.data.map(course => ({
-          ...course,
-          instructor: course.instructor || { firstName: "Instructor", lastName: "" }
-        }));
-        setCourses(safeCourses);
-      }
-    } catch (err: any) {
-      console.error("Failed to fetch resource courses:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      if (response.error) throw new Error(response.error);
+      return (response.data || []).map(course => ({
+        ...course,
+        instructor: course.instructor || { firstName: "Instructor", lastName: "" }
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
+
+  const isLoading = !courses.length && isQueryLoading;
 
   const handleCourseSelect = (course: ResourceCourse) => {
     if (course.deliveryMode === "learning-universe" || !course.content) {

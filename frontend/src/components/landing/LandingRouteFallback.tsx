@@ -8,14 +8,26 @@ export function LandingRouteFallback() {
           <div className="landing-hero__glow landing-hero__glow--secondary" aria-hidden />
           <div className="landing-hero__shell relative">
             <div className="landing-hero__content">
+              <div className="landing-hero__eyebrow-container mb-4 inline-flex items-center justify-center">
+                <span className="landing-hero__eyebrow">
+                  <span className="landing-hero__eyebrow-dot" aria-hidden="true" />
+                  THE FUTURE OF TECHNOLOGY LEARNING
+                </span>
+              </div>
+
               <h1 className="landing-hero-heading landing-hero__heading font-display">
-                Master Future Technologies Through Learning, Practice and Real-World Projects
+                Learning, Reimagined.
               </h1>
+
+              <h2 className="landing-hero__supporting-heading">
+                Explore Knowledge. Build Skills. Create What&apos;s Next.
+              </h2>
+
               <p className="landing-subheading landing-hero__subheading">
-                Join a next-generation learning platform where students master technology through structured
-                learning paths, interactive coding labs, real-world projects, AI-powered guidance, and
-                industry-recognized certifications.
+                Go beyond traditional learning with technology-focused courses, hands-on projects, interactive
+                experiences, and opportunities to turn ideas into real-world solutions.
               </p>
+
               <div className="landing-hero__actions flex flex-col sm:flex-row items-center justify-center gap-3">
                 <span className="landing-btn landing-btn--primary w-full sm:w-auto opacity-90">Start Learning</span>
                 <span className="landing-btn landing-btn--secondary w-full sm:w-auto opacity-90">

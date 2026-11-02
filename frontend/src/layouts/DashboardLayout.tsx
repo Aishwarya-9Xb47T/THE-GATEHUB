@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, Suspense } from "react";
+import { DashboardContentSkeleton } from "@/components/layout/ContentAreaSkeleton";
+import { prefetchPptLibraryRoute, prefetchCoursesRoute, prefetchStudentMyCoursesRoute, prefetchInstructorCoursesRoute, prefetchAdminApprovalsRoute } from "@/lib/routePrefetch";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -138,6 +140,15 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
         variant: "destructive" 
       });
     }
+  };
+
+
+  const handleNavHover = (to: string) => {
+    if (to.includes("ppt-library")) prefetchPptLibraryRoute();
+    else if (to === "/student/browse") prefetchCoursesRoute();
+    else if (to === "/student/my-courses") prefetchStudentMyCoursesRoute();
+    else if (to === "/instructor/courses") prefetchInstructorCoursesRoute();
+    else if (to === "/admin/instructor-approvals") prefetchAdminApprovalsRoute();
   };
 
   // Navigation items based on role
@@ -363,7 +374,9 @@ export function DashboardLayout({ role: propRole }: DashboardLayoutProps) {
             )}
             data-floating-workspace={isImmersiveWorkspace ? undefined : "dashboard-main"}
           >
-            <Outlet />
+            <Suspense fallback={<DashboardContentSkeleton />}>
+              <Outlet />
+            </Suspense>
           </div>
         {layoutRole === "student" && !isImmersiveWorkspace && <OnboardingTour role="student" />}
         {layoutRole === "instructor" && !isImmersiveWorkspace && <OnboardingTour role="instructor" />}

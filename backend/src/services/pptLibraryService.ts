@@ -15,6 +15,7 @@ import {
   b2KeyFromPublicPath,
 } from "./b2StorageService.js";
 import { getUploadRoot } from "../middlewares/uploadAccess.js";
+import { appCache } from "../utils/cache.js";
 
 export function slugify(text: string): string {
   return text
@@ -311,6 +312,7 @@ export async function createTopic(data: {
     throw new AppError(409, "A topic with this name already exists");
   }
 
+  appCache.invalidate("ppt:");
   return prisma.pPTTopic.create({
     data: {
       name: trimmedName,
@@ -357,6 +359,7 @@ export async function updateTopic(
   if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
+  appCache.invalidate("ppt:");
   return prisma.pPTTopic.update({
     where: { id },
     data: updateData,
@@ -419,6 +422,7 @@ export async function createSubtopic(data: {
     throw new AppError(409, "A subtopic with this name already exists under this topic");
   }
 
+  appCache.invalidate("ppt:");
   return prisma.pPTSubtopic.create({
     data: {
       topicId: data.topicId,
@@ -464,6 +468,7 @@ export async function updateSubtopic(
   if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
+  appCache.invalidate("ppt:");
   return prisma.pPTSubtopic.update({
     where: { id },
     data: updateData,
@@ -1041,6 +1046,7 @@ export async function getResourceById(resourceId: string, currentUser?: { id: st
     data: { viewCount: { increment: 1 } },
   }).catch(() => {});
 
+  appCache.invalidate("ppt:");
   return resource;
 }
 

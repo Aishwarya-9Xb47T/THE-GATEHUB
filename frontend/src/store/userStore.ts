@@ -68,12 +68,34 @@ const getStoredToken = (): string | null => {
   return null;
 };
 
+const getInitialAuthState = (): { user: User | null; token: string | null; isLoading: boolean } => {
+  if (typeof window === "undefined") {
+    return { user: null, token: null, isLoading: true };
+  }
+  const token = getStoredToken();
+  if (!token) {
+    return { user: null, token: null, isLoading: false };
+  }
+  try {
+    const raw = localStorage.getItem("lms-auth");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.state?.user) {
+        return { user: parsed.state.user, token, isLoading: false };
+      }
+    }
+  } catch {}
+  return { user: null, token, isLoading: true };
+};
+
+const initialAuth = getInitialAuthState();
+
 export const useUserStore = create<UserState>()(
   persist(
     (set, get) => ({
-      user: null,
-      token: null,
-      isLoading: true,
+      user: initialAuth.user,
+      token: initialAuth.token,
+      isLoading: initialAuth.isLoading,
 
       setUser: (user) => set({ user: user || null }),
 
@@ -173,7 +195,7 @@ export const useUserStore = create<UserState>()(
         user: state.user,
       }),
       onRehydrateStorage: () => (state) => {
-        if (state?.user && state?.token) {
+        if (state) {
           state.isLoading = false;
         }
       },

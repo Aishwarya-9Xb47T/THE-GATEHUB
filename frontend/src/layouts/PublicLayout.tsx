@@ -1,6 +1,8 @@
+import { PublicContentSkeleton } from "@/components/layout/ContentAreaSkeleton";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Menu, X, LogOut, Youtube, Presentation } from "lucide-react";
 import { useUserStore, getHomeRoute, isAdminRole } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
@@ -340,7 +342,9 @@ export function PublicLayout() {
             : "flex-1 w-full min-w-0"
         }
       >
-        <Outlet />
+        <Suspense fallback={<PublicContentSkeleton />}>
+          <Outlet />
+        </Suspense>
       </main>
 
       {/* Footer — hidden during immersive learn experience */}

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PptLibraryPage } from "../PptLibraryPage";
 
 const mockTopics = [
@@ -74,9 +75,11 @@ describe("PptLibraryPage Public Browsing", () => {
 
   it("renders page header, topics filter, and presentation cards", async () => {
     render(
-      <MemoryRouter>
-        <PptLibraryPage />
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <PptLibraryPage />
+        </MemoryRouter>
+      </QueryClientProvider>
     );
 
     expect(screen.getByText(/PPT Library/i)).toBeTruthy();

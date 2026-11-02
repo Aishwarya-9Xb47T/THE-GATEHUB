@@ -89,7 +89,8 @@ export function InstructorDashboard() {
       if (res.error) return null;
       return res.data?.summary;
     },
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
+    placeholderData: (prev) => prev,
   });
 
   const deleteLuMutation = useMutation({
@@ -127,7 +128,8 @@ export function InstructorDashboard() {
         ) / 10
       : null;
 
-  const isLoading = coursesLoading || luLoading;
+  const isInitialLoading = (!coursesData || !luData) && (coursesLoading || luLoading);
+  const isLoading = isInitialLoading;
   const isError = coursesError || luError;
 
   const cards = [

@@ -3,10 +3,24 @@ import { AuthRequest } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { isAdminRole } from "../utils/roles.js";
 import * as pptService from "../services/pptLibraryService.js";
+import { appCache } from "../utils/cache.js";
 
 export async function getLibraryResources(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, search, topicId, subtopicId, language, academicLevel, status, instructorId, sort } = req.query;
+
+    const isPublicQuery = !req.user && !status && !instructorId;
+    const cacheKey = isPublicQuery
+      ? `ppt:resources:${page || 1}:${limit || 12}:${search || "all"}:${topicId || "all"}:${subtopicId || "all"}:${language || "all"}:${academicLevel || "all"}:${sort || "newest"}`
+      : null;
+
+    if (cacheKey) {
+      const cached = appCache.get<{ success: boolean; data: any[]; pagination: any }>(cacheKey);
+      if (cached) {
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
+        return res.json(cached);
+      }
+    }
 
     const result = await pptService.listResources(
       {
@@ -24,11 +38,18 @@ export async function getLibraryResources(req: AuthRequest, res: Response, next:
       req.user
     );
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: result.resources,
       pagination: result.pagination,
-    });
+    };
+
+    if (cacheKey) {
+      appCache.set(cacheKey, responsePayload, 60);
+      res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
+    }
+
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -37,8 +58,25 @@ export async function getLibraryResources(req: AuthRequest, res: Response, next:
 export async function getLibraryTopics(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const includeInactive = req.user && isAdminRole(req.user.role) && req.query.all === "true";
+    const cacheKey = includeInactive ? null : "ppt:topics:active";
+
+    if (cacheKey) {
+      const cached = appCache.get<{ success: boolean; data: any[] }>(cacheKey);
+      if (cached) {
+        res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
+        return res.json(cached);
+      }
+    }
+
     const topics = await pptService.listTopics(Boolean(includeInactive));
-    res.json({ success: true, data: topics });
+    const responsePayload = { success: true, data: topics };
+
+    if (cacheKey) {
+      appCache.set(cacheKey, responsePayload, 300);
+      res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
+    }
+
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }

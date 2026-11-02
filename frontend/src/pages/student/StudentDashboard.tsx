@@ -35,7 +35,8 @@ export function StudentDashboard() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
-    staleTime: 30 * 1000,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (prev) => prev,
   });
 
   const { data: certificatesData } = useQuery({
@@ -48,6 +49,7 @@ export function StudentDashboard() {
     staleTime: 60 * 1000,
   });
 
+  const isInitialLoading = !data && isLoading;
   const items = data?.items ?? [];
   const continueItems = (data?.continueLearning ?? []).filter((i) => !i.isCompleted);
   const primaryContinue = continueItems[0];
@@ -167,7 +169,7 @@ export function StudentDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold tracking-tight text-foreground">
-                  {isLoading ? "…" : c.value}
+                  {isInitialLoading ? "…" : c.value}
                 </div>
                 {c.label === "Enrolled" && enrolled > 0 && (
                   <div className="mt-2">

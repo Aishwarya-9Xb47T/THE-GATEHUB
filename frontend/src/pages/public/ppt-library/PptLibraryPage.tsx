@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Presentation,
@@ -36,11 +37,6 @@ export function PptLibraryPage() {
   const { user } = useUserStore();
   const toast = useToastStore((s) => s.add);
 
-  const [topics, setTopics] = useState<PPTTopic[]>([]);
-  const [resources, setResources] = useState<PPTResource[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pagination, setPagination] = useState({ page: 1, limit: 12, total: 0, totalPages: 1 });
-
   // Filters from URL search params
   const currentSearch = searchParams.get("search") || "";
   const currentTopicId = searchParams.get("topicId") || "";
@@ -58,38 +54,40 @@ export function PptLibraryPage() {
     return false;
   }, [user]);
 
-  // Load topics
-  useEffect(() => {
-    fetchLibraryTopics()
-      .then((data) => setTopics(data))
-      .catch((err) => {
-        console.error("Failed to load topics:", err);
-      });
-  }, []);
+  // TanStack Query for topics — instant cached render across navigation
+  const { data: topics = [] } = useQuery({
+    queryKey: ["ppt-library", "topics"],
+    queryFn: () => fetchLibraryTopics(),
+    staleTime: 5 * 60 * 1000,
+  });
 
-  // Load resources whenever query params change
-  useEffect(() => {
-    setLoading(true);
-    fetchLibraryResources({
-      page: currentPage,
-      limit: 12,
-      search: currentSearch,
-      topicId: currentTopicId,
-      subtopicId: currentSubtopicId,
-      sort: currentSort,
-    })
-      .then((res) => {
-        setResources(Array.isArray(res?.data) ? res.data : []);
-        if (res?.pagination) setPagination(res.pagination);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch PPTs:", err);
-        toast({ title: "Failed to load presentations", variant: "destructive" });
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [currentPage, currentSearch, currentTopicId, currentSubtopicId, currentSort]);
+  // TanStack Query for resources with stale-while-revalidate and placeholder data
+  const { data: resourceData, isLoading: isResourcesLoading, isFetching } = useQuery({
+    queryKey: [
+      "ppt-library",
+      "resources",
+      currentPage,
+      currentSearch,
+      currentTopicId,
+      currentSubtopicId,
+      currentSort,
+    ],
+    queryFn: () =>
+      fetchLibraryResources({
+        page: currentPage,
+        limit: 12,
+        search: currentSearch,
+        topicId: currentTopicId,
+        subtopicId: currentSubtopicId,
+        sort: currentSort,
+      }),
+    staleTime: 2 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
+
+  const resources = resourceData?.data ?? [];
+  const pagination = resourceData?.pagination ?? { page: 1, limit: 12, total: 0, totalPages: 1 };
+  const loading = !resourceData && isResourcesLoading;
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
