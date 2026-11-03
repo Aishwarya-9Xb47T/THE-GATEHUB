@@ -146,8 +146,8 @@ export function PublicLayout() {
                   location.pathname.startsWith("/ppt-library") && "bg-accent text-accent-foreground"
                 )}
               >
-                <Presentation className="h-4 w-4 text-primary" />
-                PPT Library
+                <BookOpen className="h-4 w-4 text-primary" />
+                Study Materials
               </Button>
               {user ? (
                 <div className="flex items-center gap-4">
@@ -256,8 +256,8 @@ export function PublicLayout() {
                     location.pathname.startsWith("/ppt-library") && "bg-accent text-accent-foreground"
                   )}
                 >
-                  <Presentation className="h-4 w-4 text-primary" />
-                  PPT Library
+                  <BookOpen className="h-4 w-4 text-primary" />
+                Study Materials
                 </Button>
                 <div className="flex items-center justify-between pb-4 border-b border-border/20">
                   {user ? (

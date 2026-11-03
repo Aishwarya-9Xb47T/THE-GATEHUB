@@ -548,11 +548,11 @@ export async function uploadAndCreateResource(params: {
   if (!subtopic) throw new AppError(400, "Selected subtopic does not belong to the selected topic");
 
   const ext = path.extname(file.originalname).toLowerCase();
-  if (ext !== ".pptx" && ext !== ".ppt") {
-    throw new AppError(400, "Only .pptx and .ppt presentation files are supported");
+  if (ext !== ".pptx" && ext !== ".ppt" && ext !== ".pdf") {
+    throw new AppError(400, "Only .pptx, .ppt presentations and .pdf document files are supported");
   }
 
-  // Read file buffer (support disk storage or in-memory buffer)
+  const fileType = ext === ".pdf" ? "pdf" : (ext === ".ppt" ? "ppt" : "pptx");
   const fileBuffer = file.buffer || (file.path && fs.existsSync(file.path) ? fs.readFileSync(file.path) : Buffer.alloc(0));
   const sha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
   const slideCount = fileType === "pptx" ? await detectSlideCount(fileBuffer, file.originalname) : null;
@@ -633,8 +633,10 @@ export async function uploadAndCreateResource(params: {
         subtopicId,
         instructorId,
         originalFileName: file.originalname,
+        fileType,
+        pageCount,
         storageKey,
-        mimeType: file.mimetype || (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"),
+        mimeType: file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint")),
         fileSize: file.size,
         thumbnailUrl,
         status: isPublished ? "published" : "draft",
@@ -676,6 +678,7 @@ export async function uploadAndCreateResource(params: {
         resourceId,
         versionNumber: 1,
         originalFileName: file.originalname,
+        fileType,
         storageKey,
         fileSize: file.size,
         mimeType: created.mimeType,
@@ -706,13 +709,15 @@ export async function replaceResourceFile(
   }
 
   const ext = path.extname(file.originalname).toLowerCase();
-  if (ext !== ".pptx" && ext !== ".ppt") {
-    throw new AppError(400, "Only .pptx and .ppt presentation files are supported");
+  if (ext !== ".pptx" && ext !== ".ppt" && ext !== ".pdf") {
+    throw new AppError(400, "Only .pptx, .ppt presentations and .pdf document files are supported");
   }
 
+  const fileType = ext === ".pdf" ? "pdf" : (ext === ".ppt" ? "ppt" : "pptx");
   const fileBuffer = file.buffer || (file.path && fs.existsSync(file.path) ? fs.readFileSync(file.path) : Buffer.alloc(0));
   const sha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
-  const slideCount = await detectSlideCount(fileBuffer, file.originalname);
+  const slideCount = fileType === "pptx" ? await detectSlideCount(fileBuffer, file.originalname) : null;
+  const pageCount = fileType === "pdf" ? detectPdfPageCount(fileBuffer) : null;
 
   const safeBaseName = path.basename(file.originalname, ext).replace(/[^\w.-]/g, "_").slice(0, 50);
   const nextVersion = (resource.versions[0]?.versionNumber || 1) + 1;
@@ -756,6 +761,7 @@ export async function replaceResourceFile(
         resourceId,
         versionNumber: nextVersion,
         originalFileName: file.originalname,
+        fileType,
         storageKey,
         fileSize: file.size,
         mimeType,
@@ -787,6 +793,8 @@ export async function replaceResourceFile(
       where: { id: resourceId },
       data: {
         originalFileName: file.originalname,
+        fileType,
+        pageCount,
         storageKey,
         fileSize: file.size,
         mimeType,

@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Presentation,
   Check,
+  BookOpen,
 } from "lucide-react";
 import {
   fetchResourceDetail,
@@ -39,14 +40,13 @@ export function PptViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Deck State
+  // Deck State for PPT/PPTX
   const [slideCount, setSlideCount] = useState<number>(0);
   const [currentSlide, setCurrentSlide] = useState<number>(0); // 0-indexed
   const [currentSlideSvg, setCurrentSlideSvg] = useState<string | null>(null);
   const [deckLoading, setDeckLoading] = useState(false);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [isLegacyPpt, setIsLegacyPpt] = useState(false);
-  const isPdf = resource?.fileType === "pdf" || Boolean(resource?.originalFileName.toLowerCase().endsWith(".pdf"));
 
   // Viewer display state
   const [zoomLevel, setZoomLevel] = useState<number>(100);
@@ -55,6 +55,10 @@ export function PptViewerPage() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<any>(null);
+
+  const isPdf =
+    resource?.fileType === "pdf" ||
+    Boolean(resource?.originalFileName.toLowerCase().endsWith(".pdf"));
 
   // 1. Fetch metadata
   useEffect(() => {
@@ -69,17 +73,17 @@ export function PptViewerPage() {
         }
       })
       .catch((err) => {
-        console.error("Failed to load presentation details:", err);
-        setError(err.message || "Presentation not found or access denied");
+        console.error("Failed to load material details:", err);
+        setError(err.message || "Material not found or access denied");
       })
       .finally(() => {
         setLoading(false);
       });
   }, [pptId]);
 
-  // 2. Load Presentation into pptx-svg
+  // 2. Load Presentation into pptx-svg (only for PPT/PPTX, NOT PDF)
   useEffect(() => {
-    if (!resource || isLegacyPpt) return;
+    if (!resource || isLegacyPpt || isPdf) return;
 
     let active = true;
     setDeckLoading(true);
@@ -131,7 +135,7 @@ export function PptViewerPage() {
         if (active) {
           setDeckError(
             err.message ||
-              "Browser preview is not available for this file. You can download the original presentation."
+              "Browser slide preview is not available for this presentation. You can download the file below."
           );
         }
       } finally {
@@ -175,8 +179,9 @@ export function PptViewerPage() {
     }
   };
 
-  // Keyboard navigation
+  // Keyboard navigation for presentation slides
   useEffect(() => {
+    if (isPdf) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight" || e.key === "Space") {
         e.preventDefault();
@@ -191,7 +196,7 @@ export function PptViewerPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSlide, slideCount, isFullscreen]);
+  }, [currentSlide, slideCount, isFullscreen, isPdf]);
 
   // Fullscreen toggle
   const toggleFullscreen = () => {
@@ -209,41 +214,33 @@ export function PptViewerPage() {
     }
   };
 
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
-
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopiedLink(true);
-    toast({ title: "Link copied to clipboard", variant: "success" });
-    setTimeout(() => setCopiedLink(false), 2000);
+    toast({ title: "Link Copied!", description: "Shareable link copied to clipboard." });
+    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-        <Presentation className="w-12 h-12 text-primary animate-pulse mb-4" />
-        <p className="text-muted-foreground font-medium">Loading presentation details...</p>
+        <BookOpen className="w-10 h-10 text-primary animate-pulse mb-3" />
+        <p className="text-sm font-medium text-muted-foreground">Loading study material...</p>
       </div>
     );
   }
 
   if (error || !resource) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mb-4">
-          <AlertCircle className="w-8 h-8" />
-        </div>
-        <h2 className="text-2xl font-bold font-display text-foreground">Unable to Load Presentation</h2>
-        <p className="mt-2 text-sm text-muted-foreground max-w-md">{error || "Presentation could not be found."}</p>
-        <Button variant="outline" onClick={() => navigate("/ppt-library")} className="mt-6 gap-2">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 text-center max-w-md mx-auto">
+        <AlertCircle className="w-12 h-12 text-destructive mb-3" />
+        <h2 className="text-xl font-bold font-display text-foreground">Material Unavailable</h2>
+        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+          {error || "The requested study material does not exist or has been removed."}
+        </p>
+        <Button onClick={() => navigate("/ppt-library")} className="mt-6 gap-2" variant="outline">
           <ArrowLeft className="w-4 h-4" />
-          Back to PPT Library
+          Back to Study Materials
         </Button>
       </div>
     );
@@ -252,22 +249,32 @@ export function PptViewerPage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Top Header & Breadcrumbs */}
-      <header className="border-b border-border/40 bg-card/60 backdrop-blur-md sticky top-0 z-40 px-4 py-3">
+      <header className="border-b border-border/60 bg-card/50 backdrop-blur-md px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="app-workspace max-w-7xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={() => navigate("/ppt-library")}
-              className="gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+              title="Back to Study Materials"
             >
               <ArrowLeft className="w-4 h-4" />
-              PPT Library
             </Button>
-            <span className="text-border shrink-0">/</span>
+
             <div className="min-w-0">
-              <span className="text-xs text-primary font-medium">{resource.topic.name}</span>
-              <h1 className="text-sm font-semibold truncate text-foreground">{resource.title}</h1>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Link to="/ppt-library" className="hover:text-foreground">
+                  Study Materials
+                </Link>
+                <span>/</span>
+                <span className="truncate">{resource.topic.name}</span>
+                <span>/</span>
+                <span className="truncate font-medium text-foreground">{resource.subtopic.name}</span>
+              </div>
+              <h1 className="text-sm sm:text-base font-semibold text-foreground truncate mt-0.5">
+                {resource.title}
+              </h1>
             </div>
           </div>
 
@@ -286,190 +293,242 @@ export function PptViewerPage() {
         </div>
       </header>
 
-      {/* Main Presentation Stage */}
+      {/* Main Presentation / Document Stage */}
       <main className="flex-1 flex flex-col lg:flex-row app-workspace max-w-7xl mx-auto w-full p-4 sm:p-6 gap-6">
-        {/* Left / Center Stage: Slide Viewer Canvas */}
+        {/* Left / Center Stage: Slide Viewer Canvas or Native PDF Viewer */}
         <div className="flex-1 flex flex-col">
           <div
             ref={containerRef}
             className={`relative flex flex-col justify-between rounded-2xl border border-border bg-slate-950 text-white overflow-hidden shadow-xl transition-all ${
-              isFullscreen ? "fixed inset-0 z-50 rounded-none border-none" : "min-h-[460px] md:min-h-[580px]"
+              isFullscreen ? "fixed inset-0 z-50 rounded-none border-none h-screen w-screen" : "min-h-[500px] md:min-h-[640px]"
             }`}
           >
-            {/* Viewer Top Action Bar */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur-md border-b border-white/10 z-20">
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
-                <Badge variant="outline" className="border-white/20 text-white font-mono text-[10px]">
-                  {resource.originalFileName.endsWith(".pptx") ? "PPTX" : "PPT"}
-                </Badge>
-                {slideCount > 0 && (
-                  <span>
-                    Slide {currentSlide + 1} of {slideCount}
-                  </span>
-                )}
-              </div>
+            {isPdf ? (
+              /* Dedicated Interactive PDF Viewer */
+              <div className="w-full h-full flex flex-col flex-1">
+                {/* PDF Viewer Action Bar */}
+                <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 backdrop-blur-md border-b border-white/10 z-20">
+                  <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
+                    <Badge className="font-mono text-[10px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      PDF DOCUMENT
+                    </Badge>
+                    {resource.pageCount ? (
+                      <span>
+                        {resource.pageCount} {resource.pageCount === 1 ? "page" : "pages"}
+                      </span>
+                    ) : (
+                      <span>PDF Document</span>
+                    )}
+                  </div>
 
-              {/* View Controls */}
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                  onClick={() => setZoomLevel((z) => Math.max(60, z - 15))}
-                  title="Zoom Out"
-                  disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </Button>
-                <span className="text-[11px] font-mono text-slate-400 w-10 text-center select-none">
-                  {zoomLevel}%
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                  onClick={() => setZoomLevel((z) => Math.min(180, z + 15))}
-                  title="Zoom In"
-                  disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                  onClick={() => setZoomLevel(100)}
-                  title="Reset Zoom"
-                  disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-white/15 mx-1" />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                  onClick={toggleFullscreen}
-                  title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-                >
-                  {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                </Button>
-              </div>
-            </div>
-
-            {/* Slide Stage Area */}
-            <div className="relative flex-1 flex items-center justify-center p-4 md:p-8 overflow-auto select-none">
-              {deckLoading ? (
-                <div className="flex flex-col items-center justify-center text-center p-8">
-                  <Presentation className="w-10 h-10 text-primary animate-pulse mb-3" />
-                  <p className="text-sm text-slate-300 font-medium">Parsing and rendering presentation slides…</p>
-                  <span className="text-xs text-slate-500 mt-1">This runs securely inside your browser</span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-slate-300 hover:text-white hover:bg-white/10 gap-1.5"
+                      onClick={toggleFullscreen}
+                      title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                    >
+                      {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                      <span className="hidden sm:inline">{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
+                    </Button>
+                    <Button size="sm" asChild className="h-7 text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5">
+                      <a href={getPptDownloadUrl(resource.id)} download={resource.originalFileName}>
+                        <Download className="w-3.5 h-3.5" />
+                        Download PDF
+                      </a>
+                    </Button>
+                  </div>
                 </div>
-              ) : isLegacyPpt || deckError ? (
-                <div className="flex flex-col items-center justify-center text-center max-w-md p-8 bg-slate-900/60 rounded-xl border border-white/10">
-                  <Presentation className="w-12 h-12 text-primary/80 mb-3" />
-                  <h4 className="text-base font-semibold text-white">
-                    {isLegacyPpt ? "Legacy PowerPoint Presentation (.ppt)" : "Browser Preview Notice"}
-                  </h4>
-                  <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                    {isLegacyPpt
-                      ? "Legacy binary (.ppt) files require Microsoft PowerPoint or LibreOffice. For the best interactive viewing experience, download the file below or upload modern (.pptx) decks."
-                      : deckError}
-                  </p>
-                  <Button asChild className="mt-5 gap-2" size="sm">
-                    <a href={getPptDownloadUrl(resource.id)} download={resource.originalFileName}>
-                      <Download className="w-4 h-4" />
-                      Download Presentation File
-                    </a>
-                  </Button>
+
+                {/* PDF Embedded Frame */}
+                <div className={`w-full bg-slate-950 flex-1 ${isFullscreen ? "h-[calc(100vh-45px)]" : "h-[580px] md:h-[680px]"}`}>
+                  <iframe
+                    src={`${getPptPreviewUrl(resource.id)}#toolbar=1&navpanes=1`}
+                    title={resource.title}
+                    className="w-full h-full border-0"
+                  />
                 </div>
-              ) : currentSlideSvg ? (
-                <div
-                  className="transition-transform duration-150 origin-center flex items-center justify-center shadow-2xl rounded-lg overflow-hidden bg-white"
-                  style={{
-                    transform: `scale(${zoomLevel / 100})`,
-                    maxWidth: "100%",
-                    maxHeight: "100%",
-                  }}
-                  dangerouslySetInnerHTML={{ __html: currentSlideSvg }}
-                />
-              ) : (
-                <div className="text-center text-slate-400 text-sm">No slide visual available</div>
-              )}
+              </div>
+            ) : (
+              /* PPT / PPTX Interactive Slide Viewer */
+              <>
+                {/* Viewer Top Action Bar */}
+                <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur-md border-b border-white/10 z-20">
+                  <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
+                    <Badge variant="outline" className="border-white/20 text-white font-mono text-[10px]">
+                      {resource.originalFileName.endsWith(".pptx") ? "PPTX" : "PPT"}
+                    </Badge>
+                    {slideCount > 0 && (
+                      <span>
+                        Slide {currentSlide + 1} of {slideCount}
+                      </span>
+                    )}
+                  </div>
 
-              {/* Navigation overlay arrows on canvas */}
-              {slideCount > 1 && !deckLoading && !deckError && !isLegacyPpt && (
-                <>
-                  <button
-                    type="button"
-                    onClick={prevSlide}
-                    disabled={currentSlide === 0}
-                    aria-label="Previous Slide"
-                    className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/60 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/10 shadow-lg"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={nextSlide}
-                    disabled={currentSlide === slideCount - 1}
-                    aria-label="Next Slide"
-                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/60 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/10 shadow-lg"
-                  >
-                    <ChevronRight className="w-6 h-6" />
-                  </button>
-                </>
-              )}
-            </div>
+                  {/* View Controls */}
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                      onClick={() => setZoomLevel((z) => Math.max(60, z - 15))}
+                      title="Zoom Out"
+                      disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </Button>
+                    <span className="text-[11px] font-mono text-slate-400 w-10 text-center select-none">
+                      {zoomLevel}%
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                      onClick={() => setZoomLevel((z) => Math.min(180, z + 15))}
+                      title="Zoom In"
+                      disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                      onClick={() => setZoomLevel(100)}
+                      title="Reset Zoom"
+                      disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </Button>
+                    <div className="w-px h-4 bg-white/15 mx-1" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                      onClick={toggleFullscreen}
+                      title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                    >
+                      {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
+                </div>
 
-            {/* Bottom Controls Bar */}
-            {slideCount > 1 && !deckLoading && !deckError && !isLegacyPpt && (
-              <div className="flex items-center justify-between px-4 py-3 bg-slate-900/90 border-t border-white/10 z-20">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={prevSlide}
-                  disabled={currentSlide === 0}
-                  className="gap-1.5 text-xs text-slate-300 hover:text-white"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </Button>
-
-                {/* Slide indicator dots / quick jumper */}
-                <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%] px-2 scrollbar-none">
-                  {Array.from({ length: Math.min(slideCount, 25) }).map((_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => goToSlide(i)}
-                      className={`h-2 rounded-full transition-all ${
-                        currentSlide === i ? "w-6 bg-primary" : "w-2 bg-slate-600 hover:bg-slate-400"
-                      }`}
-                      title={`Go to slide ${i + 1}`}
+                {/* Slide Stage Area */}
+                <div className="relative flex-1 flex items-center justify-center p-4 md:p-8 overflow-auto select-none">
+                  {deckLoading ? (
+                    <div className="flex flex-col items-center justify-center text-center p-8">
+                      <Presentation className="w-10 h-10 text-primary animate-pulse mb-3" />
+                      <p className="text-sm text-slate-300 font-medium">Parsing and rendering presentation slides…</p>
+                      <span className="text-xs text-slate-500 mt-1">This runs securely inside your browser</span>
+                    </div>
+                  ) : isLegacyPpt || deckError ? (
+                    <div className="flex flex-col items-center justify-center text-center max-w-md p-8 bg-slate-900/60 rounded-xl border border-white/10">
+                      <Presentation className="w-12 h-12 text-primary/80 mb-3" />
+                      <h4 className="text-base font-semibold text-white">
+                        {isLegacyPpt ? "Legacy PowerPoint Presentation (.ppt)" : "Browser Preview Notice"}
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                        {isLegacyPpt
+                          ? "Legacy binary (.ppt) files require Microsoft PowerPoint or LibreOffice. For the best interactive viewing experience, download the file below or upload modern (.pptx) decks."
+                          : deckError}
+                      </p>
+                      <Button asChild className="mt-5 gap-2" size="sm">
+                        <a href={getPptDownloadUrl(resource.id)} download={resource.originalFileName}>
+                          <Download className="w-4 h-4" />
+                          Download Presentation File
+                        </a>
+                      </Button>
+                    </div>
+                  ) : currentSlideSvg ? (
+                    <div
+                      className="transition-transform duration-150 origin-center flex items-center justify-center shadow-2xl rounded-lg overflow-hidden bg-white"
+                      style={{
+                        transform: `scale(${zoomLevel / 100})`,
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                      }}
+                      dangerouslySetInnerHTML={{ __html: currentSlideSvg }}
                     />
-                  ))}
-                  {slideCount > 25 && (
-                    <span className="text-[10px] text-slate-500 font-mono">+{slideCount - 25}</span>
+                  ) : (
+                    <div className="text-center text-slate-400 text-sm">No slide visual available</div>
+                  )}
+
+                  {/* Navigation overlay arrows on canvas */}
+                  {slideCount > 1 && !deckLoading && !deckError && !isLegacyPpt && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={prevSlide}
+                        disabled={currentSlide === 0}
+                        aria-label="Previous Slide"
+                        className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/60 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/10 shadow-lg"
+                      >
+                        <ChevronLeft className="w-6 h-6" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={nextSlide}
+                        disabled={currentSlide === slideCount - 1}
+                        aria-label="Next Slide"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/60 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/10 shadow-lg"
+                      >
+                        <ChevronRight className="w-6 h-6" />
+                      </button>
+                    </>
                   )}
                 </div>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={nextSlide}
-                  disabled={currentSlide === slideCount - 1}
-                  className="gap-1.5 text-xs text-slate-300 hover:text-white"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+                {/* Bottom Controls Bar */}
+                {slideCount > 1 && !deckLoading && !deckError && !isLegacyPpt && (
+                  <div className="flex items-center justify-between px-4 py-3 bg-slate-900/90 border-t border-white/10 z-20">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={prevSlide}
+                      disabled={currentSlide === 0}
+                      className="gap-1.5 text-xs text-slate-300 hover:text-white"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Previous
+                    </Button>
+
+                    {/* Slide indicator dots / quick jumper */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%] px-2 scrollbar-none">
+                      {Array.from({ length: Math.min(slideCount, 25) }).map((_, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => goToSlide(i)}
+                          className={`h-2 rounded-full transition-all ${
+                            currentSlide === i ? "w-6 bg-primary" : "w-2 bg-slate-600 hover:bg-slate-400"
+                          }`}
+                          title={`Go to slide ${i + 1}`}
+                        />
+                      ))}
+                      {slideCount > 25 && (
+                        <span className="text-[10px] text-slate-500 pl-1">+{slideCount - 25} more</span>
+                      )}
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={nextSlide}
+                      disabled={currentSlide === slideCount - 1}
+                      className="gap-1.5 text-xs text-slate-300 hover:text-white"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
 
-        {/* Right Stage: Presentation Metadata & Instructor Card */}
+        {/* Right Stage: Presentation / Document Metadata & Instructor Card */}
         <aside className="w-full lg:w-80 flex flex-col gap-6 shrink-0">
           {/* Metadata Card */}
           <div className="p-5 rounded-2xl bg-card border border-border shadow-xs space-y-4">
@@ -503,9 +562,11 @@ export function PptViewerPage() {
               </div>
               <div className="flex items-center justify-between text-muted-foreground">
                 <span className="flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-primary" /> Slides
+                  <Layers className="w-3.5 h-3.5 text-primary" /> {isPdf ? "Pages" : "Slides"}
                 </span>
-                <span className="font-medium text-foreground">{slideCount || resource.slideCount || "—"}</span>
+                <span className="font-medium text-foreground">
+                  {isPdf ? (resource.pageCount || "—") : (slideCount || resource.slideCount || "—")}
+                </span>
               </div>
               <div className="flex items-center justify-between text-muted-foreground">
                 <span className="flex items-center gap-1.5">
@@ -568,4 +629,3 @@ export function PptViewerPage() {
     </div>
   );
 }
-

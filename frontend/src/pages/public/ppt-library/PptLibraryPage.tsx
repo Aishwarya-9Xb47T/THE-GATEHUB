@@ -42,6 +42,7 @@ export function PptLibraryPage() {
   const currentTopicId = searchParams.get("topicId") || "";
   const currentSubtopicId = searchParams.get("subtopicId") || "";
   const currentSort = searchParams.get("sort") || "newest";
+  const currentFileType = searchParams.get("fileType") || "all";
   const currentPage = Number(searchParams.get("page")) || 1;
 
   const [searchInput, setSearchInput] = useState(currentSearch);
@@ -71,6 +72,7 @@ export function PptLibraryPage() {
       currentTopicId,
       currentSubtopicId,
       currentSort,
+      currentFileType,
     ],
     queryFn: () =>
       fetchLibraryResources({
@@ -80,6 +82,7 @@ export function PptLibraryPage() {
         topicId: currentTopicId,
         subtopicId: currentSubtopicId,
         sort: currentSort,
+        fileType: currentFileType !== "all" ? currentFileType : undefined,
       }),
     staleTime: 2 * 60 * 1000,
     placeholderData: (prev) => prev,
@@ -175,14 +178,14 @@ export function PptLibraryPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-primary/10 text-primary border border-primary/20 mb-3">
-                <Presentation className="w-3.5 h-3.5" />
+                <BookOpen className="w-3.5 h-3.5" />
                 ACADEMIC RESOURCE HUB
               </div>
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight text-foreground">
-                PPT Library
+                Study Materials
               </h1>
               <p className="mt-2 text-base sm:text-lg text-muted-foreground max-w-2xl">
-                Browse, view, and download structured presentation decks and learning slides curated by verified
+                Browse, view, and download structured PowerPoint presentation slide decks and PDF documents curated by verified
                 technology instructors.
               </p>
             </div>
@@ -194,7 +197,7 @@ export function PptLibraryPage() {
                   className="gap-2 shadow-md hover:shadow-lg transition-all"
                 >
                   <Upload className="w-4 h-4" />
-                  Upload PPT
+                  Upload Material
                 </Button>
                 {user?.role === "instructor" && (
                   <Button
@@ -202,20 +205,60 @@ export function PptLibraryPage() {
                     onClick={() => navigate("/instructor/ppt-library")}
                     className="gap-2"
                   >
-                    My PPTs
+                    My Materials
                   </Button>
                 )}
               </div>
             )}
           </div>
 
+          {/* Material Type Tabs (All Materials / Presentations / PDF Documents) */}
+          <div className="mt-8 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              type="button"
+              onClick={() => handleFileTypeChange("all")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+                currentFileType === "all"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-card/70 hover:bg-card border border-border/60 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              All Materials
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFileTypeChange("presentation")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+                currentFileType === "presentation"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "bg-card/70 hover:bg-card border border-border/60 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Presentation className="w-3.5 h-3.5" />
+              Presentations (.pptx, .ppt)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFileTypeChange("pdf")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+                currentFileType === "pdf"
+                  ? "bg-rose-600 text-white shadow-sm"
+                  : "bg-card/70 hover:bg-card border border-border/60 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              PDF Documents (.pdf)
+            </button>
+          </div>
+
           {/* Search bar */}
-          <form onSubmit={handleSearchSubmit} className="mt-8 relative max-w-3xl">
+          <form onSubmit={handleSearchSubmit} className="mt-6 relative max-w-3xl">
             <div className="relative flex items-center">
               <Search className="absolute left-4 w-5 h-5 text-muted-foreground pointer-events-none" />
               <Input
                 type="text"
-                placeholder="Search presentations by title, topic, tags, or instructor..."
+                placeholder="Search materials by title, topic, tags, or instructor..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="pl-12 pr-24 h-12 text-base rounded-xl border-border bg-card shadow-sm focus-visible:ring-primary"
@@ -302,11 +345,11 @@ export function PptLibraryPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-border/40">
           <div className="text-sm text-muted-foreground">
             {loading ? (
-              <span>Loading presentations...</span>
+              <span>Loading materials...</span>
             ) : (
               <span>
                 Showing <strong className="text-foreground">{resources.length}</strong> of{" "}
-                <strong className="text-foreground">{pagination.total}</strong> presentation
+                <strong className="text-foreground">{pagination.total}</strong> study material
                 {pagination.total === 1 ? "" : "s"}
                 {currentSearch && (
                   <span>
@@ -319,7 +362,7 @@ export function PptLibraryPage() {
           </div>
 
           {/* Sort Selector */}
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 text-sm flex-wrap">
             <span className="text-muted-foreground shrink-0 flex items-center gap-1">
               <Filter className="w-3.5 h-3.5" /> Sort:
             </span>
@@ -334,6 +377,17 @@ export function PptLibraryPage() {
                 }`}
               >
                 Newest
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSortChange("oldest")}
+                className={`px-3 py-1.5 rounded-md transition-colors ${
+                  currentSort === "oldest"
+                    ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Oldest
               </button>
               <button
                 type="button"
@@ -390,15 +444,15 @@ export function PptLibraryPage() {
         ) : resources.length === 0 ? (
           <div className="text-center py-20 px-4">
             <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground mb-4">
-              <Presentation className="w-8 h-8" />
+              <BookOpen className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-semibold font-display text-foreground">No presentations found</h3>
+            <h3 className="text-xl font-semibold font-display text-foreground">No study materials found</h3>
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-              {currentSearch || currentTopicId
-                ? "Try adjusting your search terms or selecting a different topic filter."
-                : "No presentations have been published yet in this category. Check back soon!"}
+              {currentSearch || currentTopicId || currentFileType !== "all"
+                ? "Try adjusting your search terms or selecting a different filter."
+                : "No study materials have been published yet in this category. Check back soon!"}
             </p>
-            {(currentSearch || currentTopicId) && (
+            {(currentSearch || currentTopicId || currentFileType !== "all") && (
               <Button
                 variant="outline"
                 size="sm"
@@ -412,7 +466,9 @@ export function PptLibraryPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
             {resources.map((ppt) => {
-              const isPptx = ppt.originalFileName.toLowerCase().endsWith(".pptx");
+              const ext = ppt.originalFileName.toLowerCase();
+              const isPdf = ppt.fileType === "pdf" || ext.endsWith(".pdf");
+              const isPptx = ppt.fileType === "pptx" || ext.endsWith(".pptx");
 
               return (
                 <Card
@@ -420,8 +476,14 @@ export function PptLibraryPage() {
                   className="group flex flex-col justify-between overflow-hidden bg-card border-border hover:border-primary/40 hover:shadow-md transition-all duration-300 rounded-2xl"
                 >
                   <div>
-                    {/* Presentation Preview Header / Thumbnail */}
-                    <div className="relative aspect-video w-full bg-gradient-to-br from-primary/10 via-secondary/30 to-muted/40 overflow-hidden flex items-center justify-center border-b border-border/40">
+                    {/* Preview Header / Thumbnail */}
+                    <div
+                      className={`relative aspect-video w-full overflow-hidden flex items-center justify-center border-b border-border/40 ${
+                        isPdf
+                          ? "bg-gradient-to-br from-rose-500/10 via-red-500/5 to-muted/40"
+                          : "bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-muted/40"
+                      }`}
+                    >
                       {ppt.thumbnailUrl ? (
                         <img
                           src={ppt.thumbnailUrl}
@@ -430,22 +492,36 @@ export function PptLibraryPage() {
                           loading="lazy"
                         />
                       ) : (
-                        <div className="flex flex-col items-center justify-center text-primary/70 group-hover:scale-110 transition-transform duration-300">
-                          <Presentation className="w-12 h-12" />
-                          <span className="text-xs font-semibold tracking-wider uppercase mt-2 text-muted-foreground">
-                            {isPptx ? "PowerPoint Deck" : "Presentation"}
-                          </span>
+                        <div className="flex flex-col items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                          {isPdf ? (
+                            <>
+                              <FileText className="w-12 h-12 text-rose-500/80" />
+                              <span className="text-xs font-semibold tracking-wider uppercase mt-2 text-rose-600 dark:text-rose-400">
+                                PDF Document
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Presentation className="w-12 h-12 text-amber-500/80" />
+                              <span className="text-xs font-semibold tracking-wider uppercase mt-2 text-amber-600 dark:text-amber-400">
+                                {isPptx ? "PowerPoint Deck" : "Presentation"}
+                              </span>
+                            </>
+                          )}
                         </div>
                       )}
 
                       {/* File format badge */}
                       <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                        <Badge
-                          variant="secondary"
-                          className="font-mono text-[10px] font-bold uppercase tracking-wider backdrop-blur-md bg-background/80"
-                        >
-                          {isPptx ? ".PPTX" : ".PPT"}
-                        </Badge>
+                        {isPdf ? (
+                          <Badge className="font-mono text-[10px] font-bold uppercase tracking-wider backdrop-blur-md bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                            .PDF
+                          </Badge>
+                        ) : (
+                          <Badge className="font-mono text-[10px] font-bold uppercase tracking-wider backdrop-blur-md bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                            {isPptx ? ".PPTX" : ".PPT"}
+                          </Badge>
+                        )}
                         {ppt.academicLevel && (
                           <Badge variant="outline" className="text-[10px] backdrop-blur-md bg-background/70">
                             {ppt.academicLevel}
@@ -453,11 +529,16 @@ export function PptLibraryPage() {
                         )}
                       </div>
 
-                      {/* Slide count / size indicator */}
+                      {/* Slide / Page count / size indicator */}
                       <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
-                        {ppt.slideCount ? (
+                        {isPdf && ppt.pageCount ? (
                           <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-background/90 backdrop-blur-md text-foreground shadow-xs flex items-center gap-1">
-                            <Layers className="w-3 h-3 text-primary" />
+                            <FileText className="w-3 h-3 text-rose-500" />
+                            {ppt.pageCount} {ppt.pageCount === 1 ? "page" : "pages"}
+                          </span>
+                        ) : ppt.slideCount ? (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-background/90 backdrop-blur-md text-foreground shadow-xs flex items-center gap-1">
+                            <Layers className="w-3 h-3 text-amber-500" />
                             {ppt.slideCount} slides
                           </span>
                         ) : null}
@@ -538,7 +619,7 @@ export function PptLibraryPage() {
                         onClick={() => navigate(`/ppt-library/${ppt.id}/view`)}
                       >
                         <Eye className="w-3.5 h-3.5" />
-                        View PPT
+                        {isPdf ? "View PDF" : "View Slides"}
                       </Button>
                       <Button
                         size="sm"
@@ -587,4 +668,3 @@ export function PptLibraryPage() {
     </div>
   );
 }
-

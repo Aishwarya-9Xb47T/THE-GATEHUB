@@ -65,6 +65,7 @@ export interface PPTVersion {
   id: string;
   versionNumber: number;
   originalFileName: string;
+  fileType?: "ppt" | "pptx" | "pdf";
   fileSize: number;
   mimeType: string;
   changeNote?: string | null;
@@ -112,6 +113,7 @@ export async function fetchLibraryResources(params?: {
   subtopicId?: string;
   language?: string;
   academicLevel?: string;
+  fileType?: string;
   sort?: string;
 }): Promise<PPTLibraryListResponse> {
   const query = new URLSearchParams();
@@ -122,13 +124,14 @@ export async function fetchLibraryResources(params?: {
   if (params?.subtopicId) query.set("subtopicId", params.subtopicId);
   if (params?.language) query.set("language", params.language);
   if (params?.academicLevel) query.set("academicLevel", params.academicLevel);
+  if (params?.fileType && params.fileType !== "all") query.set("fileType", params.fileType);
   if (params?.sort) query.set("sort", params.sort);
 
   const qs = query.toString();
   const res = await api<{ success: boolean; data: PPTResource[]; pagination: PPTLibraryListResponse["pagination"] }>(
     `/ppt-library${qs ? `?${qs}` : ""}`
   );
-  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch presentations");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch study materials");
   return {
     data: res.data.data,
     pagination: res.data.pagination,
@@ -159,7 +162,7 @@ export async function fetchTopicSubtopics(topicId: string, includeInactive = fal
 
 export async function fetchResourceDetail(pptId: string): Promise<PPTResource> {
   const res = await api<{ success: boolean; data: PPTResource }>(`/ppt-library/${pptId}`);
-  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch presentation details");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch material details");
   return res.data.data;
 }
 
@@ -176,12 +179,14 @@ export async function fetchMyResources(params?: {
   limit?: number;
   status?: string;
   search?: string;
+  fileType?: string;
 }): Promise<PPTLibraryListResponse> {
   const query = new URLSearchParams();
   if (params?.page) query.set("page", String(params.page));
   if (params?.limit) query.set("limit", String(params.limit));
   if (params?.status) query.set("status", params.status);
   if (params?.search) query.set("search", params.search);
+  if (params?.fileType && params.fileType !== "all") query.set("fileType", params.fileType);
 
   const qs = query.toString();
   const res = await api<{
@@ -191,7 +196,7 @@ export async function fetchMyResources(params?: {
     stats: PPTLibraryListResponse["stats"];
   }>(`/ppt-library/my${qs ? `?${qs}` : ""}`);
 
-  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch your presentations");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch your study materials");
   return {
     data: res.data.data,
     pagination: res.data.pagination,
@@ -201,7 +206,7 @@ export async function fetchMyResources(params?: {
 
 export async function uploadPptResource(formData: FormData): Promise<{ success: boolean; data: PPTResource }> {
   const res = await apiFormData<{ success: boolean; data: PPTResource }>("/ppt-library/upload", formData);
-  if (res.error || !res.data) throw new Error(res.error || "Failed to upload presentation");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to upload study material");
   return res.data;
 }
 
@@ -210,7 +215,7 @@ export async function replacePptFile(
   formData: FormData
 ): Promise<{ success: boolean; data: PPTResource }> {
   const res = await apiFormData<{ success: boolean; data: PPTResource }>(`/ppt-library/${pptId}/replace`, formData);
-  if (res.error || !res.data) throw new Error(res.error || "Failed to replace presentation file");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to replace material file");
   return res.data;
 }
 
@@ -230,7 +235,7 @@ export async function updatePptMetadata(
     method: "PATCH",
     body: data,
   });
-  if (res.error || !res.data) throw new Error(res.error || "Failed to update presentation details");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to update material details");
   return res.data;
 }
 
@@ -238,7 +243,7 @@ export async function publishPptResource(pptId: string): Promise<{ success: bool
   const res = await api<{ success: boolean; data: PPTResource }>(`/ppt-library/${pptId}/publish`, {
     method: "POST",
   });
-  if (res.error || !res.data) throw new Error(res.error || "Failed to publish presentation");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to publish material");
   return res.data;
 }
 
@@ -246,7 +251,7 @@ export async function unpublishPptResource(pptId: string): Promise<{ success: bo
   const res = await api<{ success: boolean; data: PPTResource }>(`/ppt-library/${pptId}/unpublish`, {
     method: "POST",
   });
-  if (res.error || !res.data) throw new Error(res.error || "Failed to unpublish presentation");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to unpublish material");
   return res.data;
 }
 
@@ -254,7 +259,7 @@ export async function deletePptResource(pptId: string): Promise<{ success: boole
   const res = await api<{ success: boolean; message: string }>(`/ppt-library/${pptId}`, {
     method: "DELETE",
   });
-  if (res.error || !res.data) throw new Error(res.error || "Failed to delete presentation");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to delete material");
   return res.data;
 }
 
@@ -348,6 +353,7 @@ export async function fetchAdminPptLibrary(params?: {
   topicId?: string;
   status?: string;
   instructorId?: string;
+  fileType?: string;
   sort?: string;
 }): Promise<PPTLibraryListResponse & { stats: PPTAdminStats }> {
   const query = new URLSearchParams();
@@ -357,6 +363,7 @@ export async function fetchAdminPptLibrary(params?: {
   if (params?.topicId) query.set("topicId", params.topicId);
   if (params?.status) query.set("status", params.status);
   if (params?.instructorId) query.set("instructorId", params.instructorId);
+  if (params?.fileType && params.fileType !== "all") query.set("fileType", params.fileType);
   if (params?.sort) query.set("sort", params.sort);
 
   const qs = query.toString();
@@ -367,7 +374,7 @@ export async function fetchAdminPptLibrary(params?: {
     stats: PPTAdminStats;
   }>(`/ppt-library/admin/all${qs ? `?${qs}` : ""}`);
 
-  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch admin PPT library");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to fetch admin study materials");
   return {
     data: res.data.data,
     pagination: res.data.pagination,
@@ -383,6 +390,6 @@ export async function updateAdminPptStatus(
     method: "PATCH",
     body: { status },
   });
-  if (res.error || !res.data) throw new Error(res.error || "Failed to update presentation status");
+  if (res.error || !res.data) throw new Error(res.error || "Failed to update material status");
   return res.data;
 }
