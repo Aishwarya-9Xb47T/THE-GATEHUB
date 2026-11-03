@@ -133,6 +133,17 @@ export function PptLibraryPage() {
     setSearchParams(newParams);
   };
 
+  const handleFileTypeChange = (type: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (type === "all") {
+      newParams.delete("fileType");
+    } else {
+      newParams.set("fileType", type);
+    }
+    newParams.set("page", "1");
+    setSearchParams(newParams);
+  };
+
   const handleSortChange = (sort: string) => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set("sort", sort);

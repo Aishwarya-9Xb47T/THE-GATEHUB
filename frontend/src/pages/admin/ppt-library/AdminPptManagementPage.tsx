@@ -222,7 +222,7 @@ export function AdminPptManagementPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground">PPT Library Administration</h1>
+          <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground">Study Materials Administration</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Monitor presentations, manage topic hierarchies, and oversee academic slide resources.
           </p>

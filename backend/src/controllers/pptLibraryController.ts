@@ -7,7 +7,7 @@ import { appCache } from "../utils/cache.js";
 
 export async function getLibraryResources(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page, limit, search, topicId, subtopicId, language, academicLevel, status, instructorId, sort } = req.query;
+    const { page, limit, search, topicId, subtopicId, language, academicLevel, status, instructorId, sort, fileType } = req.query;
 
     const isPublicQuery = !req.user && !status && !instructorId;
     const cacheKey = isPublicQuery

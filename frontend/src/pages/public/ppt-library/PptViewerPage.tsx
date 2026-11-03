@@ -46,6 +46,7 @@ export function PptViewerPage() {
   const [deckLoading, setDeckLoading] = useState(false);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [isLegacyPpt, setIsLegacyPpt] = useState(false);
+  const isPdf = resource?.fileType === "pdf" || Boolean(resource?.originalFileName.toLowerCase().endsWith(".pdf"));
 
   // Viewer display state
   const [zoomLevel, setZoomLevel] = useState<number>(100);
@@ -143,7 +144,7 @@ export function PptViewerPage() {
     return () => {
       active = false;
     };
-  }, [resource, isLegacyPpt]);
+  }, [resource, isLegacyPpt, isPdf]);
 
   // Render current slide when slide index changes
   const renderSlide = useCallback((index: number) => {

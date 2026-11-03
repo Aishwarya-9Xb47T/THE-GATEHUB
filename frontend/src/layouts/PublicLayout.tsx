@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, Suspense } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Menu, X, LogOut, Youtube, Presentation } from "lucide-react";
+import { Menu, X, LogOut, Youtube, Presentation, BookOpen } from "lucide-react";
 import { useUserStore, getHomeRoute, isAdminRole } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 import { Button } from "@/components/ui/button";

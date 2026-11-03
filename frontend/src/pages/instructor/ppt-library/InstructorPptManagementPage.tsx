@@ -595,7 +595,7 @@ export function InstructorPptManagementPage() {
               <input
                 ref={replaceInputRef}
                 type="file"
-                accept=".pptx,.ppt"
+                accept=".pptx,.ppt,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,application/pdf"
                 onChange={(e) => setReplacementFile(e.target.files?.[0] || null)}
                 className="hidden"
               />
@@ -610,7 +610,7 @@ export function InstructorPptManagementPage() {
               ) : (
                 <div>
                   <p className="text-sm font-semibold">Select new presentation file</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">.pptx or .ppt up to 100 MB</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">.pptx, .ppt, or .pdf up to 100 MB</p>
                 </div>
               )}
             </div>

@@ -41,6 +41,8 @@ export interface PPTResource {
   tags: string[];
   academicLevel?: string | null;
   slideCount?: number | null;
+  fileType?: "ppt" | "pptx" | "pdf";
+  pageCount?: number | null;
   downloadCount: number;
   viewCount: number;
   publishedAt?: string | null;

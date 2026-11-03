@@ -28,10 +28,10 @@ const PPT_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB max for presentations
 const pptFileFilter: multer.Options["fileFilter"] = (_req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
   if (file.fieldname === "file") {
-    if (ext === ".pptx" || ext === ".ppt") {
+    if (ext === ".pptx" || ext === ".ppt" || ext === ".pdf") {
       return cb(null, true);
     }
-    return cb(new AppError(400, "Only .pptx and .ppt presentation files are supported"));
+    return cb(new AppError(400, "Only .pptx, .ppt presentations and .pdf document files are supported"));
   }
 
   if (file.fieldname === "thumbnail") {

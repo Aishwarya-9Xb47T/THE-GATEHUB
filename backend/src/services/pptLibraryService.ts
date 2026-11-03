@@ -45,6 +45,28 @@ export async function detectSlideCount(buffer: Buffer, filename: string): Promis
   }
 }
 
+export function detectPdfPageCount(buffer: Buffer): number | null {
+  try {
+    const text = buffer.toString("latin1");
+    const countMatches = [...text.matchAll(/\/Count\s+(\d+)/g)];
+    if (countMatches.length > 0) {
+      const counts = countMatches.map((m) => parseInt(m[1], 10)).filter((n) => !isNaN(n) && n > 0);
+      if (counts.length > 0) {
+        return Math.max(...counts);
+      }
+    }
+    const pageMatches = [...text.matchAll(/\/Type\s*\/Page\b/g)];
+    if (pageMatches.length > 0) {
+      return pageMatches.length;
+    }
+    return null;
+  } catch (err) {
+    console.warn("[PPT_LIBRARY] Could not extract page count from PDF:", err);
+    return null;
+  }
+}
+
+
 // ==========================================
 // Topics & Subtopics Management
 // ==========================================
@@ -533,7 +555,8 @@ export async function uploadAndCreateResource(params: {
   // Read file buffer (support disk storage or in-memory buffer)
   const fileBuffer = file.buffer || (file.path && fs.existsSync(file.path) ? fs.readFileSync(file.path) : Buffer.alloc(0));
   const sha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
-  const slideCount = await detectSlideCount(fileBuffer, file.originalname);
+  const slideCount = fileType === "pptx" ? await detectSlideCount(fileBuffer, file.originalname) : null;
+  const pageCount = fileType === "pdf" ? detectPdfPageCount(fileBuffer) : null;
 
   // Generate storage key
   const safeBaseName = path.basename(file.originalname, ext).replace(/[^\w.-]/g, "_").slice(0, 50);
@@ -556,7 +579,7 @@ export async function uploadAndCreateResource(params: {
       await b2UploadFile({
         filePath: localFilePath,
         key: b2Key,
-        contentType: file.mimetype || (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"),
+        contentType: file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint")),
       });
       storageKey = publicPathFromKey(b2Key);
     } catch (err) {
@@ -724,7 +747,7 @@ export async function replaceResourceFile(
     /* ignore */
   }
 
-  const mimeType = file.mimetype || (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint");
+  const mimeType = file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"));
 
   return prisma.$transaction(async (tx) => {
     // Record new version
@@ -941,6 +964,16 @@ export async function listResources(
   if (query.language) andClauses.push({ language: query.language });
   if (query.academicLevel) andClauses.push({ academicLevel: query.academicLevel });
 
+  if (query.fileType && query.fileType !== "all") {
+    if (query.fileType === "presentation") {
+      andClauses.push({ fileType: { in: ["pptx", "ppt"] } });
+    } else if (query.fileType === "pdf") {
+      andClauses.push({ fileType: "pdf" });
+    } else if (query.fileType === "ppt" || query.fileType === "pptx") {
+      andClauses.push({ fileType: query.fileType });
+    }
+  }
+
   if (query.search?.trim()) {
     const term = query.search.trim();
     andClauses.push({
@@ -1066,7 +1099,7 @@ export async function getResourceFileBuffer(resourceId: string): Promise<{
   const localDir = path.join(getUploadRoot(), "ppt-library", resourceId);
   const localCandidates = fs.existsSync(localDir) ? fs.readdirSync(localDir) : [];
   for (const c of localCandidates) {
-    if (c.endsWith(".pptx") || c.endsWith(".ppt")) {
+    if (c.endsWith(".pptx") || c.endsWith(".ppt") || c.endsWith(".pdf")) {
       const fullPath = path.join(localDir, c);
       if (fs.existsSync(fullPath)) {
         const buffer = fs.readFileSync(fullPath);

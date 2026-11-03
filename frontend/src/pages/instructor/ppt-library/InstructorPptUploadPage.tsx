@@ -74,6 +74,7 @@ export function InstructorPptUploadPage() {
   const [academicLevel, setAcademicLevel] = useState("Undergraduate");
   const [status, setStatus] = useState<"published" | "draft">("published");
 
+  const [uploadType, setUploadType] = useState<"presentation" | "pdf">("presentation");
   const [pptFile, setPptFile] = useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
 
