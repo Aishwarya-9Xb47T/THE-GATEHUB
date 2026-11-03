@@ -62,7 +62,8 @@ export function PptViewerPage() {
   const [isLegacyPpt, setIsLegacyPpt] = useState(false);
 
   // PDF-specific state
-  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const rawBytesRef = useRef<ArrayBuffer | null>(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfNumPages, setPdfNumPages] = useState<number>(0);
   const [pdfCurrentPage, setPdfCurrentPage] = useState<number>(1);
@@ -297,11 +298,11 @@ export function PptViewerPage() {
           throw new Error("Received PDF data is empty or incomplete.");
         }
 
-        const data = new Uint8Array(buffer);
-        const blob = new Blob([data], { type: "application/pdf" });
+        const blob = new Blob([buffer], { type: "application/pdf" });
         createdUrl = URL.createObjectURL(blob);
+        rawBytesRef.current = buffer;
 
-        setPdfData(data);
+        setPdfBlob(blob);
         setPdfBlobUrl(createdUrl);
         setPdfCurrentPage(1);
       } catch (err: any) {
@@ -736,37 +737,9 @@ export function PptViewerPage() {
                     </div>
                   )}
 
-                  {passwordRequired && !pdfLoading && (
-                    <div className="flex flex-col items-center justify-center text-center max-w-sm p-6 sm:p-8 my-auto bg-slate-900/90 rounded-2xl border border-white/10 shadow-2xl z-30">
-                      <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-3">
-                        <Lock className="w-6 h-6" />
-                      </div>
-                      <h4 className="text-base font-semibold text-white">Protected Document</h4>
-                      <p className="text-xs text-slate-400 mt-1 mb-4">
-                        This PDF is password-protected. Enter password to view.
-                      </p>
-                      <form onSubmit={handlePasswordSubmit} className="w-full space-y-3">
-                        <input
-                          type="password"
-                          value={passwordInput}
-                          onChange={(e) => setPasswordInput(e.target.value)}
-                          placeholder="Enter document password"
-                          className="w-full px-3 py-2 text-sm bg-slate-950 border border-white/20 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-primary"
-                          autoFocus
-                        />
-                        {passwordError && (
-                          <p className="text-xs text-rose-400 text-left font-medium">{passwordError}</p>
-                        )}
-                        <Button type="submit" size="sm" className="w-full">
-                          Unlock Document
-                        </Button>
-                      </form>
-                    </div>
-                  )}
-
-                  {!passwordRequired && !pdfLoading && !pdfError && pdfData && (
+                  {!pdfLoading && !pdfError && pdfBlob && (
                     <Document
-                      file={{ data: pdfData }}
+                      file={pdfBlob}
                       onPassword={handlePassword}
                       onLoadSuccess={({ numPages }) => {
                         setPasswordRequired(false);
@@ -786,7 +759,33 @@ export function PptViewerPage() {
                       }
                       className="w-full h-full flex flex-col items-center justify-center"
                     >
-                      {pdfViewMode === "single" ? (
+                      {passwordRequired ? (
+                        <div className="flex flex-col items-center justify-center text-center max-w-sm p-6 sm:p-8 my-auto bg-slate-900/90 rounded-2xl border border-white/10 shadow-2xl z-30">
+                          <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-3">
+                            <Lock className="w-6 h-6" />
+                          </div>
+                          <h4 className="text-base font-semibold text-white">Protected Document</h4>
+                          <p className="text-xs text-slate-400 mt-1 mb-4">
+                            This PDF is password-protected. Enter password to view.
+                          </p>
+                          <form onSubmit={handlePasswordSubmit} className="w-full space-y-3">
+                            <input
+                              type="password"
+                              value={passwordInput}
+                              onChange={(e) => setPasswordInput(e.target.value)}
+                              placeholder="Enter document password"
+                              className="w-full px-3 py-2 text-sm bg-slate-950 border border-white/20 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-primary"
+                              autoFocus
+                            />
+                            {passwordError && (
+                              <p className="text-xs text-rose-400 text-left font-medium">{passwordError}</p>
+                            )}
+                            <Button type="submit" size="sm" className="w-full">
+                              Unlock Document
+                            </Button>
+                          </form>
+                        </div>
+                      ) : pdfViewMode === "single" ? (
                         /* Single Page Mode: Perfectly Fitted to Available Viewport */
                         <div className="relative w-full h-full min-h-0 flex-1 flex flex-col items-center justify-center p-2 sm:p-4">
                           <div

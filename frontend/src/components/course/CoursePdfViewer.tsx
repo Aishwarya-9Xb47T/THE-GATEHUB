@@ -39,7 +39,7 @@ function getAuthToken(): string | null {
 export function CoursePdfViewer({ url, title = "Course notes", className }: CoursePdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export function CoursePdfViewer({ url, title = "Course notes", className }: Cour
       setIsLoading(true);
       setLoadError(null);
       setRenderError(null);
-      setPdfData(null);
+      setPdfBlob(null);
       setBlobUrl(null);
       setNumPages(0);
       setUseIframeFallback(false);
@@ -94,7 +94,7 @@ export function CoursePdfViewer({ url, title = "Course notes", className }: Cour
         const blob = new Blob([data], { type: "application/pdf" });
         const objectUrl = URL.createObjectURL(blob);
         revoked = objectUrl;
-        setPdfData(data);
+        setPdfBlob(blob);
         setBlobUrl(objectUrl);
       } catch (err: any) {
         if (!cancelled) {
@@ -130,7 +130,7 @@ export function CoursePdfViewer({ url, title = "Course notes", className }: Cour
       ro.disconnect();
       window.removeEventListener("resize", updateWidth);
     };
-  }, [pdfData, useIframeFallback]);
+  }, [pdfBlob, useIframeFallback]);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -239,9 +239,9 @@ export function CoursePdfViewer({ url, title = "Course notes", className }: Cour
           />
         )}
 
-        {!isLoading && !loadError && pdfData && !useIframeFallback && (
+        {!isLoading && !loadError && pdfBlob && !useIframeFallback && (
           <Document
-            file={{ data: pdfData }}
+            file={pdfBlob}
             onLoadSuccess={onDocumentLoad}
             onLoadError={onDocumentError}
             loading={
