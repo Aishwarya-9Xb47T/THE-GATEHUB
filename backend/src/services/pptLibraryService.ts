@@ -572,20 +572,6 @@ export async function uploadAndCreateResource(params: {
   }
 
 
-  if (fileBuffer.length > 0) {
-    if (fileType === "pdf") {
-      const headerSnippet = fileBuffer.subarray(0, Math.min(fileBuffer.length, 1024));
-      if (!headerSnippet.includes(Buffer.from("%PDF-"))) {
-        throw new AppError(400, "Invalid PDF file: File does not contain a valid %PDF header");
-      }
-    } else if (fileType === "pptx") {
-      if (fileBuffer.length < 4 || !fileBuffer.subarray(0, 2).equals(Buffer.from("PK"))) {
-        throw new AppError(400, "Invalid PowerPoint file: File does not contain a valid .pptx container header");
-      }
-    }
-  }
-
-
   // Generate storage key
   const safeBaseName = path.basename(file.originalname, ext).replace(/[^\w.-]/g, "_").slice(0, 50);
   const resourceId = crypto.randomUUID();
@@ -599,6 +585,9 @@ export async function uploadAndCreateResource(params: {
   const localFilePath = path.join(localDestDir, storageFileName);
   fs.writeFileSync(localFilePath, fileBuffer);
 
+  // Track uploaded assets for atomic cleanup if database transaction fails
+  const newlyUploadedB2Keys: string[] = [];
+
   // Upload to Backblaze B2 if configured
   let storageKey = relativeUploadPath;
   if (isB2Configured()) {
@@ -609,6 +598,7 @@ export async function uploadAndCreateResource(params: {
         key: b2Key,
         contentType: file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint")),
       });
+      newlyUploadedB2Keys.push(b2Key);
       storageKey = publicPathFromKey(b2Key);
     } catch (err) {
       console.warn("[PPT_LIBRARY] Backblaze B2 upload failed; keeping local copy:", err);
@@ -631,6 +621,7 @@ export async function uploadAndCreateResource(params: {
           key: thumbKey,
           contentType: params.thumbnailFile.mimetype || "image/jpeg",
         });
+        newlyUploadedB2Keys.push(thumbKey);
         thumbnailUrl = publicPathFromKey(thumbKey);
       } catch (err) {
         console.warn("[PPT_LIBRARY] Thumbnail B2 upload warning:", err);
@@ -650,74 +641,95 @@ export async function uploadAndCreateResource(params: {
 
   const isPublished = status === "published";
 
-  // Create database record with initial version and file bytes backup
-  return prisma.$transaction(async (tx) => {
-    const created = await tx.pPTResource.create({
-      data: {
-        id: resourceId,
-        title: title.trim(),
-        description: description?.trim() || null,
-        topicId,
-        subtopicId,
-        instructorId,
-        originalFileName: file.originalname,
-        fileType,
-        pageCount,
-        storageKey,
-        mimeType: file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint")),
-        fileSize: file.size,
-        thumbnailUrl,
-        status: isPublished ? "published" : "draft",
-        publishedAt: isPublished ? new Date() : null,
-        language: language?.trim() || "en",
-        tags: Array.isArray(tags) ? tags.map((t) => t.trim()).filter(Boolean) : [],
-        academicLevel: academicLevel?.trim() || null,
-        slideCount,
-      },
-      include: {
-        topic: true,
-        subtopic: true,
-        instructor: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            profileImage: true,
+  // Create database record with initial version and file bytes backup (with atomic rollback cleanup)
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const created = await tx.pPTResource.create({
+        data: {
+          id: resourceId,
+          title: title.trim(),
+          description: description?.trim() || null,
+          topicId,
+          subtopicId,
+          instructorId,
+          originalFileName: file.originalname,
+          fileType,
+          pageCount,
+          storageKey,
+          mimeType: file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint")),
+          fileSize: file.size,
+          thumbnailUrl,
+          status: isPublished ? "published" : "draft",
+          publishedAt: isPublished ? new Date() : null,
+          language: language?.trim() || "en",
+          tags: Array.isArray(tags) ? tags.map((t) => t.trim()).filter(Boolean) : [],
+          academicLevel: academicLevel?.trim() || null,
+          slideCount,
+        },
+        include: {
+          topic: true,
+          subtopic: true,
+          instructor: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              profileImage: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    // Save durable byte storage backup (ensures zero data loss across Render deploys)
-    await tx.pPTResourceFile.create({
-      data: {
-        resourceId,
-        bytes: fileBuffer,
-        size: file.size,
-        sha256,
-        mimeType: created.mimeType,
-      },
-    });
+      // Save durable byte storage backup (ensures zero data loss across Render deploys)
+      await tx.pPTResourceFile.create({
+        data: {
+          resourceId,
+          bytes: fileBuffer,
+          size: file.size,
+          sha256,
+          mimeType: created.mimeType,
+        },
+      });
 
-    // Record version 1
-    await tx.pPTResourceVersion.create({
-      data: {
-        resourceId,
-        versionNumber: 1,
-        originalFileName: file.originalname,
-        fileType,
-        pageCount,
-        storageKey,
-        fileSize: file.size,
-        mimeType: created.mimeType,
-        changeNote: "Initial upload",
-        uploadedById: instructorId,
-      },
-    });
+      // Record version 1
+      await tx.pPTResourceVersion.create({
+        data: {
+          resourceId,
+          versionNumber: 1,
+          originalFileName: file.originalname,
+          fileType,
+          pageCount,
+          storageKey,
+          fileSize: file.size,
+          mimeType: created.mimeType,
+          changeNote: "Initial upload",
+          uploadedById: instructorId,
+        },
+      });
 
-    return created;
-  });
+      return created;
+    });
+  } catch (dbErr) {
+    console.error("[PPT_LIBRARY] Database creation failed after storage upload, cleaning up orphaned files...", dbErr);
+    for (const key of newlyUploadedB2Keys) {
+      try {
+        await b2DeleteObject(key);
+        console.log(`[PPT_LIBRARY] Cleaned up orphaned B2 object: ${key}`);
+      } catch (cleanErr) {
+        console.warn(`[PPT_LIBRARY] Failed to delete orphaned B2 object ${key}:`, cleanErr);
+      }
+    }
+    try {
+      if (fs.existsSync(localDestDir)) {
+        fs.rmSync(localDestDir, { recursive: true, force: true });
+        console.log(`[PPT_LIBRARY] Cleaned up orphaned local directory: ${localDestDir}`);
+      }
+    } catch (cleanErr) {
+      console.warn(`[PPT_LIBRARY] Failed to delete orphaned directory ${localDestDir}:`, cleanErr);
+    }
+    throw dbErr;
+  }
 }
 
 export async function replaceResourceFile(
@@ -783,59 +795,82 @@ export async function replaceResourceFile(
 
   const mimeType = file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"));
 
-  return prisma.$transaction(async (tx) => {
-    // Record new version
-    await tx.pPTResourceVersion.create({
-      data: {
-        resourceId,
-        versionNumber: nextVersion,
-        originalFileName: file.originalname,
-        fileType,
-        storageKey,
-        fileSize: file.size,
-        mimeType,
-        changeNote: changeNote?.trim() || `Replaced with ${file.originalname}`,
-        uploadedById: userId,
-      },
-    });
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Record new version
+      await tx.pPTResourceVersion.create({
+        data: {
+          resourceId,
+          versionNumber: nextVersion,
+          originalFileName: file.originalname,
+          fileType,
+          pageCount,
+          storageKey,
+          fileSize: file.size,
+          mimeType,
+          changeNote: changeNote?.trim() || `Replaced with ${file.originalname}`,
+          uploadedById: userId,
+        },
+      });
 
-    // Update backup bytes
-    await tx.pPTResourceFile.upsert({
-      where: { resourceId },
-      create: {
-        resourceId,
-        bytes: fileBuffer,
-        size: file.size,
-        sha256,
-        mimeType,
-      },
-      update: {
-        bytes: fileBuffer,
-        size: file.size,
-        sha256,
-        mimeType,
-      },
-    });
+      // Update backup bytes
+      await tx.pPTResourceFile.upsert({
+        where: { resourceId },
+        create: {
+          resourceId,
+          bytes: fileBuffer,
+          size: file.size,
+          sha256,
+          mimeType,
+        },
+        update: {
+          bytes: fileBuffer,
+          size: file.size,
+          sha256,
+          mimeType,
+        },
+      });
 
-    // Update main resource metadata
-    return tx.pPTResource.update({
-      where: { id: resourceId },
-      data: {
-        originalFileName: file.originalname,
-        fileType,
-        pageCount,
-        storageKey,
-        fileSize: file.size,
-        mimeType,
-        slideCount,
-      },
-      include: {
-        topic: true,
-        subtopic: true,
-        versions: { orderBy: { versionNumber: "desc" } },
-      },
+      // Update main resource metadata
+      return tx.pPTResource.update({
+        where: { id: resourceId },
+        data: {
+          originalFileName: file.originalname,
+          fileType,
+          pageCount,
+          storageKey,
+          fileSize: file.size,
+          mimeType,
+          slideCount,
+        },
+        include: {
+          topic: true,
+          subtopic: true,
+          versions: { orderBy: { versionNumber: "desc" } },
+        },
+      });
     });
-  });
+  } catch (dbErr) {
+    console.error("[PPT_LIBRARY] Database update failed after replacement file upload, cleaning up orphaned replacement file...", dbErr);
+    if (isB2Configured()) {
+      const b2Key = `uploads/ppt-library/${resourceId}/${storageFileName}`;
+      try {
+        await b2DeleteObject(b2Key);
+        console.log(`[PPT_LIBRARY] Cleaned up orphaned replacement B2 object: ${b2Key}`);
+      } catch (cleanErr) {
+        console.warn(`[PPT_LIBRARY] Failed to delete orphaned replacement B2 object ${b2Key}:`, cleanErr);
+      }
+    }
+    try {
+      if (fs.existsSync(localFilePath)) {
+        fs.unlinkSync(localFilePath);
+        console.log(`[PPT_LIBRARY] Cleaned up orphaned replacement local file: ${localFilePath}`);
+      }
+    } catch (cleanErr) {
+      console.warn(`[PPT_LIBRARY] Failed to delete orphaned local file ${localFilePath}:`, cleanErr);
+    }
+    throw dbErr;
+  }
 }
 
 export async function updateResourceMetadata(
