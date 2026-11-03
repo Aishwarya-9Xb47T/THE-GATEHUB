@@ -21,3 +21,4 @@ export function setupPdfWorker(): void {
 
 // Auto-initialize when this module is imported
 setupPdfWorker();
+
