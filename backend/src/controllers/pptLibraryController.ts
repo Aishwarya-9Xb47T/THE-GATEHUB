@@ -94,8 +94,25 @@ export async function getLibraryTopicById(req: AuthRequest, res: Response, next:
 export async function getTopicSubtopics(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const includeInactive = req.user && isAdminRole(req.user.role) && req.query.all === "true";
+    const cacheKey = includeInactive ? null : `ppt:subtopics:${req.params.topicId}:active`;
+
+    if (cacheKey) {
+      const cached = appCache.get<{ success: boolean; data: any[] }>(cacheKey);
+      if (cached) {
+        res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
+        return res.json(cached);
+      }
+    }
+
     const subtopics = await pptService.listSubtopicsByTopic(req.params.topicId, Boolean(includeInactive));
-    res.json({ success: true, data: subtopics });
+    const responsePayload = { success: true, data: subtopics };
+
+    if (cacheKey) {
+      appCache.set(cacheKey, responsePayload, 300);
+      res.setHeader("Cache-Control", "public, max-age=120, s-maxage=300, stale-while-revalidate=600");
+    }
+
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }

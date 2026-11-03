@@ -558,6 +558,34 @@ export async function uploadAndCreateResource(params: {
   const slideCount = fileType === "pptx" ? await detectSlideCount(fileBuffer, file.originalname) : null;
   const pageCount = fileType === "pdf" ? detectPdfPageCount(fileBuffer) : null;
 
+  if (fileBuffer.length > 0) {
+    if (fileType === "pdf") {
+      const headerSnippet = fileBuffer.subarray(0, Math.min(fileBuffer.length, 1024));
+      if (!headerSnippet.includes(Buffer.from("%PDF-"))) {
+        throw new AppError(400, "Invalid PDF file: File does not contain a valid %PDF header");
+      }
+    } else if (fileType === "pptx") {
+      if (fileBuffer.length < 4 || !fileBuffer.subarray(0, 2).equals(Buffer.from("PK"))) {
+        throw new AppError(400, "Invalid PowerPoint file: File does not contain a valid .pptx container header");
+      }
+    }
+  }
+
+
+  if (fileBuffer.length > 0) {
+    if (fileType === "pdf") {
+      const headerSnippet = fileBuffer.subarray(0, Math.min(fileBuffer.length, 1024));
+      if (!headerSnippet.includes(Buffer.from("%PDF-"))) {
+        throw new AppError(400, "Invalid PDF file: File does not contain a valid %PDF header");
+      }
+    } else if (fileType === "pptx") {
+      if (fileBuffer.length < 4 || !fileBuffer.subarray(0, 2).equals(Buffer.from("PK"))) {
+        throw new AppError(400, "Invalid PowerPoint file: File does not contain a valid .pptx container header");
+      }
+    }
+  }
+
+
   // Generate storage key
   const safeBaseName = path.basename(file.originalname, ext).replace(/[^\w.-]/g, "_").slice(0, 50);
   const resourceId = crypto.randomUUID();
@@ -679,6 +707,7 @@ export async function uploadAndCreateResource(params: {
         versionNumber: 1,
         originalFileName: file.originalname,
         fileType,
+        pageCount,
         storageKey,
         fileSize: file.size,
         mimeType: created.mimeType,
@@ -738,7 +767,7 @@ export async function replaceResourceFile(
       await b2UploadFile({
         filePath: localFilePath,
         key: b2Key,
-        contentType: file.mimetype || (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"),
+        contentType: file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint")),
       });
       storageKey = publicPathFromKey(b2Key);
     } catch (err) {

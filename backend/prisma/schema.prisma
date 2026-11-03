@@ -3198,6 +3198,8 @@ model PPTResource {
   subtopicId        String               @map("subtopic_id")
   instructorId      String               @map("instructor_id")
   originalFileName  String               @map("original_file_name")
+  fileType          String               @default("pptx") @map("file_type")
+  pageCount         Int?                 @map("page_count")
   storageKey        String               @map("storage_key")
   mimeType          String               @map("mime_type")
   fileSize          Int                  @map("file_size")
@@ -3228,6 +3230,7 @@ model PPTResource {
   @@index([publishedAt])
   @@index([createdAt])
   @@index([downloadCount])
+  @@index([fileType])
   @@map("ppt_resources")
 }
 
@@ -3250,6 +3253,8 @@ model PPTResourceVersion {
   resourceId       String      @map("resource_id")
   versionNumber    Int         @default(1) @map("version_number")
   originalFileName String      @map("original_file_name")
+  fileType         String      @default("pptx") @map("file_type")
+  pageCount        Int?        @map("page_count")
   storageKey       String      @map("storage_key")
   fileSize         Int         @map("file_size")
   mimeType         String      @map("mime_type")
