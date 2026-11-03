@@ -737,9 +737,9 @@ export function PptViewerPage() {
                     </div>
                   )}
 
-                  {!pdfLoading && !pdfError && pdfBlob && (
+                  {!pdfLoading && !pdfError && pdfBlobUrl && (
                     <Document
-                      file={pdfBlob}
+                      file={pdfBlobUrl}
                       onPassword={handlePassword}
                       onLoadSuccess={({ numPages }) => {
                         setPasswordRequired(false);
