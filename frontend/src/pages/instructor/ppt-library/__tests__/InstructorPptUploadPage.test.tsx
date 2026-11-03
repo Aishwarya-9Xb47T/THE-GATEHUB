@@ -1,69 +1,75 @@
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { InstructorPptUploadPage } from "../InstructorPptUploadPage";
 
+// Mock API responses
 const mockTopics = [
   {
-    id: "topic-prog",
+    id: "topic-1",
     name: "Programming",
     slug: "programming",
-    description: "Core programming",
+    description: "Core coding concepts",
     displayOrder: 1,
     isActive: true,
-    subtopics: [],
+    subtopics: [
+      { id: "sub-1", topicId: "topic-1", name: "Python", slug: "python", isActive: true, displayOrder: 1 },
+      { id: "sub-2", topicId: "topic-1", name: "Java", slug: "java", isActive: true, displayOrder: 2 },
+    ],
   },
   {
-    id: "topic-ai",
+    id: "topic-2",
     name: "Artificial Intelligence",
     slug: "artificial-intelligence",
-    description: "AI & ML",
+    description: "Machine learning and AI",
     displayOrder: 2,
     isActive: true,
-    subtopics: [],
+    subtopics: [
+      { id: "sub-3", topicId: "topic-2", name: "Machine Learning", slug: "ml", isActive: true, displayOrder: 1 },
+    ],
   },
-];
-
-const mockSubtopics = [
-  { id: "sub-py", topicId: "topic-prog", name: "Python", slug: "python", displayOrder: 1, isActive: true },
-  { id: "sub-java", topicId: "topic-prog", name: "Java", slug: "java", displayOrder: 2, isActive: true },
 ];
 
 vi.mock("@/lib/pptLibrary/api", () => ({
   fetchLibraryTopics: vi.fn(() => Promise.resolve(mockTopics)),
   fetchTopicSubtopics: vi.fn((topicId: string) => {
-    if (topicId === "topic-prog") return Promise.resolve(mockSubtopics);
-    return Promise.resolve([]);
+    const found = mockTopics.find((t) => t.id === topicId);
+    return Promise.resolve(found?.subtopics || []);
   }),
   createTopic: vi.fn((data: any) =>
     Promise.resolve({
       success: true,
-      data: { id: "topic-new", name: data.name, slug: "new-topic", displayOrder: 99, isActive: true, subtopics: [] },
+      data: { id: "topic-new", name: data.name, slug: "new-topic", isActive: true, displayOrder: 3, subtopics: [] },
     })
   ),
   createSubtopic: vi.fn((data: any) =>
     Promise.resolve({
       success: true,
-      data: { id: "sub-new", topicId: data.topicId, name: data.name, slug: "new-sub", displayOrder: 99, isActive: true },
+      data: { id: "sub-new", topicId: data.topicId, name: data.name, slug: "new-subtopic", isActive: true, displayOrder: 3 },
     })
   ),
-  uploadPptResource: vi.fn(),
-  getPptDownloadUrl: (id: string) => `/api/ppt-library/${id}/download`,
+  uploadPptResource: vi.fn(() =>
+    Promise.resolve({
+      success: true,
+      data: { id: "res-1", title: "Test Document" },
+    })
+  ),
 }));
 
 vi.mock("@/store/userStore", () => ({
   useUserStore: () => ({
     user: {
       id: "inst-1",
+      name: "Professor Turing",
       role: "instructor",
-      firstName: "Jane",
-      lastName: "Doe",
       instructorApprovalStatus: "APPROVED",
     },
-    isAuthenticated: true,
+    isLoading: false,
   }),
   isAdminRole: () => false,
+  isInstructorApproved: () => true,
 }));
 
 function renderWithClient(ui: React.ReactElement) {
@@ -74,6 +80,7 @@ function renderWithClient(ui: React.ReactElement) {
       },
     },
   });
+
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>{ui}</MemoryRouter>
@@ -81,7 +88,7 @@ function renderWithClient(ui: React.ReactElement) {
   );
 }
 
-describe("InstructorPptUploadPage Category and Subtopic Flow", () => {
+describe("InstructorPptUploadPage Category, Subtopic and File Selection Flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -90,7 +97,7 @@ describe("InstructorPptUploadPage Category and Subtopic Flow", () => {
     renderWithClient(<InstructorPptUploadPage />);
 
     // Page title and form header
-    expect(screen.getByText("Upload Presentation")).toBeTruthy();
+    expect(screen.getByText("Upload Study Material")).toBeTruthy();
 
     // Verify categories appear in dropdown
     await waitFor(() => {
@@ -102,7 +109,7 @@ describe("InstructorPptUploadPage Category and Subtopic Flow", () => {
   it("populates subtopics when a topic is selected", async () => {
     renderWithClient(<InstructorPptUploadPage />);
 
-    // Initial topic auto-selects Programming
+    // Initial topic auto-selects Programming and shows subtopics immediately
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "Python" })).toBeTruthy();
       expect(screen.getByRole("option", { name: "Java" })).toBeTruthy();
@@ -114,7 +121,18 @@ describe("InstructorPptUploadPage Category and Subtopic Flow", () => {
 
     expect(screen.getByText("New Category")).toBeTruthy();
     await waitFor(() => {
-      expect(screen.getByText("Add Subtopic")).toBeTruthy();
+      expect(screen.getByText("New Subtopic")).toBeTruthy();
     });
+  });
+
+  it("allows switching between PowerPoint and PDF upload modes", async () => {
+    renderWithClient(<InstructorPptUploadPage />);
+
+    const pdfCard = screen.getByText("PDF Document");
+    expect(pdfCard).toBeTruthy();
+    fireEvent.click(pdfCard);
+
+    // Verify button text updates to PDF mode
+    expect(screen.getByText("Upload & Publish PDF")).toBeTruthy();
   });
 });

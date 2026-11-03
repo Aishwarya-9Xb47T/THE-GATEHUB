@@ -16,8 +16,9 @@ export function usePptTopics(includeInactive = false) {
   return useQuery<PPTTopic[], Error>({
     queryKey: PPT_QUERY_KEYS.topics(includeInactive),
     queryFn: () => fetchLibraryTopics(includeInactive),
-    staleTime: 1000 * 60 * 2, // 2 minutes
-    refetchOnWindowFocus: true,
+    staleTime: 1000 * 60 * 5, // 5 minutes cache
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
   });
 }
 
@@ -26,7 +27,9 @@ export function usePptSubtopics(topicId: string, includeInactive = false) {
     queryKey: PPT_QUERY_KEYS.subtopics(topicId, includeInactive),
     queryFn: () => fetchTopicSubtopics(topicId, includeInactive),
     enabled: Boolean(topicId),
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60 * 5,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
   });
 }
 

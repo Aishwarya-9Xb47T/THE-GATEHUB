@@ -57,6 +57,10 @@ router.get("/", optionalAuthenticate, controller.getLibraryResources);
 router.get("/topics", optionalAuthenticate, controller.getLibraryTopics);
 router.get("/topics/:topicId", optionalAuthenticate, controller.getLibraryTopicById);
 router.get("/topics/:topicId/subtopics", optionalAuthenticate, controller.getTopicSubtopics);
+router.get("/categories", optionalAuthenticate, controller.getLibraryTopics);
+router.get("/categories/:topicId", optionalAuthenticate, controller.getLibraryTopicById);
+router.get("/categories/:topicId/subcategories", optionalAuthenticate, controller.getTopicSubtopics);
+router.get("/categories/:topicId/subtopics", optionalAuthenticate, controller.getTopicSubtopics);
 router.get("/my", authenticate, requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN), controller.getMyResources);
 router.get("/admin/all", authenticate, requireAdmin(), controller.getAdminPptLibrary);
 

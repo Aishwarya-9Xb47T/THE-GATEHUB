@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -61,10 +61,17 @@ export function InstructorPptUploadPage() {
   const [selectedSubtopicId, setSelectedSubtopicId] = useState("");
 
   const {
-    data: subtopics = [],
+    data: fetchedSubtopics = [],
     isLoading: loadingSubtopics,
     refetch: refetchSubtopics,
   } = usePptSubtopics(selectedTopicId);
+
+  // Synchronously derive subtopics from currentTopic if already in memory
+  const currentTopic = useMemo(() => topics.find((t) => t.id === selectedTopicId), [topics, selectedTopicId]);
+  const availableSubtopics = useMemo(() => {
+    if (fetchedSubtopics.length > 0) return fetchedSubtopics;
+    return currentTopic?.subtopics || [];
+  }, [fetchedSubtopics, currentTopic]);
 
   const { invalidate } = useInvalidatePptCategories();
 
@@ -110,14 +117,14 @@ export function InstructorPptUploadPage() {
 
   // When subtopics arrive for the selected topic, select the first if none selected
   useEffect(() => {
-    if (subtopics.length > 0) {
-      if (!subtopics.some((s) => s.id === selectedSubtopicId)) {
-        setSelectedSubtopicId(subtopics[0].id);
+    if (availableSubtopics.length > 0) {
+      if (!availableSubtopics.some((s) => s.id === selectedSubtopicId)) {
+        setSelectedSubtopicId(availableSubtopics[0].id);
       }
     } else {
       setSelectedSubtopicId("");
     }
-  }, [subtopics, selectedTopicId]);
+  }, [availableSubtopics, selectedTopicId]);
 
   // Topic change handler
   const handleTopicChange = (newTopicId: string) => {
@@ -270,6 +277,7 @@ export function InstructorPptUploadPage() {
           description: modalTopicDesc.trim() || undefined,
         });
         await invalidate();
+        await refetchTopics();
         setSelectedTopicId(res.data.id);
         setShowCategoryModal(false);
         toast({ title: "Category Created", description: `"${res.data.name}" is now available.`, variant: "success" });
@@ -294,6 +302,7 @@ export function InstructorPptUploadPage() {
           name: modalSubtopicName.trim(),
         });
         await invalidate(modalParentTopicId);
+        await Promise.all([refetchTopics(), refetchSubtopics()]);
         setSelectedTopicId(modalParentTopicId);
         setSelectedSubtopicId(res.data.id);
         setShowCategoryModal(false);
@@ -669,11 +678,14 @@ export function InstructorPptUploadPage() {
                       id="ppt-topic"
                       value={selectedTopicId}
                       onChange={(e) => handleTopicChange(e.target.value)}
-                      className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs"
+                      disabled={loadingTopics && topics.length === 0}
+                      className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs disabled:opacity-70"
                       required
                     >
-                      {topics.length === 0 ? (
-                        <option value="">No categories available</option>
+                      {loadingTopics && topics.length === 0 ? (
+                        <option value="">Loading categories...</option>
+                      ) : topics.length === 0 ? (
+                        <option value="">No categories available (Click '+ New Category' to create)</option>
                       ) : (
                         topics.map((topic) => (
                           <option key={topic.id} value={topic.id}>
@@ -708,14 +720,18 @@ export function InstructorPptUploadPage() {
                     id="ppt-subtopic"
                     value={selectedSubtopicId}
                     onChange={(e) => setSelectedSubtopicId(e.target.value)}
-                    className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs"
-                    disabled={!selectedTopicId || subtopics.length === 0}
+                    className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs disabled:opacity-70"
+                    disabled={!selectedTopicId || availableSubtopics.length === 0}
                     required
                   >
-                    {subtopics.length === 0 ? (
+                    {loadingTopics && topics.length === 0 ? (
+                      <option value="">Loading subtopics...</option>
+                    ) : !selectedTopicId ? (
+                      <option value="">Select a category first</option>
+                    ) : availableSubtopics.length === 0 ? (
                       <option value="">No subtopics available (Click &apos;New Subtopic&apos; to create)</option>
                     ) : (
-                      subtopics.map((sub) => (
+                      availableSubtopics.map((sub) => (
                         <option key={sub.id} value={sub.id}>
                           {sub.name}
                         </option>
