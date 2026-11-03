@@ -10,11 +10,9 @@ import {
   RotateCcw,
   Download,
   Share2,
-  Layers,
   Calendar,
   User,
   ArrowLeft,
-  FileText,
   AlertCircle,
   Presentation,
   Check,
@@ -33,6 +31,11 @@ import {
   getPptPreviewUrl,
   PPTResource,
 } from "@/lib/pptLibrary/api";
+import {
+  calculateAutoFit,
+  extractSvgDimensions,
+  normalizeSlideSvg,
+} from "@/lib/pptLibrary/autoFit";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToastStore } from "@/store/toastStore";
@@ -70,15 +73,37 @@ export function PptViewerPage() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfViewMode, setPdfViewMode] = useState<"single" | "continuous">("single");
 
-  // Viewer display state
-  const [zoomLevel, setZoomLevel] = useState<number>(100);
+  // Measured natural PDF page dimensions (updated per page load)
+  const [pdfPageDimensions, setPdfPageDimensions] = useState<{
+    width: number;
+    height: number;
+    aspectRatio: number;
+  }>({
+    width: 595.28,
+    height: 841.89,
+    aspectRatio: 595.28 / 841.89,
+  });
+
+  // Display and stage measurement state
+  const [zoomLevel, setZoomLevel] = useState<number>(100); // 100 = Auto-Fit default
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState<number>(900);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const pdfStageRef = useRef<HTMLDivElement>(null);
   const pdfScrollRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<any>(null);
+
+  // Responsive stage dimensions
+  const [stageDimensions, setStageDimensions] = useState<{ width: number; height: number }>({
+    width: 1000,
+    height: 600,
+  });
+  const [pdfStageDimensions, setPdfStageDimensions] = useState<{ width: number; height: number }>({
+    width: 1000,
+    height: 600,
+  });
 
   const isPdf = useMemo(() => {
     return (
@@ -90,35 +115,70 @@ export function PptViewerPage() {
   // Synchronize Fullscreen state with browser Fullscreen API
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      const active = Boolean(document.fullscreenElement);
+      setIsFullscreen(active);
+      setZoomLevel(100); // Always reset to Auto-Fit on fullscreen transition
+      requestAnimationFrame(() => {
+        updateStageMeasurements();
+      });
     };
+
     document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
     };
   }, []);
 
-  // Track responsive container width for PDF rendering
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const updateWidth = () => {
-      if (containerRef.current) {
-        setViewportWidth(containerRef.current.clientWidth || 900);
+  // Update actual stage measurements for exact auto-fit calculations
+  const updateStageMeasurements = useCallback(() => {
+    if (stageRef.current) {
+      const w = stageRef.current.clientWidth;
+      const h = stageRef.current.clientHeight;
+      if (w > 0 && h > 0) {
+        setStageDimensions({ width: w, height: h });
       }
-    };
+    }
+    if (pdfStageRef.current) {
+      const pw = pdfStageRef.current.clientWidth;
+      const ph = pdfStageRef.current.clientHeight;
+      if (pw > 0 && ph > 0) {
+        setPdfStageDimensions({ width: pw, height: ph });
+      }
+    }
+  }, []);
 
-    updateWidth();
-    const ro = new ResizeObserver(updateWidth);
-    ro.observe(el);
-    window.addEventListener("resize", updateWidth);
+  // Track responsive container and stage dimensions via ResizeObserver
+  useEffect(() => {
+    updateStageMeasurements();
+
+    const observers: ResizeObserver[] = [];
+    if (stageRef.current) {
+      const ro = new ResizeObserver(() => updateStageMeasurements());
+      ro.observe(stageRef.current);
+      observers.push(ro);
+    }
+    if (pdfStageRef.current) {
+      const roPdf = new ResizeObserver(() => updateStageMeasurements());
+      roPdf.observe(pdfStageRef.current);
+      observers.push(roPdf);
+    }
+    if (containerRef.current) {
+      const roCont = new ResizeObserver(() => updateStageMeasurements());
+      roCont.observe(containerRef.current);
+      observers.push(roCont);
+    }
+
+    window.addEventListener("resize", updateStageMeasurements);
+    window.addEventListener("orientationchange", updateStageMeasurements);
 
     return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", updateWidth);
+      observers.forEach((o) => o.disconnect());
+      window.removeEventListener("resize", updateStageMeasurements);
+      window.removeEventListener("orientationchange", updateStageMeasurements);
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, isPdf, updateStageMeasurements]);
 
   // 1. Fetch metadata
   useEffect(() => {
@@ -276,6 +336,7 @@ export function PptViewerPage() {
     if (index < 0 || index >= slideCount) return;
     setCurrentSlide(index);
     renderSlide(index);
+    setZoomLevel(100); // Auto-fit default on slide change
   };
 
   const nextSlide = () => {
@@ -294,6 +355,7 @@ export function PptViewerPage() {
   const goToPdfPage = (page: number) => {
     if (page < 1 || page > pdfNumPages) return;
     setPdfCurrentPage(page);
+    setZoomLevel(100); // Auto-fit default on page change
     if (pdfViewMode === "continuous" && pdfScrollRef.current) {
       const pageEl = pdfScrollRef.current.querySelector(`[data-page-number="${page}"]`);
       if (pageEl) {
@@ -348,6 +410,7 @@ export function PptViewerPage() {
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
+      setZoomLevel(100);
       if (containerRef.current.requestFullscreen) {
         containerRef.current.requestFullscreen().catch(() => {
           setIsFullscreen(true);
@@ -361,6 +424,7 @@ export function PptViewerPage() {
   };
 
   const exitFullscreen = () => {
+    setZoomLevel(100);
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(() => {
         setIsFullscreen(false);
@@ -376,6 +440,32 @@ export function PptViewerPage() {
     toast({ title: "Link Copied!", description: "Shareable link copied to clipboard." });
     setTimeout(() => setCopiedLink(false), 2500);
   };
+
+  // PPT Auto-Fit calculations based on exact stage measurements
+  const slideDimensions = useMemo(() => {
+    return extractSvgDimensions(currentSlideSvg);
+  }, [currentSlideSvg]);
+
+  const normalizedSlideSvg = useMemo(() => {
+    return normalizeSlideSvg(currentSlideSvg);
+  }, [currentSlideSvg]);
+
+  const pptAutoFit = useMemo(() => {
+    return calculateAutoFit(stageDimensions, slideDimensions, {
+      paddingX: isFullscreen ? 32 : 16,
+      paddingY: isFullscreen ? 32 : 16,
+      manualZoom: zoomLevel,
+    });
+  }, [stageDimensions, slideDimensions, isFullscreen, zoomLevel]);
+
+  // PDF Auto-Fit calculations based on exact stage measurements
+  const pdfAutoFit = useMemo(() => {
+    return calculateAutoFit(pdfStageDimensions, pdfPageDimensions, {
+      paddingX: isFullscreen ? 32 : 16,
+      paddingY: isFullscreen ? 32 : 16,
+      manualZoom: zoomLevel,
+    });
+  }, [pdfStageDimensions, pdfPageDimensions, isFullscreen, zoomLevel]);
 
   if (loading) {
     return (
@@ -401,12 +491,6 @@ export function PptViewerPage() {
       </div>
     );
   }
-
-  // Calculate dynamic PDF page width for single and continuous modes
-  const effectivePdfWidth = Math.min(
-    Math.max(280, (viewportWidth - (isFullscreen ? 64 : 48)) * (zoomLevel / 100)),
-    isFullscreen ? 1600 : 1200
-  );
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -464,22 +548,22 @@ export function PptViewerPage() {
         }`}
       >
         {/* Left / Center Stage: Slide Viewer Canvas or Native PDF Viewer */}
-        <div className={`flex-1 flex flex-col ${isFullscreen ? "h-full w-full" : ""}`}>
+        <div className={`flex-1 flex flex-col min-h-0 ${isFullscreen ? "h-full w-full" : ""}`}>
           <div
             ref={containerRef}
             className={`relative flex flex-col justify-between rounded-2xl border border-border bg-slate-950 text-white overflow-hidden shadow-xl transition-all ${
               isFullscreen
-                ? "!fixed !inset-0 !z-50 !rounded-none !border-none !h-screen !w-screen !bg-slate-950"
-                : "min-h-[500px] md:min-h-[640px]"
+                ? "!fixed !inset-0 !z-50 !rounded-none !border-none !h-screen !w-screen !bg-slate-950 !m-0 !p-0"
+                : "h-[600px] md:h-[720px]"
             }`}
           >
             {isPdf ? (
               /* ======================================================= */
-              /* Dedicated High-Performance PDF Viewer via react-pdf     */
+              /* Dedicated High-Performance PDF Viewer with Auto-Fit     */
               /* ======================================================= */
-              <div className="w-full h-full flex flex-col flex-1">
+              <div className="w-full h-full flex flex-col flex-1 min-h-0">
                 {/* PDF Viewer Action Bar */}
-                <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 backdrop-blur-md border-b border-white/10 z-20 shrink-0">
+                <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 bg-slate-900/95 backdrop-blur-md border-b border-white/10 z-20 shrink-0">
                   <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
                     <Badge className="font-mono text-[10px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
                       PDF DOCUMENT
@@ -491,24 +575,30 @@ export function PptViewerPage() {
                     )}
                   </div>
 
-                  {/* Zoom, Mode & Fullscreen Controls */}
-                  <div className="flex items-center gap-1.5 sm:gap-2">
+                  {/* Auto-Fit, View Mode & Fullscreen Controls */}
+                  <div className="flex items-center gap-1 sm:gap-2">
                     {/* View mode toggle (Single Page vs Continuous Scroll) */}
                     <div className="hidden sm:flex items-center bg-slate-800/80 rounded-lg p-0.5 border border-white/10 mr-1">
                       <button
                         type="button"
-                        onClick={() => setPdfViewMode("single")}
+                        onClick={() => {
+                          setPdfViewMode("single");
+                          setZoomLevel(100);
+                        }}
                         className={`px-2 py-1 text-[11px] font-medium rounded-md transition-all flex items-center gap-1 ${
                           pdfViewMode === "single" ? "bg-primary text-white shadow-xs" : "text-slate-400 hover:text-white"
                         }`}
-                        title="Single Page with Arrow Navigation"
+                        title="Single Page with Automatic Device Fit"
                       >
                         <Columns className="w-3 h-3" />
                         Single
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPdfViewMode("continuous")}
+                        onClick={() => {
+                          setPdfViewMode("continuous");
+                          setZoomLevel(100);
+                        }}
                         className={`px-2 py-1 text-[11px] font-medium rounded-md transition-all flex items-center gap-1 ${
                           pdfViewMode === "continuous" ? "bg-primary text-white shadow-xs" : "text-slate-400 hover:text-white"
                         }`}
@@ -519,40 +609,53 @@ export function PptViewerPage() {
                       </button>
                     </div>
 
-                    {/* Zoom Controls */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                      onClick={() => setZoomLevel((z) => Math.max(60, z - 15))}
-                      title="Zoom Out"
-                      disabled={pdfLoading || Boolean(pdfError)}
-                    >
-                      <ZoomOut className="w-3.5 h-3.5" />
-                    </Button>
-                    <span className="text-[11px] font-mono text-slate-400 w-10 text-center select-none">
-                      {zoomLevel}%
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                      onClick={() => setZoomLevel((z) => Math.min(180, z + 15))}
-                      title="Zoom In"
-                      disabled={pdfLoading || Boolean(pdfError)}
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                      onClick={() => setZoomLevel(100)}
-                      title="Reset Zoom"
-                      disabled={pdfLoading || Boolean(pdfError)}
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                    </Button>
+                    {/* Auto-Fit / Zoom Controls */}
+                    <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-800/80 rounded-lg p-0.5 border border-white/10">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                        onClick={() => setZoomLevel((z) => Math.max(50, z - 15))}
+                        title="Zoom Out"
+                        disabled={pdfLoading || Boolean(pdfError)}
+                      >
+                        <ZoomOut className="w-3.5 h-3.5" />
+                      </Button>
+
+                      <button
+                        type="button"
+                        onClick={() => setZoomLevel(100)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all flex items-center gap-1.5 ${
+                          zoomLevel === 100
+                            ? "bg-primary/20 text-primary border border-primary/30 font-semibold"
+                            : "text-amber-400 hover:text-white hover:bg-white/10"
+                        }`}
+                        title={zoomLevel === 100 ? "Auto-Fit Active" : "Click to Reset to Auto-Fit"}
+                      >
+                        {zoomLevel === 100 ? (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>Fit</span>
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="w-3 h-3 text-amber-400" />
+                            <span>{zoomLevel}%</span>
+                          </>
+                        )}
+                      </button>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                        onClick={() => setZoomLevel((z) => Math.min(250, z + 15))}
+                        title="Zoom In"
+                        disabled={pdfLoading || Boolean(pdfError)}
+                      >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
 
                     <div className="h-4 w-px bg-white/20 mx-1 hidden sm:block" />
 
@@ -572,7 +675,7 @@ export function PptViewerPage() {
                     <Button size="sm" asChild className="h-7 text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5">
                       <a href={getPptDownloadUrl(resource.id)} download={resource.originalFileName}>
                         <Download className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Download PDF</span>
+                        <span className="hidden sm:inline">Download</span>
                       </a>
                     </Button>
                   </div>
@@ -580,9 +683,11 @@ export function PptViewerPage() {
 
                 {/* PDF Stage Area */}
                 <div
-                  ref={pdfScrollRef}
-                  className={`relative flex-1 w-full bg-slate-950 flex flex-col items-center overflow-auto select-text scrollbar-thin ${
-                    isFullscreen ? "h-[calc(100vh-45px)]" : "h-[580px] md:h-[680px]"
+                  ref={pdfStageRef}
+                  className={`relative flex-1 w-full h-full min-h-0 bg-slate-950 flex flex-col items-center select-text scrollbar-thin ${
+                    pdfViewMode === "continuous" || zoomLevel > 100
+                      ? "overflow-auto"
+                      : "overflow-hidden justify-center"
                   }`}
                 >
                   {pdfLoading && (
@@ -625,18 +730,34 @@ export function PptViewerPage() {
                           <p className="text-sm">Rendering PDF pages…</p>
                         </div>
                       }
-                      className="w-full flex flex-col items-center"
+                      className="w-full h-full flex flex-col items-center justify-center"
                     >
                       {pdfViewMode === "single" ? (
-                        /* Single Page Mode with proportional scaling and centering */
-                        <div className="relative w-full flex-1 flex flex-col items-center justify-center py-6 px-4">
-                          <div className="shadow-2xl rounded-xs overflow-hidden bg-white max-w-full">
+                        /* Single Page Mode: Perfectly Fitted to Available Viewport */
+                        <div className="relative w-full h-full min-h-0 flex-1 flex flex-col items-center justify-center p-2 sm:p-4">
+                          <div
+                            className="shadow-2xl rounded-xs overflow-hidden bg-white max-w-full flex items-center justify-center transition-all duration-150 ease-out"
+                            style={{
+                              width: `${pdfAutoFit.fittedWidth}px`,
+                              height: `${pdfAutoFit.fittedHeight}px`,
+                            }}
+                          >
                             <Page
                               pageNumber={pdfCurrentPage}
-                              width={effectivePdfWidth}
+                              width={pdfAutoFit.fittedWidth}
+                              onLoadSuccess={(page: any) => {
+                                const vp = page.getViewport({ scale: 1 });
+                                if (vp && vp.width > 0 && vp.height > 0) {
+                                  setPdfPageDimensions({
+                                    width: vp.width,
+                                    height: vp.height,
+                                    aspectRatio: vp.width / vp.height,
+                                  });
+                                }
+                              }}
                               renderTextLayer
                               renderAnnotationLayer
-                              className="max-w-full"
+                              className="max-w-full block"
                             />
                           </div>
 
@@ -648,7 +769,7 @@ export function PptViewerPage() {
                                 onClick={prevPdfPage}
                                 disabled={pdfCurrentPage === 1}
                                 aria-label="Previous Page"
-                                className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/70 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95"
+                                className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95 z-30"
                               >
                                 <ChevronLeft className="w-6 h-6" />
                               </button>
@@ -657,7 +778,7 @@ export function PptViewerPage() {
                                 onClick={nextPdfPage}
                                 disabled={pdfCurrentPage === pdfNumPages}
                                 aria-label="Next Page"
-                                className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/70 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95"
+                                className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95 z-30"
                               >
                                 <ChevronRight className="w-6 h-6" />
                               </button>
@@ -666,27 +787,37 @@ export function PptViewerPage() {
                         </div>
                       ) : (
                         /* Continuous Scroll Mode with all pages stacked */
-                        <div className="flex flex-col items-center gap-6 py-6 px-4 w-full">
-                          {Array.from({ length: pdfNumPages }, (_, index) => (
-                            <div
-                              key={`pdf-page-${index + 1}`}
-                              data-page-number={index + 1}
-                              className="flex flex-col items-center"
-                            >
-                              <div className="shadow-2xl rounded-xs overflow-hidden bg-white max-w-full">
-                                <Page
-                                  pageNumber={index + 1}
-                                  width={effectivePdfWidth}
-                                  renderTextLayer
-                                  renderAnnotationLayer
-                                  className="max-w-full"
-                                />
+                        <div
+                          ref={pdfScrollRef}
+                          className="flex flex-col items-center gap-6 py-6 px-4 w-full"
+                        >
+                          {Array.from({ length: pdfNumPages }, (_, index) => {
+                            const scrollPageWidth = Math.min(
+                              pdfAutoFit.availableWidth,
+                              Math.round(pdfStageDimensions.width * 0.9)
+                            ) * (zoomLevel / 100);
+
+                            return (
+                              <div
+                                key={`pdf-page-${index + 1}`}
+                                data-page-number={index + 1}
+                                className="flex flex-col items-center"
+                              >
+                                <div className="shadow-2xl rounded-xs overflow-hidden bg-white max-w-full">
+                                  <Page
+                                    pageNumber={index + 1}
+                                    width={Math.round(scrollPageWidth)}
+                                    renderTextLayer
+                                    renderAnnotationLayer
+                                    className="max-w-full block"
+                                  />
+                                </div>
+                                <span className="text-[11px] font-mono text-slate-400 mt-2">
+                                  Page {index + 1} of {pdfNumPages}
+                                </span>
                               </div>
-                              <span className="text-[11px] font-mono text-slate-400 mt-2">
-                                Page {index + 1} of {pdfNumPages}
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </Document>
@@ -695,11 +826,11 @@ export function PptViewerPage() {
               </div>
             ) : (
               /* ======================================================= */
-              /* PPT / PPTX Interactive Slide Viewer                     */
+              /* PPT / PPTX Interactive Slide Viewer with Auto-Fit       */
               /* ======================================================= */
               <>
                 {/* Viewer Top Action Bar */}
-                <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur-md border-b border-white/10 z-20 shrink-0">
+                <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 bg-slate-900/95 backdrop-blur-md border-b border-white/10 z-20 shrink-0">
                   <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
                     <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300 font-mono text-[10px]">
                       {resource.originalFileName.endsWith(".pptx") ? "PPTX" : "PPT"}
@@ -711,41 +842,55 @@ export function PptViewerPage() {
                     )}
                   </div>
 
-                  {/* View Controls */}
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                      onClick={() => setZoomLevel((z) => Math.max(60, z - 15))}
-                      title="Zoom Out"
-                      disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
-                    >
-                      <ZoomOut className="w-3.5 h-3.5" />
-                    </Button>
-                    <span className="text-[11px] font-mono text-slate-400 w-10 text-center select-none">
-                      {zoomLevel}%
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                      onClick={() => setZoomLevel((z) => Math.min(180, z + 15))}
-                      title="Zoom In"
-                      disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
-                      onClick={() => setZoomLevel(100)}
-                      title="Reset Zoom"
-                      disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                    </Button>
+                  {/* Auto-Fit, Zoom & Fullscreen Controls */}
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-800/80 rounded-lg p-0.5 border border-white/10">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                        onClick={() => setZoomLevel((z) => Math.max(50, z - 15))}
+                        title="Zoom Out"
+                        disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
+                      >
+                        <ZoomOut className="w-3.5 h-3.5" />
+                      </Button>
+
+                      <button
+                        type="button"
+                        onClick={() => setZoomLevel(100)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all flex items-center gap-1.5 ${
+                          zoomLevel === 100
+                            ? "bg-primary/20 text-primary border border-primary/30 font-semibold"
+                            : "text-amber-400 hover:text-white hover:bg-white/10"
+                        }`}
+                        title={zoomLevel === 100 ? "Auto-Fit Active" : "Click to Reset to Auto-Fit"}
+                        disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
+                      >
+                        {zoomLevel === 100 ? (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>Fit</span>
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="w-3 h-3 text-amber-400" />
+                            <span>{zoomLevel}%</span>
+                          </>
+                        )}
+                      </button>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-300 hover:text-white hover:bg-white/10"
+                        onClick={() => setZoomLevel((z) => Math.min(250, z + 15))}
+                        title="Zoom In"
+                        disabled={deckLoading || Boolean(deckError) || isLegacyPpt}
+                      >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
 
                     <div className="h-4 w-px bg-white/20 mx-1 hidden sm:block" />
 
@@ -771,8 +916,13 @@ export function PptViewerPage() {
                   </div>
                 </div>
 
-                {/* Slide Stage Area */}
-                <div className="relative flex-1 flex items-center justify-center p-4 md:p-8 overflow-auto select-none bg-slate-950">
+                {/* Slide Stage Area with Intelligent Auto-Fit */}
+                <div
+                  ref={stageRef}
+                  className={`relative flex-1 w-full h-full min-h-0 flex items-center justify-center select-none bg-slate-950 p-2 sm:p-4 ${
+                    zoomLevel > 100 ? "overflow-auto" : "overflow-hidden"
+                  }`}
+                >
                   {deckLoading ? (
                     <div className="flex flex-col items-center justify-center text-center p-8">
                       <Presentation className="w-10 h-10 text-primary animate-pulse mb-3" />
@@ -798,15 +948,20 @@ export function PptViewerPage() {
                       </Button>
                     </div>
                   ) : (
-                    /* Active Rendered Slide SVG */
+                    /* Active Rendered Slide SVG — Auto-fitted to exactly occupy maximum available space without clipping */
                     <div
-                      className="transition-transform duration-200 ease-out origin-center flex items-center justify-center max-w-full max-h-full"
-                      style={{ transform: `scale(${zoomLevel / 100})` }}
+                      className="relative flex items-center justify-center select-none transition-all duration-150 ease-out origin-center"
+                      style={{
+                        width: `${pptAutoFit.fittedWidth}px`,
+                        height: `${pptAutoFit.fittedHeight}px`,
+                        maxWidth: zoomLevel <= 100 ? "100%" : undefined,
+                        maxHeight: zoomLevel <= 100 ? "100%" : undefined,
+                      }}
                     >
                       {currentSlideSvg ? (
                         <div
-                          className="bg-white rounded-lg shadow-2xl overflow-hidden max-w-full max-h-full [&_svg]:max-w-full [&_svg]:h-auto [&_svg]:block"
-                          dangerouslySetInnerHTML={{ __html: currentSlideSvg }}
+                          className="w-full h-full bg-white rounded-lg shadow-2xl overflow-hidden [&_svg]:w-full [&_svg]:h-full [&_svg]:block"
+                          dangerouslySetInnerHTML={{ __html: normalizedSlideSvg }}
                         />
                       ) : (
                         <div className="text-sm text-slate-400">No slide content rendered.</div>
@@ -822,7 +977,7 @@ export function PptViewerPage() {
                         onClick={prevSlide}
                         disabled={currentSlide === 0}
                         aria-label="Previous Slide"
-                        className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/70 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95"
+                        className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95 z-30"
                       >
                         <ChevronLeft className="w-6 h-6" />
                       </button>
@@ -832,7 +987,7 @@ export function PptViewerPage() {
                         onClick={nextSlide}
                         disabled={currentSlide === slideCount - 1}
                         aria-label="Next Slide"
-                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/70 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95"
+                        className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white disabled:opacity-20 disabled:pointer-events-none transition-all backdrop-blur-xs border border-white/15 shadow-xl hover:scale-105 active:scale-95 z-30"
                       >
                         <ChevronRight className="w-6 h-6" />
                       </button>
@@ -842,7 +997,7 @@ export function PptViewerPage() {
 
                 {/* Bottom Controls Bar: Slide progress indicators only — NO duplicate Previous/Next text */}
                 {slideCount > 1 && !deckLoading && !deckError && !isLegacyPpt && (
-                  <div className="flex items-center justify-center px-4 py-2.5 bg-slate-900/90 border-t border-white/10 z-20 shrink-0">
+                  <div className="flex items-center justify-center px-4 py-2.5 bg-slate-900/95 border-t border-white/10 z-20 shrink-0">
                     <div className="flex items-center gap-1.5 overflow-x-auto max-w-[80%] px-2 scrollbar-none py-1">
                       {Array.from({ length: Math.min(slideCount, 30) }).map((_, i) => (
                         <button
@@ -893,22 +1048,22 @@ export function PptViewerPage() {
                 )}
               </div>
 
-              <div className="pt-3 border-t border-border space-y-2.5 text-xs text-muted-foreground">
+              <div className="pt-3 border-t border-border space-y-2 text-xs text-muted-foreground">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5" />
+                    {isPdf ? <BookOpen className="w-3.5 h-3.5" /> : <Presentation className="w-3.5 h-3.5" />}
                     Format
                   </span>
-                  <span className="font-semibold text-foreground uppercase">{resource.fileType || "PPTX"}</span>
+                  <span className="font-semibold text-foreground uppercase">{resource.fileType}</span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5" />
+                    <BookOpen className="w-3.5 h-3.5" />
                     {isPdf ? "Pages" : "Slides"}
                   </span>
                   <span className="font-semibold text-foreground">
-                    {isPdf ? (resource.pageCount || pdfNumPages || 1) : (resource.slideCount || slideCount || 1)}
+                    {isPdf ? resource.pageCount || pdfNumPages || 1 : resource.slideCount || slideCount || 1}
                   </span>
                 </div>
 
