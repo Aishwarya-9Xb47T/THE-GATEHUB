@@ -9,3 +9,4 @@ ALTER TABLE "ppt_resources" DROP CONSTRAINT IF EXISTS "ppt_resources_subtopic_id
 -- AddForeignKey
 ALTER TABLE "ppt_resources" ADD CONSTRAINT "ppt_resources_topic_id_fkey" FOREIGN KEY ("topic_id") REFERENCES "ppt_topics"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "ppt_resources" ADD CONSTRAINT "ppt_resources_subtopic_id_fkey" FOREIGN KEY ("subtopic_id") REFERENCES "ppt_subtopics"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
