@@ -41,11 +41,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToastStore } from "@/store/toastStore";
 import { UnifiedAvatar } from "@/components/common/UnifiedAvatar";
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url
-).toString();
+import "@/lib/pdfWorker";
 
 export function PptViewerPage() {
   const { pptId } = useParams<{ pptId: string }>();
