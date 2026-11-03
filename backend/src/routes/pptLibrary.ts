@@ -81,10 +81,15 @@ router.post(
 router.patch(
   "/topics/:topicId",
   authenticate,
-  requireAdmin(),
+  requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN),
   controller.updateTopic
 );
-router.delete("/topics/:topicId", authenticate, requireAdmin(), controller.deleteTopic);
+router.delete(
+  "/topics/:topicId",
+  authenticate,
+  requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN),
+  controller.deleteTopic
+);
 
 router.post(
   "/subtopics",
@@ -96,10 +101,15 @@ router.post(
 router.patch(
   "/subtopics/:subtopicId",
   authenticate,
-  requireAdmin(),
+  requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN),
   controller.updateSubtopic
 );
-router.delete("/subtopics/:subtopicId", authenticate, requireAdmin(), controller.deleteSubtopic);
+router.delete(
+  "/subtopics/:subtopicId",
+  authenticate,
+  requireRole(ROLES.INSTRUCTOR, ROLES.ADMIN),
+  controller.deleteSubtopic
+);
 
 // ==========================================
 // PPT Resource Lifecycle (Upload, Replace, Publish, Delete)

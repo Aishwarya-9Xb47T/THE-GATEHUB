@@ -401,8 +401,8 @@ export function AdminPptManagementPage() {
                         </td>
 
                         <td className="px-4 py-4">
-                          <div className="text-xs font-medium text-foreground">{ppt.topic.name}</div>
-                          <div className="text-[11px] text-muted-foreground">{ppt.subtopic.name}</div>
+                          <div className="text-xs font-medium text-foreground">{ppt.topic?.name || "Uncategorized"}</div>
+                          <div className="text-[11px] text-muted-foreground">{ppt.subtopic?.name || "Direct Material"}</div>
                         </td>
 
                         <td className="px-4 py-4">

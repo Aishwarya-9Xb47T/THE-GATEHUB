@@ -356,10 +356,15 @@ export async function updateTopic(
     icon?: string;
     displayOrder?: number;
     isActive?: boolean;
-  }
+  },
+  currentUser?: { id: string; role: string }
 ) {
   const topic = await prisma.pPTTopic.findUnique({ where: { id } });
   if (!topic) throw new AppError(404, "Topic not found");
+
+  if (currentUser && !isAdminRole(currentUser.role) && topic.createdById !== currentUser.id) {
+    throw new AppError(403, "You do not have permission to edit this topic");
+  }
 
   const updateData: any = {};
   if (data.name !== undefined) {
@@ -388,7 +393,7 @@ export async function updateTopic(
   });
 }
 
-export async function deleteTopic(id: string) {
+export async function deleteTopic(id: string, currentUser?: { id: string; role: string }) {
   const topic = await prisma.pPTTopic.findUnique({
     where: { id },
     include: {
@@ -398,6 +403,10 @@ export async function deleteTopic(id: string) {
     },
   });
   if (!topic) throw new AppError(404, "Topic not found");
+
+  if (currentUser && !isAdminRole(currentUser.role) && topic.createdById !== currentUser.id) {
+    throw new AppError(403, "You do not have permission to delete this topic");
+  }
 
   if (topic._count.resources > 0) {
     throw new AppError(
@@ -465,10 +474,15 @@ export async function updateSubtopic(
     description?: string;
     displayOrder?: number;
     isActive?: boolean;
-  }
+  },
+  currentUser?: { id: string; role: string }
 ) {
   const subtopic = await prisma.pPTSubtopic.findUnique({ where: { id } });
   if (!subtopic) throw new AppError(404, "Subtopic not found");
+
+  if (currentUser && !isAdminRole(currentUser.role) && subtopic.createdById !== currentUser.id) {
+    throw new AppError(403, "You do not have permission to edit this subtopic");
+  }
 
   const updateData: any = {};
   if (data.name !== undefined) {
@@ -497,7 +511,7 @@ export async function updateSubtopic(
   });
 }
 
-export async function deleteSubtopic(id: string) {
+export async function deleteSubtopic(id: string, currentUser?: { id: string; role: string }) {
   const subtopic = await prisma.pPTSubtopic.findUnique({
     where: { id },
     include: {
@@ -507,6 +521,10 @@ export async function deleteSubtopic(id: string) {
     },
   });
   if (!subtopic) throw new AppError(404, "Subtopic not found");
+
+  if (currentUser && !isAdminRole(currentUser.role) && subtopic.createdById !== currentUser.id) {
+    throw new AppError(403, "You do not have permission to delete this subtopic");
+  }
 
   if (subtopic._count.resources > 0) {
     throw new AppError(
@@ -527,7 +545,7 @@ export async function uploadAndCreateResource(params: {
   title: string;
   description?: string;
   topicId: string;
-  subtopicId: string;
+  subtopicId?: string | null;
   instructorId: string;
   file: Express.Multer.File;
   thumbnailFile?: Express.Multer.File;
@@ -541,11 +559,20 @@ export async function uploadAndCreateResource(params: {
   if (!title?.trim()) throw new AppError(400, "Presentation title is required");
   if (!file) throw new AppError(400, "Presentation file is required");
 
-  // Validate topic & subtopic
-  const subtopic = await prisma.pPTSubtopic.findFirst({
-    where: { id: subtopicId, topicId },
-  });
-  if (!subtopic) throw new AppError(400, "Selected subtopic does not belong to the selected topic");
+  // Validate main topic exists
+  const topic = await prisma.pPTTopic.findUnique({ where: { id: topicId } });
+  if (!topic) throw new AppError(404, "Selected main topic not found");
+
+  // Validate subtopic if provided and non-empty
+  let validatedSubtopicId: string | null = null;
+  const rawSubtopic = typeof subtopicId === "string" ? subtopicId.trim() : "";
+  if (rawSubtopic && rawSubtopic !== "none" && rawSubtopic !== "null") {
+    const subtopic = await prisma.pPTSubtopic.findFirst({
+      where: { id: rawSubtopic, topicId },
+    });
+    if (!subtopic) throw new AppError(400, "Selected subtopic does not belong to the selected topic");
+    validatedSubtopicId = subtopic.id;
+  }
 
   const ext = path.extname(file.originalname).toLowerCase();
   if (ext !== ".pptx" && ext !== ".ppt" && ext !== ".pdf") {
@@ -650,7 +677,7 @@ export async function uploadAndCreateResource(params: {
           title: title.trim(),
           description: description?.trim() || null,
           topicId,
-          subtopicId,
+          subtopicId: validatedSubtopicId,
           instructorId,
           originalFileName: file.originalname,
           fileType,
@@ -907,15 +934,26 @@ export async function updateResourceMetadata(
     updateData.tags = Array.isArray(data.tags) ? data.tags.map((t) => t.trim()).filter(Boolean) : [];
   }
 
-  if (data.topicId || data.subtopicId) {
-    const topicId = data.topicId || resource.topicId;
-    const subtopicId = data.subtopicId || resource.subtopicId;
-    const subtopic = await prisma.pPTSubtopic.findFirst({
-      where: { id: subtopicId, topicId },
-    });
-    if (!subtopic) throw new AppError(400, "Selected subtopic does not belong to the selected topic");
-    updateData.topicId = topicId;
-    updateData.subtopicId = subtopicId;
+  if (data.topicId !== undefined || data.subtopicId !== undefined) {
+    const targetTopicId = data.topicId ? data.topicId.trim() : resource.topicId;
+    if (targetTopicId) {
+      const topicExists = await prisma.pPTTopic.findUnique({ where: { id: targetTopicId } });
+      if (!topicExists) throw new AppError(404, "Selected main topic not found");
+      updateData.topicId = targetTopicId;
+    }
+
+    if (data.subtopicId !== undefined) {
+      const rawSub = typeof data.subtopicId === "string" ? data.subtopicId.trim() : "";
+      if (!rawSub || rawSub === "none" || rawSub === "null") {
+        updateData.subtopicId = null;
+      } else {
+        const subtopic = await prisma.pPTSubtopic.findFirst({
+          where: { id: rawSub, topicId: targetTopicId || undefined },
+        });
+        if (!subtopic) throw new AppError(400, "Selected subtopic does not belong to the selected topic");
+        updateData.subtopicId = subtopic.id;
+      }
+    }
   }
 
   return prisma.pPTResource.update({
@@ -965,7 +1003,10 @@ export async function deleteResource(resourceId: string, userId: string, userRol
     throw new AppError(403, "You do not have permission to delete this presentation");
   }
 
-  // Delete storage assets if possible
+  // Delete from database FIRST to guarantee database consistency
+  await prisma.pPTResource.delete({ where: { id: resourceId } });
+
+  // Delete storage assets safely after successful database deletion
   const localDir = path.join(getUploadRoot(), "ppt-library", resourceId);
   try {
     if (fs.existsSync(localDir)) {
@@ -984,7 +1025,6 @@ export async function deleteResource(resourceId: string, userId: string, userRol
     }
   }
 
-  await prisma.pPTResource.delete({ where: { id: resourceId } });
   return { success: true, message: "Presentation deleted successfully" };
 }
 
@@ -1030,8 +1070,20 @@ export async function listResources(
     andClauses.push({ status: query.status });
   }
 
-  if (query.topicId) andClauses.push({ topicId: query.topicId });
-  if (query.subtopicId) andClauses.push({ subtopicId: query.subtopicId });
+  if (query.topicId) {
+    if (query.topicId === "uncategorized" || query.topicId === "null") {
+      andClauses.push({ topicId: null });
+    } else {
+      andClauses.push({ topicId: query.topicId });
+    }
+  }
+  if (query.subtopicId) {
+    if (query.subtopicId === "none" || query.subtopicId === "null") {
+      andClauses.push({ subtopicId: null });
+    } else {
+      andClauses.push({ subtopicId: query.subtopicId });
+    }
+  }
   if (query.instructorId) andClauses.push({ instructorId: query.instructorId });
   if (query.language) andClauses.push({ language: query.language });
   if (query.academicLevel) andClauses.push({ academicLevel: query.academicLevel });

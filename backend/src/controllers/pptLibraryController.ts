@@ -210,10 +210,11 @@ export async function createTopic(req: AuthRequest, res: Response, next: NextFun
 
 export async function updateTopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (!req.user || !isAdminRole(req.user.role)) {
-      throw new AppError(403, "Administrator access required to update topics");
-    }
-    const topic = await pptService.updateTopic(req.params.topicId, req.body);
+    if (!req.user) throw new AppError(401, "Authentication required");
+    const topic = await pptService.updateTopic(req.params.topicId, req.body, {
+      id: req.user.id,
+      role: req.user.role,
+    });
     res.json({ success: true, data: topic });
   } catch (err) {
     next(err);
@@ -222,10 +223,11 @@ export async function updateTopic(req: AuthRequest, res: Response, next: NextFun
 
 export async function deleteTopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (!req.user || !isAdminRole(req.user.role)) {
-      throw new AppError(403, "Administrator access required to delete topics");
-    }
-    const result = await pptService.deleteTopic(req.params.topicId);
+    if (!req.user) throw new AppError(401, "Authentication required");
+    const result = await pptService.deleteTopic(req.params.topicId, {
+      id: req.user.id,
+      role: req.user.role,
+    });
     res.json({ success: true, message: result.message });
   } catch (err) {
     next(err);
@@ -247,10 +249,11 @@ export async function createSubtopic(req: AuthRequest, res: Response, next: Next
 
 export async function updateSubtopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (!req.user || !isAdminRole(req.user.role)) {
-      throw new AppError(403, "Administrator access required to update subtopics");
-    }
-    const subtopic = await pptService.updateSubtopic(req.params.subtopicId, req.body);
+    if (!req.user) throw new AppError(401, "Authentication required");
+    const subtopic = await pptService.updateSubtopic(req.params.subtopicId, req.body, {
+      id: req.user.id,
+      role: req.user.role,
+    });
     res.json({ success: true, data: subtopic });
   } catch (err) {
     next(err);
@@ -259,10 +262,11 @@ export async function updateSubtopic(req: AuthRequest, res: Response, next: Next
 
 export async function deleteSubtopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (!req.user || !isAdminRole(req.user.role)) {
-      throw new AppError(403, "Administrator access required to delete subtopics");
-    }
-    const result = await pptService.deleteSubtopic(req.params.subtopicId);
+    if (!req.user) throw new AppError(401, "Authentication required");
+    const result = await pptService.deleteSubtopic(req.params.subtopicId, {
+      id: req.user.id,
+      role: req.user.role,
+    });
     res.json({ success: true, message: result.message });
   } catch (err) {
     next(err);

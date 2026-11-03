@@ -115,13 +115,13 @@ export function InstructorPptUploadPage() {
     }
   }, [topics, selectedTopicId]);
 
-  // When subtopics arrive for the selected topic, select the first if none selected
+  // Reset subtopic if topic changes and current subtopic does not belong to new topic
   useEffect(() => {
-    if (availableSubtopics.length > 0) {
+    if (selectedSubtopicId && availableSubtopics.length > 0) {
       if (!availableSubtopics.some((s) => s.id === selectedSubtopicId)) {
-        setSelectedSubtopicId(availableSubtopics[0].id);
+        setSelectedSubtopicId("");
       }
-    } else {
+    } else if (availableSubtopics.length === 0) {
       setSelectedSubtopicId("");
     }
   }, [availableSubtopics, selectedTopicId]);
@@ -341,14 +341,7 @@ export function InstructorPptUploadPage() {
       return;
     }
 
-    if (!selectedSubtopicId) {
-      toast({
-        title: "Subtopic Required",
-        description: "Please select or create a subtopic for this resource.",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Subtopic is optional (materials can be directly under the main topic)
 
     if (!selectedFile) {
       toast({
@@ -721,22 +714,14 @@ export function InstructorPptUploadPage() {
                     value={selectedSubtopicId}
                     onChange={(e) => setSelectedSubtopicId(e.target.value)}
                     className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs disabled:opacity-70"
-                    disabled={!selectedTopicId || availableSubtopics.length === 0}
-                    required
+                    disabled={!selectedTopicId}
                   >
-                    {loadingTopics && topics.length === 0 ? (
-                      <option value="">Loading subtopics...</option>
-                    ) : !selectedTopicId ? (
-                      <option value="">Select a category first</option>
-                    ) : availableSubtopics.length === 0 ? (
-                      <option value="">No subtopics available (Click &apos;New Subtopic&apos; to create)</option>
-                    ) : (
-                      availableSubtopics.map((sub) => (
-                        <option key={sub.id} value={sub.id}>
-                          {sub.name}
-                        </option>
-                      ))
-                    )}
+                    <option value="">(None — Directly under Main Topic)</option>
+                    {availableSubtopics.map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -861,7 +846,7 @@ export function InstructorPptUploadPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={uploading || !selectedFile || !title.trim() || !selectedTopicId || !selectedSubtopicId}
+                  disabled={uploading || !selectedFile || !title.trim() || !selectedTopicId}
                   className="min-w-36 gap-2"
                 >
                   {uploading ? (

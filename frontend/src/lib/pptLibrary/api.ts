@@ -27,8 +27,8 @@ export interface PPTResource {
   id: string;
   title: string;
   description?: string | null;
-  topicId: string;
-  subtopicId: string;
+  topicId?: string | null;
+  subtopicId?: string | null;
   instructorId: string;
   originalFileName: string;
   storageKey: string;
@@ -48,8 +48,8 @@ export interface PPTResource {
   publishedAt?: string | null;
   createdAt: string;
   updatedAt: string;
-  topic: { id: string; name: string; slug: string };
-  subtopic: { id: string; name: string; slug: string };
+  topic?: { id: string; name: string; slug: string } | null;
+  subtopic?: { id: string; name: string; slug: string } | null;
   instructor: {
     id: string;
     firstName: string;
@@ -224,8 +224,8 @@ export async function updatePptMetadata(
   data: {
     title?: string;
     description?: string;
-    topicId?: string;
-    subtopicId?: string;
+    topicId?: string | null;
+    subtopicId?: string | null;
     language?: string;
     academicLevel?: string;
     tags?: string[];

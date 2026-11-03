@@ -3194,8 +3194,8 @@ model PPTResource {
   id                String               @id @default(cuid())
   title             String
   description       String?              @db.Text
-  topicId           String               @map("topic_id")
-  subtopicId        String               @map("subtopic_id")
+  topicId           String?              @map("topic_id")
+  subtopicId        String?              @map("subtopic_id")
   instructorId      String               @map("instructor_id")
   originalFileName  String               @map("original_file_name")
   fileType          String               @default("pptx") @map("file_type")
@@ -3216,8 +3216,8 @@ model PPTResource {
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
 
-  topic             PPTTopic             @relation(fields: [topicId], references: [id], onDelete: Restrict)
-  subtopic          PPTSubtopic          @relation(fields: [subtopicId], references: [id], onDelete: Restrict)
+  topic             PPTTopic?            @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  subtopic          PPTSubtopic?         @relation(fields: [subtopicId], references: [id], onDelete: SetNull)
   instructor        User                 @relation("PPTResourceAuthor", fields: [instructorId], references: [id], onDelete: Cascade)
   file              PPTResourceFile?
   versions          PPTResourceVersion[]
