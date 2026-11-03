@@ -130,7 +130,7 @@ export function CoursePdfViewer({ url, title = "Course notes", className }: Cour
       ro.disconnect();
       window.removeEventListener("resize", updateWidth);
     };
-  }, [pdfBlob, useIframeFallback]);
+  }, [blobUrl, useIframeFallback]);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -239,9 +239,9 @@ export function CoursePdfViewer({ url, title = "Course notes", className }: Cour
           />
         )}
 
-        {!isLoading && !loadError && pdfBlob && !useIframeFallback && (
+        {!isLoading && !loadError && blobUrl && !useIframeFallback && (
           <Document
-            file={pdfBlob}
+            file={blobUrl}
             onLoadSuccess={onDocumentLoad}
             onLoadError={onDocumentError}
             loading={
