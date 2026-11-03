@@ -20,8 +20,9 @@ import {
   Loader2,
   Columns,
   List,
+  Lock,
 } from "lucide-react";
-import { Document, Page, pdfjs } from "react-pdf";
+import { Document, Page, pdfjs, PasswordResponses } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -68,6 +69,10 @@ export function PptViewerPage() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfViewMode, setPdfViewMode] = useState<"single" | "continuous">("single");
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordInput, setPasswordInput] = useState("");
+  const passwordCallbackRef = useRef<((password: string) => void) | null>(null);
 
   // Measured natural PDF page dimensions (updated per page load)
   const [pdfPageDimensions, setPdfPageDimensions] = useState<{
@@ -369,6 +374,28 @@ export function PptViewerPage() {
   const prevPdfPage = () => {
     if (pdfCurrentPage > 1) {
       goToPdfPage(pdfCurrentPage - 1);
+    }
+  };
+
+  // Password-protected PDF handler
+  const handlePassword = useCallback(
+    (callback: (password: string) => void, reason: number) => {
+      passwordCallbackRef.current = callback;
+      setPasswordRequired(true);
+      if (reason === PasswordResponses.INCORRECT_PASSWORD) {
+        setPasswordError("Incorrect password. Please try again.");
+      } else {
+        setPasswordError(null);
+      }
+    },
+    []
+  );
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordCallbackRef.current && passwordInput) {
+      passwordCallbackRef.current(passwordInput);
+      setPasswordInput("");
     }
   };
 
@@ -709,10 +736,41 @@ export function PptViewerPage() {
                     </div>
                   )}
 
-                  {!pdfLoading && !pdfError && pdfData && (
+                  {passwordRequired && !pdfLoading && (
+                    <div className="flex flex-col items-center justify-center text-center max-w-sm p-6 sm:p-8 my-auto bg-slate-900/90 rounded-2xl border border-white/10 shadow-2xl z-30">
+                      <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-3">
+                        <Lock className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-base font-semibold text-white">Protected Document</h4>
+                      <p className="text-xs text-slate-400 mt-1 mb-4">
+                        This PDF is password-protected. Enter password to view.
+                      </p>
+                      <form onSubmit={handlePasswordSubmit} className="w-full space-y-3">
+                        <input
+                          type="password"
+                          value={passwordInput}
+                          onChange={(e) => setPasswordInput(e.target.value)}
+                          placeholder="Enter document password"
+                          className="w-full px-3 py-2 text-sm bg-slate-950 border border-white/20 rounded-lg text-white placeholder-slate-500 focus:outline-hidden focus:border-primary"
+                          autoFocus
+                        />
+                        {passwordError && (
+                          <p className="text-xs text-rose-400 text-left font-medium">{passwordError}</p>
+                        )}
+                        <Button type="submit" size="sm" className="w-full">
+                          Unlock Document
+                        </Button>
+                      </form>
+                    </div>
+                  )}
+
+                  {!passwordRequired && !pdfLoading && !pdfError && pdfData && (
                     <Document
                       file={{ data: pdfData }}
+                      onPassword={handlePassword}
                       onLoadSuccess={({ numPages }) => {
+                        setPasswordRequired(false);
+                        setPasswordError(null);
                         setPdfNumPages(numPages);
                         setPdfCurrentPage(1);
                       }}
