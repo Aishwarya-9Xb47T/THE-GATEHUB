@@ -33,6 +33,32 @@ const mockResources = [
     subtopic: { id: "sub-1", name: "DevOps", slug: "devops" },
     instructor: { id: "inst-1", firstName: "Shoeb", lastName: "Ahmad", avatar: null },
   },
+  {
+    id: "ppt-2",
+    title: "Direct Cloud Overview",
+    description: "Uploaded directly under Cloud Computing main topic.",
+    topicId: "topic-1",
+    subtopicId: null,
+    instructorId: "inst-1",
+    originalFileName: "cloud_overview.pdf",
+    fileType: "pdf",
+    storageKey: "/uploads/ppt-2/cloud_overview.pdf",
+    mimeType: "application/pdf",
+    fileSize: 1200000,
+    thumbnailUrl: null,
+    status: "published",
+    language: "en",
+    tags: ["cloud"],
+    academicLevel: "Undergraduate",
+    slideCount: null,
+    pageCount: 10,
+    downloadCount: 8,
+    viewCount: 19,
+    createdAt: new Date().toISOString(),
+    topic: { id: "topic-1", name: "Cloud Computing", slug: "cloud-computing" },
+    subtopic: null,
+    instructor: { id: "inst-1", firstName: "Shoeb", lastName: "Ahmad", avatar: null },
+  },
 ];
 
 const mockTopics = [
@@ -40,21 +66,35 @@ const mockTopics = [
     id: "topic-1",
     name: "Cloud Computing",
     slug: "cloud-computing",
-    resourceCount: 1,
-    subtopics: [{ id: "sub-1", name: "DevOps", slug: "devops", resourceCount: 1 }],
+    description: "Cloud platforms, DevOps and architecture",
+    icon: "Globe",
+    resourceCount: 2,
+    subtopics: [{ id: "sub-1", topicId: "topic-1", name: "DevOps", slug: "devops", resourceCount: 1 }],
   },
 ];
 
 vi.mock("@/lib/pptLibrary/api", () => ({
-  fetchLibraryResources: vi.fn(() =>
-    Promise.resolve({
-      data: mockResources,
-      pagination: { total: 1, page: 1, limit: 12, totalPages: 1 },
-    })
-  ),
+  fetchLibraryResources: vi.fn((params?: any) => {
+    let data = [...mockResources];
+    if (params?.subtopicId) {
+      data = data.filter((r) => r.subtopicId === params.subtopicId);
+    }
+    return Promise.resolve({
+      data,
+      pagination: { total: data.length, page: 1, limit: 12, totalPages: 1 },
+    });
+  }),
   fetchLibraryTopics: vi.fn(() => Promise.resolve(mockTopics)),
   getPptDownloadUrl: vi.fn((id: string) => `/api/ppt-library/${id}/download`),
   getPptPreviewUrl: vi.fn((id: string) => `/api/ppt-library/${id}/preview`),
+  createTopic: vi.fn((data: any) => Promise.resolve({ success: true, data })),
+  updateTopic: vi.fn(() => Promise.resolve({ success: true })),
+  deleteTopic: vi.fn(() => Promise.resolve({ success: true, message: "Deleted" })),
+  createSubtopic: vi.fn((data: any) => Promise.resolve({ success: true, data })),
+  updateSubtopic: vi.fn(() => Promise.resolve({ success: true })),
+  deleteSubtopic: vi.fn(() => Promise.resolve({ success: true, message: "Deleted" })),
+  updatePptMetadata: vi.fn(() => Promise.resolve({ success: true })),
+  deletePptResource: vi.fn(() => Promise.resolve({ success: true, message: "Deleted" })),
 }));
 
 vi.mock("@/store/userStore", () => ({
@@ -62,18 +102,27 @@ vi.mock("@/store/userStore", () => ({
   isAdminRole: () => false,
 }));
 
-describe("PptLibraryPage Public Browsing", () => {
+function renderWithClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>
+  );
+}
+
+describe("PptLibraryPage Hierarchical Public Browsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("renders page header, topics filter, and material cards", async () => {
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <MemoryRouter>
-          <PptLibraryPage />
-        </MemoryRouter>
-      </QueryClientProvider>
+    renderWithClient(
+      <MemoryRouter>
+        <PptLibraryPage />
+      </MemoryRouter>
     );
 
     expect(screen.getByText(/Study Materials/i)).toBeTruthy();
@@ -84,8 +133,43 @@ describe("PptLibraryPage Public Browsing", () => {
 
     expect(screen.getAllByText("Cloud Computing").length).toBeGreaterThan(0);
     expect(screen.getByText("24 slides")).toBeTruthy();
-    expect(screen.getByText("Shoeb Ahmad")).toBeTruthy();
-    expect(screen.getByText("View Slides")).toBeTruthy();
-    expect(screen.getByText("Download")).toBeTruthy();
+    expect(screen.getAllByText("Shoeb Ahmad").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("View Slides").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Download").length).toBeGreaterThan(0);
+  });
+
+  it("renders main topic cards with subtopic and resource counts", async () => {
+    renderWithClient(
+      <MemoryRouter initialEntries={["/ppt-library"]}>
+        <PptLibraryPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("1 Subtopic")).toBeTruthy();
+      expect(screen.getByText("2 Materials")).toBeTruthy();
+    });
+  });
+
+  it("navigates into main topic and shows subtopics and direct materials with breadcrumbs", async () => {
+    renderWithClient(
+      <MemoryRouter initialEntries={["/ppt-library?topicId=topic-1"]}>
+        <PptLibraryPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      // Breadcrumbs
+      expect(screen.getByRole("button", { name: "Study Materials" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Cloud Computing" })).toBeTruthy();
+    });
+
+    // Subtopic listed
+    expect(screen.getByText(/Subtopics in Cloud Computing/i)).toBeTruthy();
+    expect(screen.getAllByText("DevOps").length).toBeGreaterThan(0);
+
+    // Direct materials section
+    expect(screen.getByText(/Direct Materials under Cloud Computing/i)).toBeTruthy();
+    expect(screen.getByText("Direct Cloud Overview")).toBeTruthy();
   });
 });

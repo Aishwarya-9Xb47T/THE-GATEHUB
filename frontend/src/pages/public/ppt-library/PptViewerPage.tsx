@@ -538,10 +538,28 @@ export function PptViewerPage() {
                   <Link to="/ppt-library" className="hover:text-foreground">
                     Study Materials
                   </Link>
-                  <span>/</span>
-                  <span className="truncate">{resource.topic.name}</span>
-                  <span>/</span>
-                  <span className="truncate font-medium text-foreground">{resource.subtopic.name}</span>
+                  {resource.topic && (
+                    <>
+                      <span>/</span>
+                      <Link
+                        to={`/ppt-library?topicId=${resource.topic.id}`}
+                        className="truncate hover:text-foreground"
+                      >
+                        {resource.topic.name}
+                      </Link>
+                    </>
+                  )}
+                  {resource.subtopic && (
+                    <>
+                      <span>/</span>
+                      <Link
+                        to={`/ppt-library?topicId=${resource.topic?.id || ""}&subtopicId=${resource.subtopic.id}`}
+                        className="truncate font-medium text-foreground hover:underline"
+                      >
+                        {resource.subtopic.name}
+                      </Link>
+                    </>
+                  )}
                 </div>
                 <h1 className="text-sm sm:text-base font-semibold text-foreground truncate mt-0.5">
                   {resource.title}
@@ -1081,13 +1099,17 @@ export function PptViewerPage() {
           <aside className="w-full lg:w-80 shrink-0 space-y-4">
             {/* Quick Metadata Card */}
             <div className="p-5 rounded-2xl border border-border bg-card shadow-xs space-y-4">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs">
-                  {resource.topic.name}
-                </Badge>
-                <Badge variant="outline" className="text-xs">
-                  {resource.subtopic.name}
-                </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                {resource.topic && (
+                  <Badge variant="secondary" className="text-xs">
+                    {resource.topic.name}
+                  </Badge>
+                )}
+                {resource.subtopic && (
+                  <Badge variant="outline" className="text-xs">
+                    {resource.subtopic.name}
+                  </Badge>
+                )}
               </div>
 
               <div>

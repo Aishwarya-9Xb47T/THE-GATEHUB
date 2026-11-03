@@ -152,8 +152,8 @@ export function InstructorPptManagementPage() {
     setEditingPpt(ppt);
     setEditTitle(ppt.title);
     setEditDesc(ppt.description || "");
-    setEditTopicId(ppt.topicId);
-    setEditSubtopicId(ppt.subtopicId);
+    setEditTopicId(ppt.topicId || "");
+    setEditSubtopicId(ppt.subtopicId || "");
     setEditTags(ppt.tags ? ppt.tags.join(", ") : "");
     setEditLevel(ppt.academicLevel || "Undergraduate");
   };
@@ -170,8 +170,8 @@ export function InstructorPptManagementPage() {
       await updatePptMetadata(editingPpt.id, {
         title: editTitle.trim(),
         description: editDesc.trim(),
-        topicId: editTopicId,
-        subtopicId: editSubtopicId,
+        topicId: editTopicId || undefined,
+        subtopicId: editSubtopicId || null,
         academicLevel: editLevel,
         tags,
       });
@@ -417,8 +417,8 @@ export function InstructorPptManagementPage() {
                     </td>
 
                     <td className="px-4 py-4">
-                      <div className="text-xs font-medium text-foreground">{ppt.topic.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{ppt.subtopic.name}</div>
+                      <div className="text-xs font-medium text-foreground">{ppt.topic?.name || "Uncategorized"}</div>
+                      <div className="text-[11px] text-muted-foreground">{ppt.subtopic?.name || "Direct Material"}</div>
                     </td>
 
                     <td className="px-4 py-4">
@@ -528,7 +528,10 @@ export function InstructorPptManagementPage() {
                 <Label className="text-xs font-semibold">Topic</Label>
                 <select
                   value={editTopicId}
-                  onChange={(e) => setEditTopicId(e.target.value)}
+                  onChange={(e) => {
+                    setEditTopicId(e.target.value);
+                    setEditSubtopicId("");
+                  }}
                   className="mt-1 w-full h-9 px-2 text-xs rounded-md border border-border bg-card"
                 >
                   {topics.map((t) => (
@@ -546,6 +549,7 @@ export function InstructorPptManagementPage() {
                   onChange={(e) => setEditSubtopicId(e.target.value)}
                   className="mt-1 w-full h-9 px-2 text-xs rounded-md border border-border bg-card"
                 >
+                  <option value="">(None — Directly under Main Topic)</option>
                   {editAvailableSubtopics.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
