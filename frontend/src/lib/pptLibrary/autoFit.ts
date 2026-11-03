@@ -155,3 +155,4 @@ export function normalizeSlideSvg(svgString: string | null | undefined): string 
 
   return normalized;
 }
+
