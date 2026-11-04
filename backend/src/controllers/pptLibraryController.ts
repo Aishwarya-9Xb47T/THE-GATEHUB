@@ -15,7 +15,11 @@ export async function getLibraryResources(req: AuthRequest, res: Response, next:
 
     const cached = appCache.get<{ success: boolean; data: any[]; pagination: any }>(cacheKey);
     if (cached) {
-      res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
+      if (userScope === 'public:') {
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
+      } else {
+        res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+      }
       return res.json(cached);
     }
 

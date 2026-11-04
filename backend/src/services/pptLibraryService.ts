@@ -829,7 +829,7 @@ export async function uploadAndCreateResource(params: {
 
   // Create database record with initial version and file bytes backup (with atomic rollback cleanup)
   try {
-    return await prisma.$transaction(async (tx) => {
+    const createdResult = await prisma.$transaction(async (tx) => {
       const created = await tx.pPTResource.create({
         data: {
           id: resourceId,
@@ -896,6 +896,8 @@ export async function uploadAndCreateResource(params: {
 
       return created;
     });
+    appCache.invalidate("ppt:");
+    return createdResult;
   } catch (dbErr) {
     console.error("[PPT_LIBRARY] Database creation failed after storage upload, cleaning up orphaned files...", dbErr);
     for (const key of newlyUploadedB2Keys) {
@@ -982,7 +984,7 @@ export async function replaceResourceFile(
   const mimeType = file.mimetype || (ext === ".pdf" ? "application/pdf" : (ext === ".pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/vnd.ms-powerpoint"));
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const replaceResult = await prisma.$transaction(async (tx) => {
       // Record new version
       await tx.pPTResourceVersion.create({
         data: {
@@ -1036,6 +1038,8 @@ export async function replaceResourceFile(
         },
       });
     });
+    appCache.invalidate("ppt:");
+    return replaceResult;
   } catch (dbErr) {
     console.error("[PPT_LIBRARY] Database update failed after replacement file upload, cleaning up orphaned replacement file...", dbErr);
     if (isB2Configured()) {
@@ -1115,7 +1119,7 @@ export async function updateResourceMetadata(
     }
   }
 
-  return prisma.pPTResource.update({
+  const updated = await prisma.pPTResource.update({
     where: { id: resourceId },
     data: updateData,
     include: {
@@ -1126,6 +1130,8 @@ export async function updateResourceMetadata(
       },
     },
   });
+  appCache.invalidate("ppt:");
+  return updated;
 }
 
 export async function setResourcePublishStatus(
@@ -1141,7 +1147,7 @@ export async function setResourcePublishStatus(
     throw new AppError(403, "You do not have permission to modify this presentation status");
   }
 
-  return prisma.pPTResource.update({
+  const updated = await prisma.pPTResource.update({
     where: { id: resourceId },
     data: {
       status,
@@ -1152,6 +1158,8 @@ export async function setResourcePublishStatus(
       subtopic: true,
     },
   });
+  appCache.invalidate("ppt:");
+  return updated;
 }
 
 export async function deleteResource(resourceId: string, userId: string, userRole: string) {
@@ -1164,6 +1172,7 @@ export async function deleteResource(resourceId: string, userId: string, userRol
 
   // Delete from database FIRST to guarantee database consistency
   await prisma.pPTResource.delete({ where: { id: resourceId } });
+  appCache.invalidate("ppt:");
 
   // Delete storage assets safely after successful database deletion
   const localDir = path.join(getUploadRoot(), "ppt-library", resourceId);
