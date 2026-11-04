@@ -264,14 +264,18 @@ export async function deletePptResource(pptId: string): Promise<{ success: boole
 }
 
 // Topics & Subtopics
-export async function createTopic(data: {
-  name: string;
-  description?: string;
-  icon?: string;
-  displayOrder?: number;
-  isActive?: boolean;
-}): Promise<{ success: boolean; data: PPTTopic }> {
-  const res = await api<{ success: boolean; data: PPTTopic }>("/ppt-library/topics", {
+export async function createTopic(
+  data: {
+    name: string;
+    description?: string;
+    icon?: string;
+    displayOrder?: number;
+    isActive?: boolean;
+  },
+  orGet = false
+): Promise<{ success: boolean; data: PPTTopic }> {
+  const url = orGet ? "/ppt-library/topics?orGet=true" : "/ppt-library/topics";
+  const res = await api<{ success: boolean; data: PPTTopic }>(url, {
     method: "POST",
     body: data,
   });
@@ -297,22 +301,30 @@ export async function updateTopic(
   return res.data;
 }
 
-export async function deleteTopic(topicId: string): Promise<{ success: boolean; message: string }> {
-  const res = await api<{ success: boolean; message: string }>(`/ppt-library/topics/${topicId}`, {
+export async function deleteTopic(
+  topicId: string,
+  cascade = false
+): Promise<{ success: boolean; message: string }> {
+  const url = cascade ? `/ppt-library/topics/${topicId}?cascade=true` : `/ppt-library/topics/${topicId}`;
+  const res = await api<{ success: boolean; message: string }>(url, {
     method: "DELETE",
   });
   if (res.error || !res.data) throw new Error(res.error || "Failed to delete topic");
   return res.data;
 }
 
-export async function createSubtopic(data: {
-  topicId: string;
-  name: string;
-  description?: string;
-  displayOrder?: number;
-  isActive?: boolean;
-}): Promise<{ success: boolean; data: PPTSubtopic }> {
-  const res = await api<{ success: boolean; data: PPTSubtopic }>("/ppt-library/subtopics", {
+export async function createSubtopic(
+  data: {
+    topicId: string;
+    name: string;
+    description?: string;
+    displayOrder?: number;
+    isActive?: boolean;
+  },
+  orGet = false
+): Promise<{ success: boolean; data: PPTSubtopic }> {
+  const url = orGet ? "/ppt-library/subtopics?orGet=true" : "/ppt-library/subtopics";
+  const res = await api<{ success: boolean; data: PPTSubtopic }>(url, {
     method: "POST",
     body: data,
   });
@@ -337,8 +349,12 @@ export async function updateSubtopic(
   return res.data;
 }
 
-export async function deleteSubtopic(subtopicId: string): Promise<{ success: boolean; message: string }> {
-  const res = await api<{ success: boolean; message: string }>(`/ppt-library/subtopics/${subtopicId}`, {
+export async function deleteSubtopic(
+  subtopicId: string,
+  cascade = false
+): Promise<{ success: boolean; message: string }> {
+  const url = cascade ? `/ppt-library/subtopics/${subtopicId}?cascade=true` : `/ppt-library/subtopics/${subtopicId}`;
+  const res = await api<{ success: boolean; message: string }>(url, {
     method: "DELETE",
   });
   if (res.error || !res.data) throw new Error(res.error || "Failed to delete subtopic");

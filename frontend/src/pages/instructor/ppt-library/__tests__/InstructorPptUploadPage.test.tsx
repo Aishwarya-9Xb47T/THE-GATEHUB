@@ -88,51 +88,67 @@ function renderWithClient(ui: React.ReactElement) {
   );
 }
 
-describe("InstructorPptUploadPage Category, Subtopic and File Selection Flow", () => {
+describe("InstructorPptUploadPage Unified Topic-Building Workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("loads categories from backend and renders them in the topic dropdown", async () => {
+  it("renders the Unified Study Material Builder with all 4 core sections", async () => {
     renderWithClient(<InstructorPptUploadPage />);
 
-    // Page title and form header
-    expect(screen.getByText("Upload Study Material")).toBeTruthy();
+    // Header & badge
+    expect(screen.getByText("Unified Study Material Builder")).toBeTruthy();
+    expect(screen.getByText("Create Topic & Upload Materials")).toBeTruthy();
 
-    // Verify categories appear in dropdown
-    await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Programming" })).toBeTruthy();
-      expect(screen.getByRole("option", { name: "Artificial Intelligence" })).toBeTruthy();
-    });
+    // Section 1: Main Topic
+    expect(screen.getByText("1. Main Topic")).toBeTruthy();
+    expect(screen.getByPlaceholderText(/e.g. Deep Learning/i)).toBeTruthy();
+
+    // Section 2: Main Topic Materials (Direct Upload)
+    expect(screen.getByText(/2. Main Topic Materials \(Direct Upload\)/i)).toBeTruthy();
+
+    // Section 3: Subtopics & Modules
+    expect(screen.getByText(/3. Subtopics & Modules/i)).toBeTruthy();
+
+    // Section 4: Settings & Publish bar
+    expect(screen.getByText("Publish Entire Topic")).toBeTruthy();
   });
 
-  it("populates subtopics when a topic is selected", async () => {
+  it("allows adding multiple subtopics (e.g. CNN, ANN, RNN)", async () => {
     renderWithClient(<InstructorPptUploadPage />);
 
-    // Initial topic auto-selects Programming and shows subtopics immediately
+    // Initial has 1 subtopic
+    const subtopicTitleInputs = screen.getAllByPlaceholderText(/e.g. CNN, ANN, RNN/i);
+    expect(subtopicTitleInputs.length).toBe(1);
+
+    // Click "+ Add Subtopic"
+    const addButtons = screen.getAllByText("Add Subtopic");
+    fireEvent.click(addButtons[0]);
+
+    // Should now have 2 subtopics
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "Python" })).toBeTruthy();
-      expect(screen.getByRole("option", { name: "Java" })).toBeTruthy();
+      const inputs = screen.getAllByPlaceholderText(/e.g. CNN, ANN, RNN/i);
+      expect(inputs.length).toBe(2);
     });
+
+    // Fill titles for both
+    const inputs = screen.getAllByPlaceholderText(/e.g. CNN, ANN, RNN/i);
+    fireEvent.change(inputs[0], { target: { value: "CNN" } });
+    fireEvent.change(inputs[1], { target: { value: "ANN" } });
+
+    expect((inputs[0] as HTMLInputElement).value).toBe("CNN");
+    expect((inputs[1] as HTMLInputElement).value).toBe("ANN");
   });
 
-  it("shows category action buttons for approved instructors", async () => {
+  it("switches to Add to Existing Topic mode and shows category dropdown", async () => {
     renderWithClient(<InstructorPptUploadPage />);
 
-    expect(screen.getByText("New Category")).toBeTruthy();
+    const existingBtn = screen.getByText("Add to Existing Topic");
+    fireEvent.click(existingBtn);
+
     await waitFor(() => {
-      expect(screen.getByText("New Subtopic")).toBeTruthy();
+      expect(screen.getByText(/Select Existing Topic/i)).toBeTruthy();
+      expect(screen.getByRole("option", { name: /Programming/i })).toBeTruthy();
     });
-  });
-
-  it("allows switching between PowerPoint and PDF upload modes", async () => {
-    renderWithClient(<InstructorPptUploadPage />);
-
-    const pdfCard = screen.getByText("PDF Document");
-    expect(pdfCard).toBeTruthy();
-    fireEvent.click(pdfCard);
-
-    // Verify button text updates to PDF mode
-    expect(screen.getByText("Upload & Publish PDF")).toBeTruthy();
   });
 });

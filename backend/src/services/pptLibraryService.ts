@@ -348,6 +348,44 @@ export async function createTopic(data: {
   });
 }
 
+export async function createOrGetTopic(data: {
+  name: string;
+  description?: string;
+  icon?: string;
+  displayOrder?: number;
+  createdById?: string;
+}) {
+  const trimmedName = data.name.trim();
+  if (!trimmedName) throw new AppError(400, "Topic name is required");
+
+  let slug = slugify(trimmedName);
+  if (!slug) slug = `topic-${Date.now()}`;
+
+  const existing = await prisma.pPTTopic.findFirst({
+    where: {
+      OR: [{ name: { equals: trimmedName, mode: "insensitive" } }, { slug }],
+    },
+    include: { subtopics: true },
+  });
+  if (existing) {
+    return existing;
+  }
+
+  appCache.invalidate("ppt:");
+  return prisma.pPTTopic.create({
+    data: {
+      name: trimmedName,
+      slug,
+      description: data.description?.trim() || null,
+      icon: data.icon?.trim() || null,
+      displayOrder: data.displayOrder ?? 0,
+      isActive: true,
+      createdById: data.createdById || null,
+    },
+    include: { subtopics: true },
+  });
+}
+
 export async function updateTopic(
   id: string,
   data: {
@@ -393,10 +431,16 @@ export async function updateTopic(
   });
 }
 
-export async function deleteTopic(id: string, currentUser?: { id: string; role: string }) {
+export async function deleteTopic(
+  id: string,
+  currentUser?: { id: string; role: string },
+  cascade = false
+) {
   const topic = await prisma.pPTTopic.findUnique({
     where: { id },
     include: {
+      subtopics: { select: { id: true } },
+      resources: { select: { id: true } },
       _count: {
         select: { subtopics: true, resources: true },
       },
@@ -408,21 +452,40 @@ export async function deleteTopic(id: string, currentUser?: { id: string; role: 
     throw new AppError(403, "You do not have permission to delete this topic");
   }
 
-  if (topic._count.resources > 0) {
-    throw new AppError(
-      400,
-      `Cannot delete topic "${topic.name}" because it contains ${topic._count.resources} presentation(s). Reassign or delete them first.`
-    );
-  }
-  if (topic._count.subtopics > 0) {
-    throw new AppError(
-      400,
-      `Cannot delete topic "${topic.name}" because it contains ${topic._count.subtopics} subtopic(s). Delete or reassign the subtopics first.`
-    );
+  if (!cascade) {
+    if (topic._count.resources > 0) {
+      throw new AppError(
+        400,
+        `Cannot delete topic "${topic.name}" because it contains ${topic._count.resources} presentation(s). Reassign or delete them first, or confirm cascade delete.`
+      );
+    }
+    if (topic._count.subtopics > 0) {
+      throw new AppError(
+        400,
+        `Cannot delete topic "${topic.name}" because it contains ${topic._count.subtopics} subtopic(s). Delete or reassign the subtopics first, or confirm cascade delete.`
+      );
+    }
+  } else {
+    // Cascade delete: delete all direct resources under this topic safely (DB + B2/disk)
+    for (const res of topic.resources) {
+      await deleteResource(res.id, currentUser);
+    }
+    // Delete all subtopics under this topic, and any resources attached to them
+    for (const sub of topic.subtopics) {
+      const subResources = await prisma.pPTResource.findMany({
+        where: { subtopicId: sub.id },
+        select: { id: true },
+      });
+      for (const subRes of subResources) {
+        await deleteResource(subRes.id, currentUser);
+      }
+      await prisma.pPTSubtopic.delete({ where: { id: sub.id } });
+    }
   }
 
   await prisma.pPTTopic.delete({ where: { id } });
-  return { success: true, message: "Topic deleted successfully" };
+  appCache.invalidate("ppt:");
+  return { success: true, message: "Topic and associated materials deleted successfully" };
 }
 
 // Subtopics
@@ -462,6 +525,46 @@ export async function createSubtopic(data: {
       description: data.description?.trim() || null,
       displayOrder: data.displayOrder ?? 0,
       isActive: data.isActive ?? true,
+      createdById: data.createdById || null,
+    },
+  });
+}
+
+export async function createOrGetSubtopic(data: {
+  topicId: string;
+  name: string;
+  description?: string;
+  displayOrder?: number;
+  createdById?: string;
+}) {
+  const topic = await prisma.pPTTopic.findUnique({ where: { id: data.topicId } });
+  if (!topic) throw new AppError(404, "Parent topic not found");
+
+  const trimmedName = data.name.trim();
+  if (!trimmedName) throw new AppError(400, "Subtopic name is required");
+
+  let slug = slugify(trimmedName);
+  if (!slug) slug = `subtopic-${Date.now()}`;
+
+  const existing = await prisma.pPTSubtopic.findFirst({
+    where: {
+      topicId: data.topicId,
+      OR: [{ name: { equals: trimmedName, mode: "insensitive" } }, { slug }],
+    },
+  });
+  if (existing) {
+    return existing;
+  }
+
+  appCache.invalidate("ppt:");
+  return prisma.pPTSubtopic.create({
+    data: {
+      topicId: data.topicId,
+      name: trimmedName,
+      slug,
+      description: data.description?.trim() || null,
+      displayOrder: data.displayOrder ?? 0,
+      isActive: true,
       createdById: data.createdById || null,
     },
   });
@@ -511,10 +614,15 @@ export async function updateSubtopic(
   });
 }
 
-export async function deleteSubtopic(id: string, currentUser?: { id: string; role: string }) {
+export async function deleteSubtopic(
+  id: string,
+  currentUser?: { id: string; role: string },
+  cascade = false
+) {
   const subtopic = await prisma.pPTSubtopic.findUnique({
     where: { id },
     include: {
+      resources: { select: { id: true } },
       _count: {
         select: { resources: true },
       },
@@ -526,15 +634,22 @@ export async function deleteSubtopic(id: string, currentUser?: { id: string; rol
     throw new AppError(403, "You do not have permission to delete this subtopic");
   }
 
-  if (subtopic._count.resources > 0) {
-    throw new AppError(
-      400,
-      `Cannot delete subtopic "${subtopic.name}" because it contains ${subtopic._count.resources} presentation(s). Reassign or delete them first.`
-    );
+  if (!cascade) {
+    if (subtopic._count.resources > 0) {
+      throw new AppError(
+        400,
+        `Cannot delete subtopic "${subtopic.name}" because it contains ${subtopic._count.resources} presentation(s). Reassign or delete them first, or confirm cascade delete.`
+      );
+    }
+  } else {
+    for (const res of subtopic.resources) {
+      await deleteResource(res.id, currentUser);
+    }
   }
 
   await prisma.pPTSubtopic.delete({ where: { id } });
-  return { success: true, message: "Subtopic deleted successfully" };
+  appCache.invalidate("ppt:");
+  return { success: true, message: "Subtopic and associated materials deleted successfully" };
 }
 
 // ==========================================
