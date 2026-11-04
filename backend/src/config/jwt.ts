@@ -12,4 +12,5 @@ if (secret.length < 32) {
 }
 
 export const JWT_SECRET = secret;
-export const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || "30d";
+// Short-lived access tokens (15 minutes). Long-lived persistent session is handled via HttpOnly refresh-token cookie.
+export const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || "15m";

@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import { GateHubAssistantProvider, GateHubAssistantRoot } from "@/assistant";
 import { AppScrollRestoration } from "@/components/navigation/AppScrollRestoration";
 import { restoreQueryCache, setupQueryCachePersistence } from "@/lib/queryCachePersist";
+import { initAuthSync } from "@/lib/authSync";
 import { landingCoursesQueryOptions, landingUniversesQueryOptions } from "@/lib/landingQueries";
 import App from "./App";
 import "./index.css";
@@ -48,6 +49,9 @@ if (Array.isArray(initialUniverses) && initialUniverses.length > 0) {
 
 // Start background cache sync to localStorage
 setupQueryCachePersistence(queryClient);
+
+// Initialize multi-tab auth synchronization
+initAuthSync();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

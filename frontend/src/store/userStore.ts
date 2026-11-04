@@ -103,6 +103,9 @@ export const useUserStore = create<UserState>()(
         if (token) {
           localStorage.setItem("lms_token", token);
           sessionStorage.setItem("lms_token", token);
+          try {
+            import("@/lib/authSync").then((m) => m.notifyAuthLogin(token)).catch(() => {});
+          } catch {}
         } else {
           localStorage.removeItem("lms_token");
           sessionStorage.removeItem("lms_token");
@@ -121,15 +124,14 @@ export const useUserStore = create<UserState>()(
 
       logout: async () => {
         const token = getStoredToken();
-        if (token) {
-          try {
-            await fetch(apiUrl("/api/auth/logout"), {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-            });
-          } catch {
-            // ignore logout API errors
-          }
+        try {
+          await fetch(apiUrl("/api/auth/logout"), {
+            method: "POST",
+            credentials: "include",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+        } catch {
+          // ignore logout API errors
         }
         localStorage.removeItem("lms_token");
         sessionStorage.removeItem("lms_token");
@@ -137,6 +139,10 @@ export const useUserStore = create<UserState>()(
         try {
           const { clearUserQueryCache } = await import("@/lib/queryCachePersist");
           clearUserQueryCache();
+        } catch {}
+        try {
+          const { notifyAuthLogout } = await import("@/lib/authSync");
+          notifyAuthLogout();
         } catch {}
         set({ user: null, token: null, isLoading: false });
       },
@@ -146,20 +152,42 @@ export const useUserStore = create<UserState>()(
         const { setLoading, setUser, setToken } = state;
 
         try {
-          const token = getStoredToken();
+          let token = getStoredToken();
           if (!token) {
+            // Attempt cookie-based persistent session recovery (HttpOnly gatehub_refresh_token)
+            try {
+              const cookieRefreshRes = await fetch(apiUrl("/api/auth/refresh"), {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+              });
+              if (cookieRefreshRes.ok) {
+                const refreshData = await cookieRefreshRes.json();
+                if (refreshData.success && (refreshData.token || refreshData.accessToken) && refreshData.user) {
+                  const restoredToken = (refreshData.token || refreshData.accessToken) as string;
+                  setToken(restoredToken);
+                  setUser(refreshData.user);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {
+              // No cookie or network down
+            }
+
             setUser(null);
             setToken(null);
             setLoading(false);
             return;
           }
 
-          const hasCachedSession = !!state.user && state.token === token;
+          const hasCachedSession = !state.user && state.token === token;
           if (!hasCachedSession) {
             setLoading(true);
           }
 
           const response = await fetch(apiUrl("/api/auth/me"), {
+            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
@@ -180,13 +208,15 @@ export const useUserStore = create<UserState>()(
             try {
               const refreshRes = await fetch(apiUrl("/api/auth/refresh"), {
                 method: "POST",
+                credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ token }),
               });
               if (refreshRes.ok) {
                 const refreshData = await refreshRes.json();
-                if (refreshData.success && refreshData.token && refreshData.user) {
-                  setToken(refreshData.token);
+                if (refreshData.success && (refreshData.token || refreshData.accessToken) && refreshData.user) {
+                  const newToken = (refreshData.token || refreshData.accessToken) as string;
+                  setToken(newToken);
                   setUser(refreshData.user);
                   setLoading(false);
                   return;

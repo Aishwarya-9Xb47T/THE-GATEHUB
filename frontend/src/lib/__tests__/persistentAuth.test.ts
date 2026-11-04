@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getToken, silentRefreshToken, api } from "@/lib/api";
 import { useUserStore } from "@/store/userStore";
+import { notifyAuthLogout, initAuthSync } from "@/lib/authSync";
 
 describe("Persistent Authentication & Silent Renewal", () => {
   const originalFetch = global.fetch;
@@ -24,7 +25,7 @@ describe("Persistent Authentication & Silent Renewal", () => {
     expect(getToken()).toBe("persistent-jwt-token");
   });
 
-  it("renews token silently via /auth/refresh and updates local storage and lms-auth", async () => {
+  it("renews token silently via /auth/refresh with credentials: include and updates storage", async () => {
     localStorage.setItem("lms_token", "expiring-token");
     localStorage.setItem(
       "lms-auth",
@@ -33,7 +34,7 @@ describe("Persistent Authentication & Silent Renewal", () => {
       })
     );
 
-    global.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
@@ -42,6 +43,7 @@ describe("Persistent Authentication & Silent Renewal", () => {
         user: { id: "u1", role: "student", firstName: "Alex" },
       }),
     } as any);
+    global.fetch = mockFetch;
 
     const refreshed = await silentRefreshToken();
     expect(refreshed).toBe("fresh-new-token");
@@ -50,6 +52,39 @@ describe("Persistent Authentication & Silent Renewal", () => {
     const updatedAuth = JSON.parse(localStorage.getItem("lms-auth") || "{}");
     expect(updatedAuth?.state?.token).toBe("fresh-new-token");
     expect(updatedAuth?.state?.user?.firstName).toBe("Alex");
+
+    // Verify credentials: "include" was passed
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/refresh"),
+      expect.objectContaining({ credentials: "include" })
+    );
+  });
+
+  it("recovers session from HttpOnly cookie even when localStorage has no token", async () => {
+    // No token in localStorage or sessionStorage (e.g., brand new browser window or expired access token)
+    expect(getToken()).toBeNull();
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        token: "restored-from-cookie",
+        user: { id: "u99", email: "cookie@user.com", firstName: "Cookie", role: "student" },
+      }),
+    } as any);
+    global.fetch = mockFetch;
+
+    await useUserStore.getState().fetchUser();
+
+    // Successfully restored from cookie!
+    expect(useUserStore.getState().user?.email).toBe("cookie@user.com");
+    expect(useUserStore.getState().token).toBe("restored-from-cookie");
+    expect(localStorage.getItem("lms_token")).toBe("restored-from-cookie");
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/refresh"),
+      expect.objectContaining({ credentials: "include" })
+    );
   });
 
   it("transparently retries API requests on 401 after silent refresh without redirecting", async () => {
@@ -109,5 +144,28 @@ describe("Persistent Authentication & Silent Renewal", () => {
     expect(useUserStore.getState().user?.id).toBe("u2");
     expect(useUserStore.getState().token).toBe("saved-token");
     expect(useUserStore.getState().isLoading).toBe(false);
+  });
+
+  it("synchronizes logout across browser tabs via authSync", () => {
+    initAuthSync();
+    useUserStore.setState({
+      user: { id: "u3", email: "tab@test.com", firstName: "Tab", lastName: "User", role: "student" },
+      token: "tab-token",
+      isLoading: false,
+    });
+    localStorage.setItem("lms_token", "tab-token");
+
+    // Simulate cross-tab logout storage event
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "gatehub_auth_event",
+        newValue: JSON.stringify({ type: "LOGOUT" }),
+      })
+    );
+
+    // Auth should be cleared immediately
+    expect(useUserStore.getState().user).toBeNull();
+    expect(useUserStore.getState().token).toBeNull();
+    expect(localStorage.getItem("lms_token")).toBeNull();
   });
 });

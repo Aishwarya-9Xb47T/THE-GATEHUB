@@ -41,7 +41,7 @@ export interface GoogleProfile {
 
 type ReqLike = { headers: Record<string, unknown>; ip?: string; socket?: { remoteAddress?: string } };
 
-function sanitizeUser(user: {
+export function sanitizeUser(user: {
   id: string;
   email: string;
   firstName: string;
@@ -64,19 +64,12 @@ function sanitizeUser(user: {
   };
 }
 
-async function resolveJwtExpires(): Promise<string | number> {
-  try {
-    const settings = await getPlatformSettings();
-    if (settings.jwtExpiryHours && settings.jwtExpiryHours > 0) {
-      return `${settings.jwtExpiryHours}h`;
-    }
-  } catch {
-    /* use env default */
-  }
+export function resolveJwtExpires(): string {
+  // Short-lived access token expiry (15m). Long-lived persistence is managed via refresh tokens.
   return JWT_EXPIRES;
 }
 
-async function signToken(user: {
+export async function signToken(user: {
   id: string;
   email: string;
   role: string;
@@ -349,7 +342,15 @@ export async function login(email: string, password: string, req?: ReqLike) {
       });
     }
 
-    return { user: sanitized, token: await signToken({ ...user, sessionId: session.id }) };
+    const { issueRefreshToken } = await import("./refreshTokenService.js");
+    const { rawToken: refreshToken } = await issueRefreshToken({ userId: user.id, sessionId: session.id });
+
+    return {
+      user: sanitized,
+      token: await signToken({ ...user, sessionId: session.id }),
+      refreshToken,
+      sessionId: session.id,
+    };
   } catch (error: unknown) {
     if (error instanceof AppError) throw error;
     throw new AppError(500, "Login failed. Please try again later.");
@@ -583,6 +584,7 @@ export async function exchangeOAuthCode(rawCode: string) {
   return {
     user: sanitizeUser(user),
     token: String(consumed.payload.token),
+    sessionId: (consumed.payload as any)?.sessionId as string | undefined,
   };
 }
 
@@ -929,86 +931,4 @@ export async function confirmEmailChange(rawToken: string, req?: ReqLike) {
 /** Exported for tests / health docs */
 export function getAuthFrontendBase(): string {
   return getFrontendUrl();
-}
-
-
-export async function refreshToken(oldToken: string, req?: ReqLike) {
-  if (!oldToken || typeof oldToken !== "string") {
-    throw new AppError(400, "Token is required");
-  }
-
-  const cleanToken = oldToken.startsWith("Bearer ") ? oldToken.slice(7).trim() : oldToken.trim();
-  if (!cleanToken) {
-    throw new AppError(400, "Token is required");
-  }
-
-  let decoded: { userId: string; email: string; role: Role; tokenVersion?: number; sessionId?: string };
-  try {
-    decoded = jwt.verify(cleanToken, JWT_SECRET, { ignoreExpiration: true }) as any;
-  } catch {
-    throw new AppError(401, "Invalid token");
-  }
-
-  if (!decoded || !decoded.userId) {
-    throw new AppError(401, "Invalid token payload");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.userId },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      firstName: true,
-      lastName: true,
-      avatar: true,
-      suspended: true,
-      deletedAt: true,
-      tokenVersion: true,
-      emailVerified: true,
-      instructorApprovalStatus: true,
-    },
-  });
-
-  if (!user || user.suspended || user.deletedAt) {
-    throw new AppError(401, "Invalid or suspended account");
-  }
-
-  if (decoded.role !== user.role) {
-    throw new AppError(401, "Role mismatch — please sign in again");
-  }
-
-  const tokenVersion = decoded.tokenVersion ?? 0;
-  if (tokenVersion !== user.tokenVersion) {
-    throw new AppError(401, "Session expired — please sign in again");
-  }
-
-  let sessionId = decoded.sessionId;
-  if (sessionId) {
-    const session = await prisma.userSession.findFirst({
-      where: { id: sessionId, userId: user.id, revoked: false },
-    });
-    if (!session) {
-      throw new AppError(401, "Session revoked — please sign in again");
-    }
-    const { touchSession } = await import("./sessionService.js");
-    await touchSession(sessionId, user.id);
-  } else {
-    const session = await createUserSession(user.id, user.tokenVersion, req);
-    sessionId = session.id;
-  }
-
-  const newToken = await signToken({ ...user, sessionId });
-
-  await logSecurityEvent({
-    action: "TOKEN_REFRESH",
-    userId: user.id,
-    email: user.email,
-    ...getReqMeta(req),
-  });
-
-  return {
-    user: sanitizeUser(user),
-    token: newToken,
-  };
 }

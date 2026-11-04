@@ -98,37 +98,42 @@ function addRefreshSubscriber(cb: (token: string | null) => void) {
 
 export async function silentRefreshToken(): Promise<string | null> {
   const currentToken = getToken();
-  if (!currentToken) return null;
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (currentToken) {
+      headers.Authorization = `Bearer ${currentToken}`;
+    }
+
     const res = await fetch(apiUrl("/auth/refresh"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${currentToken}`,
-      },
-      body: JSON.stringify({ token: currentToken }),
+      credentials: "include",
+      headers,
+      body: JSON.stringify({ token: currentToken || undefined }),
     });
 
     if (!res.ok) return null;
     const json = await res.json();
-    if (json.success && json.token) {
+    const resolvedToken = (json.token || json.accessToken) as string | undefined;
+    if (json.success && resolvedToken) {
       if (typeof window !== "undefined") {
-        localStorage.setItem("lms_token", json.token);
-        sessionStorage.setItem("lms_token", json.token);
+        localStorage.setItem("lms_token", resolvedToken);
+        sessionStorage.setItem("lms_token", resolvedToken);
         try {
           const raw = localStorage.getItem("lms-auth");
           if (raw) {
             const parsed = JSON.parse(raw);
             if (parsed?.state) {
-              parsed.state.token = json.token;
+              parsed.state.token = resolvedToken;
               if (json.user) parsed.state.user = json.user;
               localStorage.setItem("lms-auth", JSON.stringify(parsed));
             }
           }
         } catch {}
       }
-      return json.token as string;
+      return resolvedToken;
     }
   } catch (err) {
     console.warn("[Auth] Silent token renewal failed:", err);
@@ -237,6 +242,7 @@ export async function api<T>(
   
   try {
     const res = await fetch(apiUrl(path), {
+      credentials: "include",
       ...init,
       signal,
       headers,
@@ -355,7 +361,7 @@ export async function apiFormData<T>(
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   try {
-    const res = await fetch(apiUrl(path), { method: "POST", ...init, headers, body: formData });
+    const res = await fetch(apiUrl(path), { credentials: "include", method: "POST", ...init, headers, body: formData });
     let json: any = {};
     const text = await res.text();
     try {
