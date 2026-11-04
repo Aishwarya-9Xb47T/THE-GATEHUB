@@ -9,9 +9,9 @@ export async function getLibraryResources(req: AuthRequest, res: Response, next:
   try {
     const { page, limit, search, topicId, subtopicId, language, academicLevel, status, instructorId, sort, fileType } = req.query;
 
-    const isPublicQuery = !req.user && !status && !instructorId;
+    const isPublicQuery = !status && !instructorId;
     const cacheKey = isPublicQuery
-      ? `ppt:resources:${page || 1}:${limit || 12}:${search || "all"}:${topicId || "all"}:${subtopicId || "all"}:${language || "all"}:${academicLevel || "all"}:${sort || "newest"}`
+      ? `ppt:resources:${page || 1}:${limit || 12}:${search || "all"}:${topicId || "all"}:${subtopicId || "all"}:${fileType || "all"}:${language || "all"}:${academicLevel || "all"}:${sort || "newest"}`
       : null;
 
     if (cacheKey) {
@@ -33,6 +33,7 @@ export async function getLibraryResources(req: AuthRequest, res: Response, next:
         academicLevel: typeof academicLevel === "string" ? academicLevel : undefined,
         status: typeof status === "string" ? status : undefined,
         instructorId: typeof instructorId === "string" ? instructorId : undefined,
+        fileType: typeof fileType === "string" ? fileType : undefined,
         sort: (sort as any) || "newest",
       },
       req.user

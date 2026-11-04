@@ -1,15 +1,16 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { prefetchLandingData } from "@/lib/landingQueries";
-import { prefetchCoreRoutes } from "@/lib/routePrefetch";
+import { prefetchCoreRoutes, prefetchPptLibraryData } from "@/lib/routePrefetch";
 
-/** Idle-time warmup so logo → home feels instant after first dashboard visit. */
+/** Idle-time warmup so navigation to core pages and Study Materials feels instant (0ms delay). */
 export function RouteWarmup() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     const warm = () => {
       prefetchLandingData(queryClient);
+      prefetchPptLibraryData(queryClient);
       prefetchCoreRoutes();
     };
 

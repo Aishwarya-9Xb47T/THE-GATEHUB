@@ -156,14 +156,21 @@ export function PptLibraryPage() {
   const [savingMaterial, setSavingMaterial] = useState(false);
 
   // TanStack Query for topics — instant cached render across navigation
-  const { data: topics = [], refetch: refetchTopics } = useQuery({
+  const { data: topics = [], isLoading: isTopicsLoading, refetch: refetchTopics } = useQuery({
     queryKey: ["ppt-library", "topics"],
     queryFn: () => fetchLibraryTopics(),
     staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   // TanStack Query for resources with stale-while-revalidate
-  const { data: resourceData, isLoading: isResourcesLoading } = useQuery({
+  const {
+    data: resourceData,
+    isLoading: isResourcesLoading,
+    isError: isResourcesError,
+    error: resourcesError,
+    refetch: refetchResources,
+  } = useQuery({
     queryKey: [
       "ppt-library",
       "resources",
@@ -184,8 +191,10 @@ export function PptLibraryPage() {
         sort: currentSort,
         fileType: currentFileType !== "all" ? currentFileType : undefined,
       }),
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     placeholderData: (prev) => prev,
+    retry: 1,
   });
 
   const resources = resourceData?.data ?? [];
@@ -878,8 +887,22 @@ export function PptLibraryPage() {
             </div>
 
             {/* Grid of Main Topic Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {topics.map((topic) => {
+            {isTopicsLoading && topics.length === 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="animate-pulse p-6 rounded-2xl border border-border bg-card/60 h-44 flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="w-12 h-12 rounded-xl bg-muted/60" />
+                      <div className="h-5 bg-muted rounded w-2/3" />
+                      <div className="h-3 bg-muted/60 rounded w-5/6" />
+                    </div>
+                    <div className="h-3 bg-muted/40 rounded w-1/3" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {topics.map((topic) => {
                 const isCreatorOrAdmin =
                   user &&
                   (isAdminRole(user.role) || (topic as any).createdById === user.id);
@@ -955,7 +978,8 @@ export function PptLibraryPage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1254,6 +1278,25 @@ export function PptLibraryPage() {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          ) : isResourcesError && !resourceData ? (
+            <div className="text-center py-16 px-4 bg-card/40 rounded-3xl border border-border/60">
+              <div className="w-14 h-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <h3 className="text-lg font-semibold font-display text-foreground">Could not load study materials</h3>
+              <p className="mt-1.5 text-sm text-muted-foreground max-w-md mx-auto">
+                {resourcesError instanceof Error ? resourcesError.message : "A connection issue occurred while fetching study materials."}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchResources()}
+                className="mt-5 gap-2"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Try Again
+              </Button>
             </div>
           ) : displayResources.length === 0 && directMaterials.length > 0 ? (
             null

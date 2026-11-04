@@ -43,7 +43,7 @@ function LegacyCoursePreviewRedirect() {
 }
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles: string[] }) {
-  const { user, isLoading } = useUserStore();
+  const { user, token, isLoading } = useUserStore();
   const location = useLocation();
 
   if (isLoading) {
@@ -55,6 +55,13 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles:
   }
 
   if (!user) {
+    if (token) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      );
+    }
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
 
@@ -75,7 +82,14 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useUserStore();
+  const { user, isLoading } = useUserStore();
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
   if (user) {
     return <Navigate to={getHomeRoute(user.role)} replace />;
   }

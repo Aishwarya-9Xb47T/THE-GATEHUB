@@ -3187,6 +3187,8 @@ model PPTSubtopic {
   @@index([topicId])
   @@index([isActive])
   @@index([displayOrder])
+  @@index([topicId, isActive])
+  @@index([topicId, displayOrder])
   @@map("ppt_subtopics")
 }
 
@@ -3231,6 +3233,9 @@ model PPTResource {
   @@index([createdAt])
   @@index([downloadCount])
   @@index([fileType])
+  @@index([topicId, status])
+  @@index([subtopicId, status])
+  @@index([status, createdAt])
   @@map("ppt_resources")
 }
 

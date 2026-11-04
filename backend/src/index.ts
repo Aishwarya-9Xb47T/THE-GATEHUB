@@ -184,6 +184,28 @@ app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
+// Cookie parsing middleware (zero-dependency, parses req.headers.cookie into req.cookies)
+app.use((req: Request, _res: Response, next) => {
+  const cookieHeader = req.headers.cookie;
+  (req as any).cookies = {};
+  if (cookieHeader) {
+    const pairs = cookieHeader.split(";");
+    for (const pair of pairs) {
+      const idx = pair.indexOf("=");
+      if (idx !== -1) {
+        const key = pair.slice(0, idx).trim();
+        const val = pair.slice(idx + 1).trim();
+        try {
+          (req as any).cookies[key] = decodeURIComponent(val);
+        } catch {
+          (req as any).cookies[key] = val;
+        }
+      }
+    }
+  }
+  next();
+});
+
 // Compiled LaTeX PDFs — register BEFORE generic /uploads static (HEAD + GET, no stale cache)
 async function serveCompiledLatexPdf(req: Request, res: Response) {
   const filename = req.params.filename;

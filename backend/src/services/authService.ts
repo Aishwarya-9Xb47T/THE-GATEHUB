@@ -41,7 +41,7 @@ export interface GoogleProfile {
 
 type ReqLike = { headers: Record<string, unknown>; ip?: string; socket?: { remoteAddress?: string } };
 
-function sanitizeUser(user: {
+export function sanitizeUser(user: {
   id: string;
   email: string;
   firstName: string;
@@ -64,19 +64,12 @@ function sanitizeUser(user: {
   };
 }
 
-async function resolveJwtExpires(): Promise<string | number> {
-  try {
-    const settings = await getPlatformSettings();
-    if (settings.jwtExpiryHours && settings.jwtExpiryHours > 0) {
-      return `${settings.jwtExpiryHours}h`;
-    }
-  } catch {
-    /* use env default */
-  }
+export function resolveJwtExpires(): string {
+  // Short-lived access token expiry (15m). Long-lived persistence is managed via refresh tokens.
   return JWT_EXPIRES;
 }
 
-async function signToken(user: {
+export async function signToken(user: {
   id: string;
   email: string;
   role: string;
@@ -349,7 +342,15 @@ export async function login(email: string, password: string, req?: ReqLike) {
       });
     }
 
-    return { user: sanitized, token: await signToken({ ...user, sessionId: session.id }) };
+    const { issueRefreshToken } = await import("./refreshTokenService.js");
+    const { rawToken: refreshToken } = await issueRefreshToken({ userId: user.id, sessionId: session.id });
+
+    return {
+      user: sanitized,
+      token: await signToken({ ...user, sessionId: session.id }),
+      refreshToken,
+      sessionId: session.id,
+    };
   } catch (error: unknown) {
     if (error instanceof AppError) throw error;
     throw new AppError(500, "Login failed. Please try again later.");
@@ -583,6 +584,7 @@ export async function exchangeOAuthCode(rawCode: string) {
   return {
     user: sanitizeUser(user),
     token: String(consumed.payload.token),
+    sessionId: (consumed.payload as any)?.sessionId as string | undefined,
   };
 }
 

@@ -103,6 +103,9 @@ export const useUserStore = create<UserState>()(
         if (token) {
           localStorage.setItem("lms_token", token);
           sessionStorage.setItem("lms_token", token);
+          try {
+            import("@/lib/authSync").then((m) => m.notifyAuthLogin(token)).catch(() => {});
+          } catch {}
         } else {
           localStorage.removeItem("lms_token");
           sessionStorage.removeItem("lms_token");
@@ -113,6 +116,7 @@ export const useUserStore = create<UserState>()(
       clearAuth: () => {
         localStorage.removeItem("lms_token");
         sessionStorage.removeItem("lms_token");
+        localStorage.removeItem("lms-auth");
         set({ user: null, token: null });
       },
 
@@ -120,19 +124,27 @@ export const useUserStore = create<UserState>()(
 
       logout: async () => {
         const token = getStoredToken();
-        if (token) {
-          try {
-            await fetch(apiUrl("/api/auth/logout"), {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-            });
-          } catch {
-            // ignore logout API errors
-          }
+        try {
+          await fetch(apiUrl("/api/auth/logout"), {
+            method: "POST",
+            credentials: "include",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+        } catch {
+          // ignore logout API errors
         }
         localStorage.removeItem("lms_token");
         sessionStorage.removeItem("lms_token");
-        set({ user: null, token: null });
+        localStorage.removeItem("lms-auth");
+        try {
+          const { clearUserQueryCache } = await import("@/lib/queryCachePersist");
+          clearUserQueryCache();
+        } catch {}
+        try {
+          const { notifyAuthLogout } = await import("@/lib/authSync");
+          notifyAuthLogout();
+        } catch {}
+        set({ user: null, token: null, isLoading: false });
       },
 
       fetchUser: async () => {
@@ -140,49 +152,88 @@ export const useUserStore = create<UserState>()(
         const { setLoading, setUser, setToken } = state;
 
         try {
-          const token = getStoredToken();
+          let token = getStoredToken();
           if (!token) {
+            // Attempt cookie-based persistent session recovery (HttpOnly gatehub_refresh_token)
+            try {
+              const cookieRefreshRes = await fetch(apiUrl("/api/auth/refresh"), {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+              });
+              if (cookieRefreshRes.ok) {
+                const refreshData = await cookieRefreshRes.json();
+                if (refreshData.success && (refreshData.token || refreshData.accessToken) && refreshData.user) {
+                  const restoredToken = (refreshData.token || refreshData.accessToken) as string;
+                  setToken(restoredToken);
+                  setUser(refreshData.user);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {
+              // No cookie or network down
+            }
+
             setUser(null);
             setToken(null);
+            setLoading(false);
             return;
           }
 
-          const hasCachedSession = !!state.user && state.token === token;
+          const hasCachedSession = !state.user && state.token === token;
           if (!hasCachedSession) {
             setLoading(true);
           }
 
           const response = await fetch(apiUrl("/api/auth/me"), {
+            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
           });
 
-          if (!response.ok) {
-            if (response.status === 401) {
-              setUser(null);
-              setToken(null);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.user) {
+              setUser(data.user);
+              setToken(token);
+              setLoading(false);
               return;
             }
-            throw new Error("Failed to fetch user");
           }
 
-          const data = await response.json();
+          if (response.status === 401) {
+            try {
+              const refreshRes = await fetch(apiUrl("/api/auth/refresh"), {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token }),
+              });
+              if (refreshRes.ok) {
+                const refreshData = await refreshRes.json();
+                if (refreshData.success && (refreshData.token || refreshData.accessToken) && refreshData.user) {
+                  const newToken = (refreshData.token || refreshData.accessToken) as string;
+                  setToken(newToken);
+                  setUser(refreshData.user);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch (refErr) {
+              console.warn("[Auth] fetchUser silent refresh failed:", refErr);
+            }
 
-          if (data.success && data.user) {
-            setUser(data.user);
-            setToken(token);
-          } else {
             setUser(null);
             setToken(null);
+            return;
           }
+
+          // For 500/502/503 during cold boot: retain cached user session
         } catch (error: any) {
-          console.error("Error fetching user:", error);
-          if (!get().user) {
-            setUser(null);
-            setToken(null);
-          }
+          console.warn("[Auth] Network error during session fetch (retaining offline session):", error);
         } finally {
           setLoading(false);
         }

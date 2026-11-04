@@ -1240,6 +1240,7 @@ export async function listResources(
   if (query.sort === "popular") orderBy = { downloadCount: "desc" };
   else if (query.sort === "views") orderBy = { viewCount: "desc" };
   else if (query.sort === "title") orderBy = { title: "asc" };
+  else if (query.sort === "oldest") orderBy = { createdAt: "asc" };
   else if (query.sort === "newest") orderBy = { createdAt: "desc" };
 
   const [total, resources] = await Promise.all([

@@ -1,6 +1,13 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import * as authService from "../services/authService.js";
+import {
+  REFRESH_COOKIE_NAME,
+  getRefreshTokenCookieOptions,
+  rotateRefreshToken,
+  revokeRefreshToken,
+  issueRefreshToken,
+} from "../services/refreshTokenService.js";
 import { AuthRequest } from "../middlewares/auth.js";
 import { AppError } from "../middlewares/errorHandler.js";
 import { googleAuthRedirectCode } from "../services/googleOAuthErrors.js";
@@ -78,7 +85,11 @@ export async function login(req: AuthRequest, res: Response) {
     }
 
     const result = await authService.login(email, password, req);
-    res.json({ success: true, ...result });
+    if ((result as any).refreshToken) {
+      res.cookie(REFRESH_COOKIE_NAME, (result as any).refreshToken, getRefreshTokenCookieOptions());
+    }
+    const { refreshToken: _rt, ...safeResult } = result as any;
+    res.json({ success: true, ...safeResult });
   } catch (error: unknown) {
     // Do not log request body (may contain password)
     if (error instanceof AppError || (error as AppError)?.statusCode) {
@@ -100,9 +111,15 @@ export async function login(req: AuthRequest, res: Response) {
 }
 
 export async function logout(req: AuthRequest, res: Response) {
-  if (!req.user) throw new AppError(401, "Authentication required");
-  const result = await authService.logout(req.user.id, req.user.role, req, req.user.sessionId);
-  res.json({ success: true, ...result });
+  const rawToken = (req as any).cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+  if (rawToken) {
+    await revokeRefreshToken(rawToken);
+  }
+  if (req.user) {
+    await authService.logout(req.user.id, req.user.role, req, req.user.sessionId);
+  }
+  res.clearCookie(REFRESH_COOKIE_NAME, getRefreshTokenCookieOptions());
+  res.json({ success: true, message: "Logged out successfully" });
 }
 
 export async function me(req: AuthRequest, res: Response) {
@@ -175,6 +192,10 @@ export async function confirmEmailChange(req: AuthRequest, res: Response) {
 export async function exchangeGoogleCode(req: AuthRequest, res: Response) {
   const { code } = z.object({ code: z.string().min(1) }).parse(req.body);
   const result = await authService.exchangeOAuthCode(code);
+  if (result.user?.id && result.sessionId) {
+    const { rawToken } = await issueRefreshToken({ userId: result.user.id, sessionId: result.sessionId });
+    res.cookie(REFRESH_COOKIE_NAME, rawToken, getRefreshTokenCookieOptions());
+  }
   res.json({ success: true, ...result });
 }
 
@@ -221,4 +242,53 @@ export async function googleCallback(req: Request, res: Response) {
     });
     return res.redirect(`${clientUrl}/auth/google/callback?error=${encodeURIComponent(code)}`);
   }
+}
+
+
+export async function refreshToken(req: Request, res: Response) {
+  const rawCookieToken = (req as any).cookies?.[REFRESH_COOKIE_NAME];
+  const rawBodyToken =
+    typeof req.body?.refreshToken === "string"
+      ? req.body.refreshToken
+      : typeof req.body?.token === "string"
+      ? req.body.token
+      : undefined;
+  const candidateToken = rawCookieToken || rawBodyToken;
+
+  if (candidateToken) {
+    try {
+      const rotated = await rotateRefreshToken(candidateToken, req);
+      res.cookie(REFRESH_COOKIE_NAME, rotated.newRefreshToken, getRefreshTokenCookieOptions());
+      return res.json({
+        success: true,
+        token: rotated.accessToken,
+        accessToken: rotated.accessToken,
+        user: rotated.user,
+        sessionId: rotated.sessionId,
+      });
+    } catch (rotErr) {
+      const authHeader = req.headers.authorization;
+      const legacyJwt = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      if (!legacyJwt) {
+        throw rotErr;
+      }
+    }
+  }
+
+  // Backward compatibility fallback: legacy JWT refresh
+  const authHeader = req.headers.authorization;
+  let token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token && typeof req.body?.token === "string") {
+    token = req.body.token;
+  }
+  if (!token) {
+    throw new AppError(401, "No refresh token or session provided");
+  }
+
+  const result = await authService.refreshToken(token, req as any);
+  if (result.user?.id && result.sessionId) {
+    const { rawToken } = await issueRefreshToken({ userId: result.user.id, sessionId: result.sessionId });
+    res.cookie(REFRESH_COOKIE_NAME, rawToken, getRefreshTokenCookieOptions());
+  }
+  res.json({ success: true, ...result });
 }

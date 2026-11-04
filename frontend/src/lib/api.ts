@@ -70,14 +70,76 @@ export function getToken(): string | null {
     const params = new URLSearchParams(window.location.search);
     const qToken = params.get("token");
     if (qToken) {
+      localStorage.setItem("lms_token", qToken);
       sessionStorage.setItem("lms_token", qToken);
     }
-    return sessionStorage.getItem("lms_token") || localStorage.getItem("lms_token");
+    return localStorage.getItem("lms_token") || sessionStorage.getItem("lms_token");
   }
   return null;
 }
 
-type ApiOptions = Omit<RequestInit, "body"> & { body?: unknown; skipLoginRedirect?: boolean };
+type ApiOptions = Omit<RequestInit, "body"> & {
+  body?: unknown;
+  skipLoginRedirect?: boolean;
+  _isRetry?: boolean;
+};
+
+let isRefreshing = false;
+let refreshSubscribers: Array<(token: string | null) => void> = [];
+
+function onTokenRefreshed(token: string | null) {
+  refreshSubscribers.forEach((cb) => cb(token));
+  refreshSubscribers = [];
+}
+
+function addRefreshSubscriber(cb: (token: string | null) => void) {
+  refreshSubscribers.push(cb);
+}
+
+export async function silentRefreshToken(): Promise<string | null> {
+  const currentToken = getToken();
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (currentToken) {
+      headers.Authorization = `Bearer ${currentToken}`;
+    }
+
+    const res = await fetch(apiUrl("/auth/refresh"), {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify({ token: currentToken || undefined }),
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    const resolvedToken = (json.token || json.accessToken) as string | undefined;
+    if (json.success && resolvedToken) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("lms_token", resolvedToken);
+        sessionStorage.setItem("lms_token", resolvedToken);
+        try {
+          const raw = localStorage.getItem("lms-auth");
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.state) {
+              parsed.state.token = resolvedToken;
+              if (json.user) parsed.state.user = json.user;
+              localStorage.setItem("lms-auth", JSON.stringify(parsed));
+            }
+          }
+        } catch {}
+      }
+      return resolvedToken;
+    }
+  } catch (err) {
+    console.warn("[Auth] Silent token renewal failed:", err);
+  }
+  return null;
+}
 
 /** In-flight GET dedupe: identical path+auth shares one network request. */
 const inflightGetRequests = new Map<string, Promise<{ data?: unknown; error?: string }>>();
@@ -180,6 +242,7 @@ export async function api<T>(
   
   try {
     const res = await fetch(apiUrl(path), {
+      credentials: "include",
       ...init,
       signal,
       headers,
@@ -211,6 +274,12 @@ export async function api<T>(
         else errorMessage = res.statusText || "Request failed. Please try again.";
       }
       if (res.status === 401) {
+        const isAuthEndpoint =
+          path.includes("/auth/login") ||
+          path.includes("/auth/refresh") ||
+          path.includes("/auth/register") ||
+          options._isRetry;
+
         const isGoogleIntegration =
           skipLoginRedirect ||
           path.includes("/integrations/") ||
@@ -218,7 +287,31 @@ export async function api<T>(
           path.includes("/google") ||
           json.error === "AUTH_REQUIRED" ||
           String(errorMessage).toLowerCase().includes("google");
-        if (!isGoogleIntegration) {
+
+        if (!isGoogleIntegration && !isAuthEndpoint) {
+          if (!isRefreshing) {
+            isRefreshing = true;
+            const newToken = await silentRefreshToken();
+            isRefreshing = false;
+            onTokenRefreshed(newToken);
+
+            if (newToken) {
+              return api<T>(path, { ...options, _isRetry: true });
+            } else {
+              redirectToLoginSoft(window.location.pathname);
+            }
+          } else {
+            return new Promise((resolve) => {
+              addRefreshSubscriber(async (newToken) => {
+                if (newToken) {
+                  resolve(await api<T>(path, { ...options, _isRetry: true }));
+                } else {
+                  resolve({ data: json as T, error: errorMessage });
+                }
+              });
+            });
+          }
+        } else if (!isGoogleIntegration && isAuthEndpoint && options._isRetry) {
           redirectToLoginSoft(window.location.pathname);
         }
       }
@@ -268,7 +361,7 @@ export async function apiFormData<T>(
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   try {
-    const res = await fetch(apiUrl(path), { method: "POST", ...init, headers, body: formData });
+    const res = await fetch(apiUrl(path), { credentials: "include", method: "POST", ...init, headers, body: formData });
     let json: any = {};
     const text = await res.text();
     try {
@@ -282,6 +375,13 @@ export async function apiFormData<T>(
       if (!errorMessage) {
         if (res.status === 404) errorMessage = "Resource not found.";
         else if (res.status === 401) {
+          const isRetry = (init as any)?._isRetry;
+          if (!isRetry) {
+            const newToken = await silentRefreshToken();
+            if (newToken) {
+              return apiFormData<T>(path, formData, { ...init, _isRetry: true } as any);
+            }
+          }
           errorMessage = "Authentication required. Please log in again.";
           redirectToLoginSoft(window.location.pathname);
         }
