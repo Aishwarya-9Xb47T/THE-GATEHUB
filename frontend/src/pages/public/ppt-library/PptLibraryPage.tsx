@@ -35,6 +35,7 @@ import {
   Share2,
   Check,
 } from "lucide-react";
+import { DEFAULT_PPT_TOPICS } from "@/lib/pptLibrary/defaultTopics";
 import {
   fetchLibraryResources,
   fetchLibraryTopics,
@@ -155,10 +156,11 @@ export function PptLibraryPage() {
   const [editMaterialTags, setEditMaterialTags] = useState("");
   const [savingMaterial, setSavingMaterial] = useState(false);
 
-  // TanStack Query for topics — instant cached render across navigation
-  const { data: topics = [], isLoading: isTopicsLoading, refetch: refetchTopics } = useQuery({
+  // TanStack Query for topics — instant cached render with curated defaults (0ms delay)
+  const { data: topics = [], isLoading: isTopicsLoading, isPlaceholderData, refetch: refetchTopics } = useQuery({
     queryKey: ["ppt-library", "topics"],
     queryFn: () => fetchLibraryTopics(),
+    placeholderData: (prev) => prev || DEFAULT_PPT_TOPICS,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
@@ -900,18 +902,31 @@ export function PptLibraryPage() {
                   </div>
                 ))}
               </div>
+            ) : !isPlaceholderData && topics.length === 0 ? (
+              <div className="text-center py-12 px-4 bg-card/30 rounded-2xl border border-border/50">
+                <Layers className="w-10 h-10 text-muted-foreground mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-medium text-foreground">No topics created yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Create a topic to organize study materials.</p>
+              </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {topics.map((topic) => {
                 const isCreatorOrAdmin =
+                  !isPlaceholderData &&
                   user &&
                   (isAdminRole(user.role) || (topic as any).createdById === user.id);
 
                 return (
                   <div
                     key={topic.id}
-                    onClick={() => handleTopicClick(topic.id)}
-                    className="group cursor-pointer p-6 rounded-2xl border border-border bg-card hover:border-primary/50 hover:shadow-lg transition-all duration-300 relative flex flex-col justify-between"
+                    onClick={() => {
+                      if (!isPlaceholderData) {
+                        handleTopicClick(topic.id);
+                      }
+                    }}
+                    className={`group p-6 rounded-2xl border border-border bg-card transition-all duration-300 relative flex flex-col justify-between ${
+                      isPlaceholderData ? "cursor-default opacity-90" : "cursor-pointer hover:border-primary/50 hover:shadow-lg"
+                    }`}
                   >
                     <div>
                       <div className="flex items-center justify-between gap-3 mb-4">

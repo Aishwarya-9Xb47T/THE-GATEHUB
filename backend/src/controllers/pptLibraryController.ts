@@ -9,17 +9,18 @@ export async function getLibraryResources(req: AuthRequest, res: Response, next:
   try {
     const { page, limit, search, topicId, subtopicId, language, academicLevel, status, instructorId, sort, fileType } = req.query;
 
-    const isPublicQuery = !status && !instructorId;
-    const cacheKey = isPublicQuery
-      ? `ppt:resources:${page || 1}:${limit || 12}:${search || "all"}:${topicId || "all"}:${subtopicId || "all"}:${fileType || "all"}:${language || "all"}:${academicLevel || "all"}:${sort || "newest"}`
-      : null;
+    const userScope = req.user && req.user.role !== 'student' ? `user:${req.user.id}:` : 'public:';
+    const cacheKey =
+      `ppt:resources:${userScope}${page || 1}:${limit || 12}:${search || "all"}:${topicId || "all"}:${subtopicId || "all"}:${fileType || "all"}:${language || "all"}:${academicLevel || "all"}:${sort || "newest"}`;
 
-    if (cacheKey) {
-      const cached = appCache.get<{ success: boolean; data: any[]; pagination: any }>(cacheKey);
-      if (cached) {
+    const cached = appCache.get<{ success: boolean; data: any[]; pagination: any }>(cacheKey);
+    if (cached) {
+      if (userScope === 'public:') {
         res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
-        return res.json(cached);
+      } else {
+        res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
       }
+      return res.json(cached);
     }
 
     const result = await pptService.listResources(
