@@ -401,20 +401,20 @@ export function PptLibraryPage() {
     }
   };
 
-  // Safe Deletion Handlers
+  // Safe Deletion Handlers with Cascade support
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
       if (deleteTarget.type === "topic") {
-        await deleteTopic(deleteTarget.id);
-        toast({ title: "Topic Deleted", description: `"${deleteTarget.name}" was deleted.`, variant: "success" });
+        await deleteTopic(deleteTarget.id, true);
+        toast({ title: "Topic Deleted", description: `"${deleteTarget.name}" and any associated materials were deleted.`, variant: "success" });
         if (currentTopicId === deleteTarget.id) {
           handleTopicClick("");
         }
       } else if (deleteTarget.type === "subtopic") {
-        await deleteSubtopic(deleteTarget.id);
-        toast({ title: "Subtopic Deleted", description: `"${deleteTarget.name}" was deleted.`, variant: "success" });
+        await deleteSubtopic(deleteTarget.id, true);
+        toast({ title: "Subtopic Deleted", description: `"${deleteTarget.name}" and any associated materials were deleted.`, variant: "success" });
         if (currentSubtopicId === deleteTarget.id) {
           handleSubtopicClick("");
         }
@@ -1002,14 +1002,25 @@ export function PptLibraryPage() {
                     All Topics
                   </Button>
                   {canUpload && (
-                    <Button
-                      size="sm"
-                      onClick={() => openCreateSubtopic(activeTopic.id)}
-                      className="gap-1.5 text-xs h-9"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Subtopic
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openCreateSubtopic(activeTopic.id)}
+                        className="gap-1.5 text-xs h-9"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Subtopic
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => navigate(`/ppt-library/upload?topicId=${activeTopic.id}`)}
+                        className="gap-1.5 text-xs h-9"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Add Materials
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -1456,18 +1467,16 @@ export function PptLibraryPage() {
           <div className="py-2 text-sm text-muted-foreground space-y-2">
             {deleteTarget?.type === "topic" && (deleteTarget.itemCount || 0) > 0 && (
               <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs">
-                Cannot delete this topic because it contains {deleteTarget.itemCount} item(s) (subtopics or materials).
-                Please delete or reassign all items first.
+                ⚠️ This topic contains {deleteTarget.itemCount} item(s) (subtopics or materials). Deleting this topic will permanently remove all child subtopics and documents from cloud storage. This action cannot be undone.
               </div>
             )}
             {deleteTarget?.type === "subtopic" && (deleteTarget.itemCount || 0) > 0 && (
               <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs">
-                Cannot delete this subtopic because it contains {deleteTarget.itemCount} material(s).
-                Please delete or reassign the materials first.
+                ⚠️ This subtopic contains {deleteTarget.itemCount} material(s). Deleting it will permanently remove all associated documents from cloud storage. This action cannot be undone.
               </div>
             )}
             {deleteTarget?.type === "material" && (
-              <p>This will permanently remove the study material and its file versions.</p>
+              <p>This will permanently remove the study material and its document from cloud storage.</p>
             )}
           </div>
 
@@ -1484,13 +1493,13 @@ export function PptLibraryPage() {
               type="button"
               variant="destructive"
               onClick={confirmDelete}
-              disabled={
-                deleting ||
-                (deleteTarget?.type === "topic" && (deleteTarget.itemCount || 0) > 0) ||
-                (deleteTarget?.type === "subtopic" && (deleteTarget.itemCount || 0) > 0)
-              }
+              disabled={deleting}
             >
-              {deleting ? "Deleting..." : "Confirm Delete"}
+              {deleting
+                ? "Deleting..."
+                : deleteTarget?.itemCount
+                ? `Delete (${deleteTarget.itemCount} items)`
+                : "Confirm Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

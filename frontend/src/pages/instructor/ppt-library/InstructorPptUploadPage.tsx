@@ -1,19 +1,33 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   Upload,
   FileText,
-  Image as ImageIcon,
+  Presentation,
   CheckCircle,
   AlertCircle,
   ArrowLeft,
-  Presentation,
-  ShieldAlert,
   Plus,
   Loader2,
   FolderPlus,
-  RefreshCw,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  MoveUp,
+  MoveDown,
+  Layers,
+  Sparkles,
   BookOpen,
+  Cpu,
+  Brain,
+  Code,
+  Database,
+  Globe,
+  Terminal,
+  HelpCircle,
+  X,
+  RefreshCw,
+  Folder,
 } from "lucide-react";
 import {
   uploadPptResource,
@@ -22,932 +36,1414 @@ import {
   PPTTopic,
   PPTSubtopic,
 } from "@/lib/pptLibrary/api";
-import {
-  usePptTopics,
-  usePptSubtopics,
-  useInvalidatePptCategories,
-} from "@/lib/pptLibrary/usePptQuery";
+import { usePptTopics, useInvalidatePptCategories } from "@/lib/pptLibrary/usePptQuery";
 import { useUserStore, isAdminRole } from "@/store/userStore";
 import { useToastStore } from "@/store/toastStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
+
+export interface StagedFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  format: "pdf" | "pptx" | "ppt";
+  title: string;
+  description: string;
+}
+
+export interface SubtopicStage {
+  id: string; // client id (e.g. sub-1234)
+  name: string;
+  description: string;
+  files: StagedFile[];
+  isExpanded: boolean;
+}
+
+export interface UploadStep {
+  id: string;
+  label: string;
+  status: "pending" | "in_progress" | "success" | "error";
+  errorMessage?: string;
+  progressPercent?: number;
+}
+
+const ALLOWED_EXTENSIONS = ["pdf", "pptx", "ppt"];
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
+
+const TOPIC_ICONS = [
+  { id: "Brain", label: "AI & Neural Networks", icon: Brain },
+  { id: "Layers", label: "Architectures & Systems", icon: Layers },
+  { id: "Cpu", label: "Hardware & Computing", icon: Cpu },
+  { id: "Code", label: "Software & Coding", icon: Code },
+  { id: "Database", label: "Data & Databases", icon: Database },
+  { id: "Globe", label: "Web & Cloud", icon: Globe },
+  { id: "Terminal", label: "DevOps & CLI", icon: Terminal },
+  { id: "BookOpen", label: "General & Academic", icon: BookOpen },
+];
 
 export function InstructorPptUploadPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const queryTopicId = searchParams.get("topicId");
+
   const { user } = useUserStore();
   const toast = useToastStore((s) => s.add);
 
-  // TanStack Query for topics & subtopics
   const {
     data: topics = [],
     isLoading: loadingTopics,
-    isError: errorTopics,
     refetch: refetchTopics,
   } = usePptTopics();
 
-  const [selectedTopicId, setSelectedTopicId] = useState("");
-  const [selectedSubtopicId, setSelectedSubtopicId] = useState("");
-
-  const {
-    data: fetchedSubtopics = [],
-    isLoading: loadingSubtopics,
-    refetch: refetchSubtopics,
-  } = usePptSubtopics(selectedTopicId);
-
-  // Synchronously derive subtopics from currentTopic if already in memory
-  const currentTopic = useMemo(() => topics.find((t) => t.id === selectedTopicId), [topics, selectedTopicId]);
-  const availableSubtopics = useMemo(() => {
-    if (fetchedSubtopics.length > 0) return fetchedSubtopics;
-    return currentTopic?.subtopics || [];
-  }, [fetchedSubtopics, currentTopic]);
-
   const { invalidate } = useInvalidatePptCategories();
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
-  const [language, setLanguage] = useState("en");
+  // Mode: "new" (default) or "existing"
+  const [topicMode, setTopicMode] = useState<"new" | "existing">(
+    queryTopicId ? "existing" : "new"
+  );
+  const [selectedExistingTopicId, setSelectedExistingTopicId] = useState(queryTopicId || "");
+
+  // Main Topic Form (for "new")
+  const [mainTopicTitle, setMainTopicTitle] = useState("");
+  const [mainTopicDesc, setMainTopicDesc] = useState("");
+  const [mainTopicIcon, setMainTopicIcon] = useState("Brain");
+
+  // Main Topic Materials (Direct Upload)
+  const [mainTopicFiles, setMainTopicFiles] = useState<StagedFile[]>([]);
+  const [isMainDragOver, setIsMainDragOver] = useState(false);
+  const mainFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Subtopics list
+  const [subtopics, setSubtopics] = useState<SubtopicStage[]>([
+    {
+      id: `sub-${Date.now()}-1`,
+      name: "",
+      description: "",
+      files: [],
+      isExpanded: true,
+    },
+  ]);
+
+  // Shared Metadata & Settings
   const [academicLevel, setAcademicLevel] = useState("Undergraduate");
-  const [status, setStatus] = useState<"published" | "draft">("published");
+  const [language, setLanguage] = useState("en");
+  const [tagsInput, setTagsInput] = useState("");
+  const [publishStatus, setPublishStatus] = useState<"published" | "draft">("published");
 
-  // Mandatory Material Type Selection: Presentation vs PDF
-  const [uploadType, setUploadType] = useState<"presentation" | "pdf">("presentation");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  // Publishing Pipeline State
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishSteps, setPublishSteps] = useState<UploadStep[]>([]);
+  const [overallProgress, setOverallProgress] = useState(0);
+  const [publishedTopicId, setPublishedTopicId] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
 
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  // Category & Subtopic Creation Modal
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [modalMode, setModalMode] = useState<"topic" | "subtopic">("topic");
-  const [modalTopicName, setModalTopicName] = useState("");
-  const [modalTopicDesc, setModalTopicDesc] = useState("");
-  const [modalSubtopicName, setModalSubtopicName] = useState("");
-  const [modalParentTopicId, setModalParentTopicId] = useState("");
-  const [submittingCategory, setSubmittingCategory] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const thumbInputRef = useRef<HTMLInputElement>(null);
-
-  // Check approval status
-  const isApproved =
-    isAdminRole(user?.role) ||
-    (user?.role === "instructor" && (user as any).instructorApprovalStatus === "APPROVED");
-
-  // Auto-select initial topic when loaded if not yet set
+  // When queryTopicId arrives or topics load, sync existing topic if requested
   useEffect(() => {
-    if (topics.length > 0 && !selectedTopicId) {
-      setSelectedTopicId(topics[0].id);
+    if (queryTopicId && topics.some((t) => t.id === queryTopicId)) {
+      setTopicMode("existing");
+      setSelectedExistingTopicId(queryTopicId);
     }
-  }, [topics, selectedTopicId]);
+  }, [queryTopicId, topics]);
 
-  // Reset subtopic if topic changes and current subtopic does not belong to new topic
-  useEffect(() => {
-    if (selectedSubtopicId && availableSubtopics.length > 0) {
-      if (!availableSubtopics.some((s) => s.id === selectedSubtopicId)) {
-        setSelectedSubtopicId("");
-      }
-    } else if (availableSubtopics.length === 0) {
-      setSelectedSubtopicId("");
-    }
-  }, [availableSubtopics, selectedTopicId]);
+  // Derived chosen topic object if existing
+  const existingTopic = useMemo(
+    () => topics.find((t) => t.id === selectedExistingTopicId),
+    [topics, selectedExistingTopicId]
+  );
 
-  // Topic change handler
-  const handleTopicChange = (newTopicId: string) => {
-    setSelectedTopicId(newTopicId);
-    setSelectedSubtopicId("");
-  };
-
-  // Switch upload type handler
-  const handleUploadTypeChange = (newType: "presentation" | "pdf") => {
-    if (newType === uploadType) return;
-    setUploadType(newType);
-
-    // If existing selected file doesn't match the newly chosen type, clear it
-    if (selectedFile) {
-      const ext = selectedFile.name.split(".").pop()?.toLowerCase();
-      if (newType === "pdf" && ext !== "pdf") {
-        setSelectedFile(null);
-        toast({
-          title: "File Cleared",
-          description: "Switched to PDF mode. Please select a .pdf document.",
-        });
-      } else if (newType === "presentation" && ext !== "pptx" && ext !== "ppt") {
-        setSelectedFile(null);
-        toast({
-          title: "File Cleared",
-          description: "Switched to PowerPoint mode. Please select a .pptx or .ppt presentation.",
-        });
-      }
-    }
-  };
-
-  // Validate and set file
-  const processFile = (file: File) => {
+  // Helper: validate and construct StagedFile object
+  const validateAndStageFile = (file: File): StagedFile | null => {
     const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) {
+      toast({
+        title: "Unsupported File Format",
+        description: `"${file.name}" is not supported. Please upload PDF (.pdf) or PowerPoint (.pptx, .ppt) documents.`,
+        variant: "destructive",
+      });
+      return null;
+    }
 
-    if (uploadType === "presentation") {
-      if (ext !== "pptx" && ext !== "ppt") {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      toast({
+        title: "File Exceeds 100 MB Limit",
+        description: `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)} MB. Files must be under 100 MB.`,
+        variant: "destructive",
+      });
+      return null;
+    }
+
+    const cleanTitle = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+    const formattedTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
+
+    return {
+      id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      file,
+      name: file.name,
+      size: file.size,
+      format: ext as "pdf" | "pptx" | "ppt",
+      title: formattedTitle,
+      description: "",
+    };
+  };
+
+  // Main Topic Files Handlers
+  const handleMainFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const incoming = Array.from(e.target.files);
+    const valid: StagedFile[] = [];
+    for (const f of incoming) {
+      const staged = validateAndStageFile(f);
+      if (staged) valid.push(staged);
+    }
+    if (valid.length > 0) {
+      setMainTopicFiles((prev) => [...prev, ...valid]);
+      toast({
+        title: "Files Added",
+        description: `Added ${valid.length} material(s) directly to main topic.`,
+        variant: "success",
+      });
+    }
+    e.target.value = "";
+  };
+
+  const handleMainDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsMainDragOver(false);
+    if (!e.dataTransfer.files) return;
+    const incoming = Array.from(e.dataTransfer.files);
+    const valid: StagedFile[] = [];
+    for (const f of incoming) {
+      const staged = validateAndStageFile(f);
+      if (staged) valid.push(staged);
+    }
+    if (valid.length > 0) {
+      setMainTopicFiles((prev) => [...prev, ...valid]);
+    }
+  };
+
+  const removeMainFile = (fileId: string) => {
+    setMainTopicFiles((prev) => prev.filter((f) => f.id !== fileId));
+  };
+
+  const updateMainFileField = (fileId: string, field: "title" | "description", value: string) => {
+    setMainTopicFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, [field]: value } : f))
+    );
+  };
+
+  // Subtopic Operations
+  const addSubtopic = () => {
+    const newSub: SubtopicStage = {
+      id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      name: "",
+      description: "",
+      files: [],
+      isExpanded: true,
+    };
+    setSubtopics((prev) => [...prev, newSub]);
+  };
+
+  const removeSubtopic = (subId: string) => {
+    setSubtopics((prev) => prev.filter((s) => s.id !== subId));
+  };
+
+  const toggleSubtopicExpand = (subId: string) => {
+    setSubtopics((prev) =>
+      prev.map((s) => (s.id === subId ? { ...s, isExpanded: !s.isExpanded } : s))
+    );
+  };
+
+  const moveSubtopic = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= subtopics.length) return;
+    const copy = [...subtopics];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(targetIndex, 0, moved);
+    setSubtopics(copy);
+  };
+
+  const updateSubtopicField = (subId: string, field: "name" | "description", value: string) => {
+    setSubtopics((prev) =>
+      prev.map((s) => (s.id === subId ? { ...s, [field]: value } : s))
+    );
+  };
+
+  // Subtopic File Handlers
+  const handleSubtopicFileSelect = (subId: string, filesList: FileList | null) => {
+    if (!filesList) return;
+    const incoming = Array.from(filesList);
+    const valid: StagedFile[] = [];
+    for (const f of incoming) {
+      const staged = validateAndStageFile(f);
+      if (staged) valid.push(staged);
+    }
+    if (valid.length > 0) {
+      setSubtopics((prev) =>
+        prev.map((s) => (s.id === subId ? { ...s, files: [...s.files, ...valid] } : s))
+      );
+    }
+  };
+
+  const removeSubtopicFile = (subId: string, fileId: string) => {
+    setSubtopics((prev) =>
+      prev.map((s) =>
+        s.id === subId ? { ...s, files: s.files.filter((f) => f.id !== fileId) } : s
+      )
+    );
+  };
+
+  const updateSubtopicFileField = (
+    subId: string,
+    fileId: string,
+    field: "title" | "description",
+    val: string
+  ) => {
+    setSubtopics((prev) =>
+      prev.map((s) =>
+        s.id === subId
+          ? {
+              ...s,
+              files: s.files.map((f) => (f.id === fileId ? { ...f, [field]: val } : f)),
+            }
+          : s
+      )
+    );
+  };
+
+  // Total stats computation
+  const totalSubtopicFiles = useMemo(
+    () => subtopics.reduce((acc, s) => acc + s.files.length, 0),
+    [subtopics]
+  );
+  const totalAllFiles = mainTopicFiles.length + totalSubtopicFiles;
+  const activeSubtopicsCount = useMemo(
+    () => subtopics.filter((s) => s.name.trim().length > 0).length,
+    [subtopics]
+  );
+
+  // Form Validation
+  const validateForm = (): boolean => {
+    if (topicMode === "new") {
+      if (!mainTopicTitle.trim()) {
         toast({
-          title: "Invalid File Format",
-          description: "Please upload a .pptx or .ppt PowerPoint presentation, or switch to PDF Document.",
+          title: "Topic Title Required",
+          description: "Please enter a title for the Main Topic (e.g. Deep Learning).",
           variant: "destructive",
         });
-        return;
+        return false;
       }
     } else {
-      if (ext !== "pdf") {
+      if (!selectedExistingTopicId) {
         toast({
-          title: "Invalid File Format",
-          description: "Please upload a .pdf document, or switch to PowerPoint Presentation.",
+          title: "Please Select a Topic",
+          description: "Choose an existing topic to add materials and subtopics to.",
           variant: "destructive",
         });
-        return;
+        return false;
       }
     }
 
-    // 100 MB max file size
-    if (file.size > 100 * 1024 * 1024) {
-      toast({
-        title: "File Too Large",
-        description: "Uploaded file must be 100 MB or smaller.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSelectedFile(file);
-    if (!title) {
-      // Auto-fill title from filename
-      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-      setTitle(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    processFile(file);
-    // Reset input value so re-selecting the same file fires onChange
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      processFile(file);
-    }
-  };
-
-  const handleThumbChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast({
-        title: "Invalid Thumbnail",
-        description: "Please choose an image file (PNG, JPG, WebP).",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setThumbnailFile(file);
-  };
-
-  // Open modal for new topic
-  const openCreateTopicModal = () => {
-    setModalMode("topic");
-    setModalTopicName("");
-    setModalTopicDesc("");
-    setShowCategoryModal(true);
-  };
-
-  // Open modal for new subtopic
-  const openCreateSubtopicModal = () => {
-    setModalMode("subtopic");
-    setModalSubtopicName("");
-    setModalParentTopicId(selectedTopicId || (topics[0]?.id ?? ""));
-    setShowCategoryModal(true);
-  };
-
-  // Handle category / subtopic creation
-  const handleCreateCategorySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (modalMode === "topic") {
-      if (!modalTopicName.trim()) {
-        toast({ title: "Name Required", description: "Please enter a topic name.", variant: "destructive" });
-        return;
-      }
-      try {
-        setSubmittingCategory(true);
-        const res = await createTopic({
-          name: modalTopicName.trim(),
-          description: modalTopicDesc.trim() || undefined,
+    // Check that any subtopics with files or content have a title
+    for (let i = 0; i < subtopics.length; i++) {
+      const s = subtopics[i];
+      if (s.files.length > 0 && !s.name.trim()) {
+        toast({
+          title: "Subtopic Title Missing",
+          description: `Subtopic #${i + 1} has ${s.files.length} attached file(s) but is missing a title.`,
+          variant: "destructive",
         });
-        await invalidate();
-        await refetchTopics();
-        setSelectedTopicId(res.data.id);
-        setShowCategoryModal(false);
-        toast({ title: "Category Created", description: `"${res.data.name}" is now available.`, variant: "success" });
-      } catch (err: any) {
-        toast({ title: "Failed to create topic", description: err.message, variant: "destructive" });
-      } finally {
-        setSubmittingCategory(false);
-      }
-    } else {
-      if (!modalParentTopicId) {
-        toast({ title: "Topic Required", description: "Please select a parent topic.", variant: "destructive" });
-        return;
-      }
-      if (!modalSubtopicName.trim()) {
-        toast({ title: "Subtopic Name Required", description: "Please enter a subtopic name.", variant: "destructive" });
-        return;
-      }
-      try {
-        setSubmittingCategory(true);
-        const res = await createSubtopic({
-          topicId: modalParentTopicId,
-          name: modalSubtopicName.trim(),
-        });
-        await invalidate(modalParentTopicId);
-        await Promise.all([refetchTopics(), refetchSubtopics()]);
-        setSelectedTopicId(modalParentTopicId);
-        setSelectedSubtopicId(res.data.id);
-        setShowCategoryModal(false);
-        toast({ title: "Subtopic Created", description: `"${res.data.name}" added successfully.`, variant: "success" });
-      } catch (err: any) {
-        toast({ title: "Failed to create subtopic", description: err.message, variant: "destructive" });
-      } finally {
-        setSubmittingCategory(false);
+        return false;
       }
     }
+
+    // Must have at least something to publish: direct files OR a subtopic
+    if (mainTopicFiles.length === 0 && subtopics.every((s) => !s.name.trim())) {
+      toast({
+        title: "Nothing to Publish",
+        description: "Please attach at least one main topic file or add at least one subtopic.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    return true;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Unified Publish Pipeline Execution
+  const handlePublishTopic = async () => {
+    if (!validateForm()) return;
 
-    if (!isApproved) {
-      toast({
-        title: "Approval Required",
-        description: "Your instructor account is pending administrator approval.",
-        variant: "destructive",
+    // Filter valid subtopics that have a title
+    const validSubtopics = subtopics.filter((s) => s.name.trim().length > 0);
+
+    // Build the step plan
+    const steps: UploadStep[] = [];
+
+    // Step 1: Create or verify main topic
+    const effectiveTopicName =
+      topicMode === "new" ? mainTopicTitle.trim() : existingTopic?.name || "Topic";
+    steps.push({
+      id: "step-topic",
+      label:
+        topicMode === "new"
+          ? `Create Main Topic "${effectiveTopicName}"`
+          : `Select Topic "${effectiveTopicName}"`,
+      status: "pending",
+    });
+
+    // Step 2: Main topic files upload steps
+    mainTopicFiles.forEach((fileItem, idx) => {
+      steps.push({
+        id: `step-main-file-${fileItem.id}`,
+        label: `Upload direct material (${idx + 1}/${mainTopicFiles.length}): "${fileItem.title || fileItem.name}"`,
+        status: "pending",
       });
-      return;
-    }
+    });
 
-    if (!title.trim()) {
-      toast({ title: "Title Required", description: "Please enter a title.", variant: "destructive" });
-      return;
-    }
-
-    if (!selectedTopicId) {
-      toast({
-        title: "Category Required",
-        description: "Please select a category / topic.",
-        variant: "destructive",
+    // Step 3: Subtopics creation and files upload steps
+    validSubtopics.forEach((sub, subIdx) => {
+      steps.push({
+        id: `step-sub-${sub.id}`,
+        label: `Create Subtopic (${subIdx + 1}/${validSubtopics.length}): "${sub.name.trim()}"`,
+        status: "pending",
       });
-      return;
-    }
 
-    // Subtopic is optional (materials can be directly under the main topic)
-
-    if (!selectedFile) {
-      toast({
-        title: "File Required",
-        description:
-          uploadType === "pdf"
-            ? "Please select a .pdf document file."
-            : "Please select a .pptx or .ppt presentation file.",
-        variant: "destructive",
+      sub.files.forEach((subFile, fileIdx) => {
+        steps.push({
+          id: `step-sub-file-${subFile.id}`,
+          label: `Upload "${sub.name}" material (${fileIdx + 1}/${sub.files.length}): "${subFile.title || subFile.name}"`,
+          status: "pending",
+        });
       });
-      return;
-    }
+    });
+
+    setPublishSteps(steps);
+    setOverallProgress(5);
+    setIsPublishing(true);
+    setShowProgressModal(true);
+    setPublishSuccess(false);
+
+    let activeTopicId = selectedExistingTopicId;
+    let completedSteps = 0;
+
+    const updateStep = (id: string, updates: Partial<UploadStep>) => {
+      setPublishSteps((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...updates } : s))
+      );
+    };
 
     try {
-      setUploading(true);
-      setUploadProgress(20);
-
-      const formData = new FormData();
-      formData.append("title", title.trim());
-      formData.append("description", description.trim());
-      formData.append("topicId", selectedTopicId);
-      formData.append("subtopicId", selectedSubtopicId);
-      formData.append("file", selectedFile);
-      if (thumbnailFile) {
-        formData.append("thumbnail", thumbnailFile);
+      // 1. Resolve or Create Main Topic
+      updateStep("step-topic", { status: "in_progress" });
+      if (topicMode === "new") {
+        const created = await createTopic(
+          {
+            name: mainTopicTitle.trim(),
+            description: mainTopicDesc.trim() || undefined,
+            icon: mainTopicIcon,
+          },
+          true // orGet idempotent
+        );
+        activeTopicId = created.data.id;
       }
+      updateStep("step-topic", { status: "success" });
+      completedSteps++;
+      setOverallProgress(Math.round((completedSteps / steps.length) * 100));
 
-      const tags = tagsInput
+      const parsedTags = tagsInput
         .split(",")
         .map((t) => t.trim().toLowerCase())
         .filter(Boolean);
-      formData.append("tags", JSON.stringify(tags));
-      formData.append("language", language);
-      formData.append("academicLevel", academicLevel);
-      formData.append("status", status);
 
-      setUploadProgress(60);
-      const res = await uploadPptResource(formData);
-      setUploadProgress(100);
+      // 2. Upload Direct Main Topic Materials
+      for (const item of mainTopicFiles) {
+        const stepId = `step-main-file-${item.id}`;
+        updateStep(stepId, { status: "in_progress" });
+
+        const formData = new FormData();
+        formData.append("file", item.file);
+        formData.append("title", item.title.trim() || item.name);
+        if (item.description.trim()) {
+          formData.append("description", item.description.trim());
+        }
+        formData.append("topicId", activeTopicId);
+        formData.append("subtopicId", ""); // Explicitly null/empty = direct under main topic!
+        formData.append("academicLevel", academicLevel);
+        formData.append("language", language);
+        formData.append("tags", JSON.stringify(parsedTags));
+        formData.append("status", publishStatus);
+
+        await uploadPptResource(formData);
+
+        updateStep(stepId, { status: "success" });
+        completedSteps++;
+        setOverallProgress(Math.round((completedSteps / steps.length) * 100));
+      }
+
+      // 3. Create Subtopics and Upload Their Materials
+      for (const sub of validSubtopics) {
+        const subStepId = `step-sub-${sub.id}`;
+        updateStep(subStepId, { status: "in_progress" });
+
+        const createdSub = await createSubtopic(
+          {
+            topicId: activeTopicId,
+            name: sub.name.trim(),
+            description: sub.description.trim() || undefined,
+          },
+          true // orGet idempotent
+        );
+        const subtopicId = createdSub.data.id;
+
+        updateStep(subStepId, { status: "success" });
+        completedSteps++;
+        setOverallProgress(Math.round((completedSteps / steps.length) * 100));
+
+        // Upload files under this subtopic
+        for (const subFile of sub.files) {
+          const fileStepId = `step-sub-file-${subFile.id}`;
+          updateStep(fileStepId, { status: "in_progress" });
+
+          const formData = new FormData();
+          formData.append("file", subFile.file);
+          formData.append("title", subFile.title.trim() || subFile.name);
+          if (subFile.description.trim()) {
+            formData.append("description", subFile.description.trim());
+          }
+          formData.append("topicId", activeTopicId);
+          formData.append("subtopicId", subtopicId);
+          formData.append("academicLevel", academicLevel);
+          formData.append("language", language);
+          formData.append("tags", JSON.stringify(parsedTags));
+          formData.append("status", publishStatus);
+
+          await uploadPptResource(formData);
+
+          updateStep(fileStepId, { status: "success" });
+          completedSteps++;
+          setOverallProgress(Math.round((completedSteps / steps.length) * 100));
+        }
+      }
+
+      // Invalidate queries to refresh library cache
+      invalidate();
+      refetchTopics();
+
+      setPublishedTopicId(activeTopicId);
+      setPublishSuccess(true);
+      setOverallProgress(100);
 
       toast({
-        title: "Upload Successful!",
-        description: `"${res.data.title}" has been successfully added to Study Materials.`,
+        title: "Topic Published Successfully!",
+        description: `"${effectiveTopicName}" and all associated study materials are now live.`,
         variant: "success",
       });
-
-      navigate(`/ppt-library/${res.data.id}/view`);
     } catch (err: any) {
-      console.error("Study material upload failed:", err);
+      console.error("[TOPIC_BUILDER] Publish error:", err);
       toast({
-        title: "Upload Failed",
-        description: err.message || "An error occurred during upload. Please try again.",
+        title: "Publish Interrupted",
+        description: err.message || "An error occurred during publication.",
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      setIsPublishing(false);
     }
   };
 
-  const fileExt = selectedFile?.name.split(".").pop()?.toUpperCase() || "";
+  const handleResetForm = () => {
+    setMainTopicTitle("");
+    setMainTopicDesc("");
+    setMainTopicFiles([]);
+    setSubtopics([
+      {
+        id: `sub-${Date.now()}-1`,
+        name: "",
+        description: "",
+        files: [],
+        isExpanded: true,
+      },
+    ]);
+    setTagsInput("");
+    setShowProgressModal(false);
+    setPublishSuccess(false);
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Back and Page Header */}
+      <div className="max-w-5xl mx-auto space-y-8 pb-24">
+        {/* Top Navigation & Breadcrumb */}
         <div className="flex items-center justify-between">
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => navigate("/ppt-library")}
             className="gap-2 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back
+            Back to Study Materials
           </Button>
 
-          <Button variant="outline" size="sm" onClick={() => navigate("/ppt-library")} className="gap-2">
-            <BookOpen className="w-4 h-4" />
-            View Study Materials
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild className="gap-1.5">
+              <Link to="/ppt-library">
+                <BookOpen className="w-4 h-4" />
+                Browse Library
+              </Link>
+            </Button>
+          </div>
         </div>
 
+        {/* Page Hero Header */}
         <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">Upload Study Material</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Share structured presentation slides (.pptx, .ppt) and PDF documents (.pdf) with students and educators across THE GATEHUB.
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary mb-3">
+            <FolderPlus className="w-3.5 h-3.5" />
+            Unified Study Material Builder
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-display font-bold text-foreground tracking-tight">
+            Create Topic & Upload Materials
+          </h1>
+          <p className="mt-2 text-muted-foreground max-w-3xl leading-relaxed">
+            Build your entire learning topic in one flow: name the main topic, upload foundational lecture
+            slides or notes, organize subtopics (e.g. CNN, ANN, RNN), and attach materials to each module.
           </p>
         </div>
 
-        {/* Approval Notice if not approved */}
-        {!isApproved && (
-          <Card className="border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200">
-            <CardContent className="p-4 flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        {/* SECTION 1: Topic Selection / Creation Mode */}
+        <Card className="rounded-2xl border-border bg-card shadow-xs overflow-hidden">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-sm">Instructor Approval Required</h4>
-                <p className="text-xs mt-1 leading-relaxed">
-                  Your instructor profile is currently under administrator review. Once verified, you will be able to
-                  publish materials directly to Study Materials without repeated approval requests.
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-primary" />
+                  1. Main Topic
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Choose whether to create a brand new topic or append materials to an existing one.
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        )}
 
-        {/* Upload Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <Card className="border-border bg-card shadow-sm rounded-2xl overflow-hidden">
-            <CardContent className="p-6 sm:p-8 space-y-6">
-              {/* Mandatory File-Type Selection */}
-              <div>
-                <Label className="text-sm font-semibold">What would you like to upload? *</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                  <div
-                    onClick={() => handleUploadTypeChange("presentation")}
-                    className={`flex items-center gap-3.5 p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                      uploadType === "presentation"
-                        ? "border-amber-500 bg-amber-500/10 text-foreground shadow-xs ring-1 ring-amber-500/30"
-                        : "border-border hover:border-border/80 bg-card hover:bg-muted/30 text-muted-foreground"
-                    }`}
-                  >
-                    <div
-                      className={`p-2.5 rounded-lg ${
-                        uploadType === "presentation" ? "bg-amber-500/20 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      <Presentation className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-sm text-foreground">PowerPoint Presentation</div>
-                      <div className="text-xs text-muted-foreground">.pptx, .ppt slide decks</div>
-                    </div>
-                  </div>
-
-                  <div
-                    onClick={() => handleUploadTypeChange("pdf")}
-                    className={`flex items-center gap-3.5 p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                      uploadType === "pdf"
-                        ? "border-rose-500 bg-rose-500/10 text-foreground shadow-xs ring-1 ring-rose-500/30"
-                        : "border-border hover:border-border/80 bg-card hover:bg-muted/30 text-muted-foreground"
-                    }`}
-                  >
-                    <div
-                      className={`p-2.5 rounded-lg ${
-                        uploadType === "pdf" ? "bg-rose-500/20 text-rose-600 dark:text-rose-400" : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-sm text-foreground">PDF Document</div>
-                      <div className="text-xs text-muted-foreground">.pdf notes, manuals, guides</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Dynamic File Dropzone */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">
-                    {uploadType === "pdf" ? "PDF Document File *" : "PowerPoint Presentation File *"}
-                  </Label>
-                  {selectedFile && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="text-xs h-7 text-primary hover:underline"
-                    >
-                      Replace File
-                    </Button>
-                  )}
-                </div>
-
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`mt-2 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-                    isDragOver
-                      ? "border-primary bg-primary/10 scale-[1.01]"
-                      : selectedFile
-                      ? "border-primary/60 bg-primary/5"
-                      : "border-border hover:border-primary/40 hover:bg-muted/40"
+              {/* Toggle Mode */}
+              <div className="flex items-center gap-1 p-1 bg-muted rounded-xl self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setTopicMode("new")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    topicMode === "new"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={
-                      uploadType === "pdf"
-                        ? ".pdf,application/pdf"
-                        : ".pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
-                    }
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  {selectedFile ? (
-                    <div className="flex flex-col items-center justify-center">
-                      <div
-                        className={`w-12 h-12 rounded-xl flex items-center justify-center mb-2 ${
-                          uploadType === "pdf"
-                            ? "bg-rose-500/20 text-rose-600 dark:text-rose-400"
-                            : "bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                        }`}
-                      >
-                        <CheckCircle className="w-6 h-6" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-foreground max-w-xs sm:max-w-md truncate">
-                          {selectedFile.name}
-                        </p>
-                        <Badge
-                          className={`text-[10px] uppercase font-mono font-bold ${
-                            uploadType === "pdf"
-                              ? "bg-rose-500/20 text-rose-600 border-rose-500/30"
-                              : "bg-amber-500/20 text-amber-600 border-amber-500/30"
-                          }`}
-                        >
-                          .{fileExt}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • Click or tap Replace File to change
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center">
-                      <div
-                        className={`w-12 h-12 rounded-xl flex items-center justify-center mb-2 ${
-                          uploadType === "pdf" ? "bg-rose-500/10 text-rose-500" : "bg-amber-500/10 text-amber-500"
-                        }`}
-                      >
-                        {uploadType === "pdf" ? <FileText className="w-6 h-6" /> : <Upload className="w-6 h-6" />}
-                      </div>
-                      <p className="text-sm font-semibold text-foreground">
-                        {uploadType === "pdf" ? "Click or drag PDF document here" : "Click or drag PowerPoint file here"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {uploadType === "pdf"
-                          ? "Supports .pdf documents (up to 100 MB)"
-                          : "Supports .pptx and .ppt (up to 100 MB)"}
-                      </p>
-                    </div>
-                  )}
-                </div>
+                  + Create New Topic
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTopicMode("existing")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    topicMode === "existing"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Add to Existing Topic
+                </button>
               </div>
+            </div>
+          </CardHeader>
 
-              {/* Title & Description */}
+          <CardContent className="p-6 space-y-5">
+            {topicMode === "existing" ? (
+              <div className="space-y-3">
+                <Label htmlFor="existing-topic-select" className="text-sm font-semibold">
+                  Select Existing Topic *
+                </Label>
+                <select
+                  id="existing-topic-select"
+                  value={selectedExistingTopicId}
+                  onChange={(e) => setSelectedExistingTopicId(e.target.value)}
+                  className="w-full h-11 px-3 text-sm rounded-xl border border-border bg-card text-foreground focus:ring-2 focus:ring-primary shadow-xs"
+                >
+                  <option value="">-- Choose an existing topic --</option>
+                  {topics.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.subtopics?.length || 0} subtopics, {t.resourceCount || 0} materials)
+                    </option>
+                  ))}
+                </select>
+                {existingTopic && (
+                  <p className="text-xs text-muted-foreground">
+                    {existingTopic.description || "Existing topic ready for additional subtopics and materials."}
+                  </p>
+                )}
+              </div>
+            ) : (
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="ppt-title" className="text-sm font-semibold">
-                    Title *
+                  <Label htmlFor="topic-title" className="text-sm font-semibold">
+                    Main Topic Title *
                   </Label>
                   <Input
-                    id="ppt-title"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={
-                      uploadType === "pdf"
-                        ? "e.g. Complete Operating Systems Lecture Notes"
-                        : "e.g. Introduction to Convolutional Neural Networks"
-                    }
-                    className="mt-1.5 h-11"
+                    id="topic-title"
+                    value={mainTopicTitle}
+                    onChange={(e) => setMainTopicTitle(e.target.value)}
+                    placeholder="e.g. Deep Learning, Computer Vision, Operating Systems"
+                    className="mt-1.5 h-11 text-base rounded-xl"
                     required
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="ppt-desc" className="text-sm font-semibold">
+                  <Label htmlFor="topic-desc" className="text-sm font-semibold">
                     Description
                   </Label>
                   <Textarea
-                    id="ppt-desc"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder={
-                      uploadType === "pdf"
-                        ? "Briefly describe what students will learn from this PDF document..."
-                        : "Briefly describe what students will learn from this presentation..."
-                    }
-                    rows={3}
-                    className="mt-1.5 resize-none"
+                    id="topic-desc"
+                    value={mainTopicDesc}
+                    onChange={(e) => setMainTopicDesc(e.target.value)}
+                    placeholder="Briefly describe what this topic covers, foundational prerequisites, or learning objectives..."
+                    rows={2}
+                    className="mt-1.5 resize-none rounded-xl"
                   />
                 </div>
-              </div>
 
-              {/* Topic & Subtopic Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Topic / Category Selector */}
                 <div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="ppt-topic" className="text-sm font-semibold flex items-center gap-1.5">
-                      Topic / Category *
-                      {loadingTopics && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
-                    </Label>
-                    {isApproved && (
-                      <button
-                        type="button"
-                        onClick={openCreateTopicModal}
-                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
-                      >
-                        <Plus className="w-3 h-3" />
-                        New Category
-                      </button>
-                    )}
-                  </div>
-
-                  {errorTopics ? (
-                    <div className="mt-1.5 flex items-center justify-between p-2.5 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-xs">
-                      <span>Failed to load categories</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => refetchTopics()}
-                        className="h-6 px-2 text-xs"
-                      >
-                        <RefreshCw className="w-3 h-3 mr-1" /> Retry
-                      </Button>
-                    </div>
-                  ) : (
-                    <select
-                      id="ppt-topic"
-                      value={selectedTopicId}
-                      onChange={(e) => handleTopicChange(e.target.value)}
-                      disabled={loadingTopics && topics.length === 0}
-                      className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs disabled:opacity-70"
-                      required
-                    >
-                      {loadingTopics && topics.length === 0 ? (
-                        <option value="">Loading categories...</option>
-                      ) : topics.length === 0 ? (
-                        <option value="">No categories available (Click '+ New Category' to create)</option>
-                      ) : (
-                        topics.map((topic) => (
-                          <option key={topic.id} value={topic.id}>
-                            {topic.name}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  )}
-                </div>
-
-                {/* Subtopic Selector */}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="ppt-subtopic" className="text-sm font-semibold flex items-center gap-1.5">
-                      Subtopic *
-                      {loadingSubtopics && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
-                    </Label>
-                    {isApproved && selectedTopicId && (
-                      <button
-                        type="button"
-                        onClick={openCreateSubtopicModal}
-                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
-                      >
-                        <Plus className="w-3 h-3" />
-                        New Subtopic
-                      </button>
-                    )}
-                  </div>
-
-                  <select
-                    id="ppt-subtopic"
-                    value={selectedSubtopicId}
-                    onChange={(e) => setSelectedSubtopicId(e.target.value)}
-                    className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs disabled:opacity-70"
-                    disabled={!selectedTopicId}
-                  >
-                    <option value="">(None — Directly under Main Topic)</option>
-                    {availableSubtopics.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Academic Level & Language */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="ppt-level" className="text-sm font-semibold">
-                    Academic Level
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+                    Topic Category Icon
                   </Label>
-                  <select
-                    id="ppt-level"
-                    value={academicLevel}
-                    onChange={(e) => setAcademicLevel(e.target.value)}
-                    className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs"
-                  >
-                    <option value="School / Beginner">School / Beginner</option>
-                    <option value="Undergraduate">Undergraduate</option>
-                    <option value="Postgraduate">Postgraduate</option>
-                    <option value="Research / Professional">Research / Professional</option>
-                  </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="ppt-language" className="text-sm font-semibold">
-                    Language
-                  </Label>
-                  <select
-                    id="ppt-language"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="mt-1.5 w-full h-11 px-3 text-sm rounded-lg border border-border bg-card text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary shadow-xs"
-                  >
-                    <option value="en">English (en)</option>
-                    <option value="hi">Hindi (hi)</option>
-                    <option value="es">Spanish (es)</option>
-                    <option value="fr">French (fr)</option>
-                    <option value="de">German (de)</option>
-                  </select>
+                  <div className="flex flex-wrap gap-2">
+                    {TOPIC_ICONS.map((item) => {
+                      const IconComp = item.icon;
+                      const isSelected = mainTopicIcon === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setMainTopicIcon(item.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-muted/50 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <IconComp className="w-3.5 h-3.5" />
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
 
-              {/* Tags Input */}
+        {/* SECTION 2: Main Topic Materials (Direct Upload) */}
+        <Card className="rounded-2xl border-border bg-card shadow-xs overflow-hidden">
+          <CardHeader className="border-b border-border/50 pb-4">
+            <div className="flex items-center justify-between">
               <div>
-                <Label htmlFor="ppt-tags" className="text-sm font-semibold">
-                  Tags / Keywords (comma separated)
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-amber-500" />
+                    2. Main Topic Materials (Direct Upload)
+                  </CardTitle>
+                  <Badge variant="secondary" className="text-[10px] font-medium">
+                    Optional • Direct to Topic
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Upload materials directly under the main topic without placing them into a subtopic
+                  (e.g. syllabus, foundational overview slides, comprehensive introductory notes).
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => mainFileInputRef.current?.click()}
+                className="gap-1.5 text-xs h-8"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Add Files
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-6 space-y-4">
+            <input
+              ref={mainFileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.pptx,.ppt"
+              className="hidden"
+              onChange={handleMainFileSelect}
+            />
+
+            {/* Dropzone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsMainDragOver(true);
+              }}
+              onDragLeave={() => setIsMainDragOver(false)}
+              onDrop={handleMainDrop}
+              onClick={() => mainFileInputRef.current?.click()}
+              className={`cursor-pointer border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+                isMainDragOver
+                  ? "border-primary bg-primary/5 scale-[1.005]"
+                  : "border-border hover:border-primary/50 hover:bg-muted/30 bg-muted/10"
+              }`}
+            >
+              <div className="flex flex-col items-center justify-center">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-2">
+                  <Upload className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">
+                  Click or drag PowerPoint (.pptx, .ppt) or PDF (.pdf) documents here
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Supports multiple files • Up to 100 MB per file • Stored directly under{" "}
+                  <span className="font-semibold text-foreground">
+                    {topicMode === "new"
+                      ? mainTopicTitle || "Main Topic"
+                      : existingTopic?.name || "Selected Topic"}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            {/* Attached Main Topic Files List */}
+            {mainTopicFiles.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground px-1">
+                  <span>Direct Files to Upload ({mainTopicFiles.length})</span>
+                  <span>Editable Title & Description</span>
+                </div>
+
+                <div className="space-y-2">
+                  {mainTopicFiles.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3.5 rounded-xl border border-border bg-card/80 hover:bg-card transition-all flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+                    >
+                      <div className="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+                        <Badge
+                          className={`font-mono text-[10px] font-bold uppercase shrink-0 ${
+                            item.format === "pdf"
+                              ? "bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30"
+                              : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                          }`}
+                        >
+                          .{item.format}
+                        </Badge>
+
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <Input
+                            value={item.title}
+                            onChange={(e) => updateMainFileField(item.id, "title", e.target.value)}
+                            placeholder="Material Title"
+                            className="h-8 text-xs font-semibold rounded-lg"
+                          />
+                          <Input
+                            value={item.description}
+                            onChange={(e) =>
+                              updateMainFileField(item.id, "description", e.target.value)
+                            }
+                            placeholder="Optional brief description..."
+                            className="h-7 text-[11px] rounded-lg text-muted-foreground"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1 sm:pt-0">
+                        <span className="text-[11px] text-muted-foreground font-mono">
+                          {(item.size / (1024 * 1024)).toFixed(2)} MB
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeMainFile(item.id)}
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg"
+                          title="Remove File"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* SECTION 3: Subtopics & Modular Materials */}
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-display font-bold text-foreground flex items-center gap-2">
+                  <Folder className="w-5 h-5 text-primary" />
+                  3. Subtopics & Modules
+                </h2>
+                <Badge variant="outline" className="text-xs font-semibold">
+                  {subtopics.length} Subtopic{subtopics.length === 1 ? "" : "s"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Organize learning materials into sequential or conceptual modules (e.g. CNN, ANN, RNN,
+                Supervised Learning). Each subtopic has its own file upload area.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              onClick={addSubtopic}
+              className="gap-1.5 text-xs font-semibold h-9 rounded-xl shadow-xs self-start sm:self-auto"
+            >
+              <Plus className="w-4 h-4" />
+              Add Subtopic
+            </Button>
+          </div>
+
+          {/* Subtopics List */}
+          {subtopics.length === 0 ? (
+            <div className="p-8 rounded-2xl border-2 border-dashed border-border text-center bg-card">
+              <Folder className="w-10 h-10 text-muted-foreground/60 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-foreground">No subtopics defined yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                You can upload materials directly under the main topic or click &ldquo;Add Subtopic&rdquo;
+                to organize materials into specific categories.
+              </p>
+              <Button type="button" size="sm" onClick={addSubtopic} className="mt-4 gap-1 text-xs">
+                <Plus className="w-3.5 h-3.5" />
+                Add First Subtopic
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {subtopics.map((sub, index) => {
+                const subFileInputId = `file-input-${sub.id}`;
+                return (
+                  <Card
+                    key={sub.id}
+                    className="rounded-2xl border-border bg-card shadow-xs overflow-hidden transition-all duration-200"
+                  >
+                    {/* Subtopic Header */}
+                    <div className="p-4 bg-muted/40 border-b border-border/50 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        <Badge variant="secondary" className="font-mono text-xs font-bold shrink-0">
+                          #{index + 1}
+                        </Badge>
+                        <span className="font-bold text-sm text-foreground truncate">
+                          {sub.name.trim() || `Subtopic ${index + 1} (Untitled)`}
+                        </span>
+                        {sub.files.length > 0 && (
+                          <Badge variant="outline" className="text-[10px] font-medium shrink-0">
+                            {sub.files.length} file{sub.files.length === 1 ? "" : "s"}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Reorder Buttons */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={index === 0}
+                          onClick={() => moveSubtopic(index, "up")}
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-lg disabled:opacity-30"
+                          title="Move Up"
+                        >
+                          <MoveUp className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={index === subtopics.length - 1}
+                          onClick={() => moveSubtopic(index, "down")}
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-lg disabled:opacity-30"
+                          title="Move Down"
+                        >
+                          <MoveDown className="w-3.5 h-3.5" />
+                        </Button>
+
+                        {/* Expand / Collapse */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => toggleSubtopicExpand(sub.id)}
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-lg"
+                          title={sub.isExpanded ? "Collapse" : "Expand"}
+                        >
+                          {sub.isExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+
+                        {/* Delete Subtopic */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeSubtopic(sub.id)}
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg ml-1"
+                          title="Remove Subtopic"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Subtopic Body (when expanded) */}
+                    {sub.isExpanded && (
+                      <CardContent className="p-5 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <Label
+                              htmlFor={`sub-title-${sub.id}`}
+                              className="text-xs font-semibold"
+                            >
+                              Subtopic Title *
+                            </Label>
+                            <Input
+                              id={`sub-title-${sub.id}`}
+                              value={sub.name}
+                              onChange={(e) =>
+                                updateSubtopicField(sub.id, "name", e.target.value)
+                              }
+                              placeholder="e.g. CNN, ANN, RNN, Supervised Learning"
+                              className="mt-1 h-10 text-sm rounded-xl"
+                            />
+                          </div>
+
+                          <div>
+                            <Label
+                              htmlFor={`sub-desc-${sub.id}`}
+                              className="text-xs font-semibold"
+                            >
+                              Subtopic Description (Optional)
+                            </Label>
+                            <Input
+                              id={`sub-desc-${sub.id}`}
+                              value={sub.description}
+                              onChange={(e) =>
+                                updateSubtopicField(sub.id, "description", e.target.value)
+                              }
+                              placeholder="Brief summary of this module..."
+                              className="mt-1 h-10 text-sm rounded-xl"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Subtopic Upload Area */}
+                        <div className="pt-2">
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="text-xs font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wider">
+                              <Upload className="w-3 h-3 text-primary" />
+                              Materials for &ldquo;{sub.name.trim() || `Subtopic ${index + 1}`}&rdquo;
+                            </Label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                document.getElementById(subFileInputId)?.click();
+                              }}
+                              className="h-7 px-2.5 text-xs gap-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              Add Files to {sub.name.trim() || `Subtopic ${index + 1}`}
+                            </Button>
+                          </div>
+
+                          <input
+                            id={subFileInputId}
+                            type="file"
+                            multiple
+                            accept=".pdf,.pptx,.ppt"
+                            className="hidden"
+                            onChange={(e) => handleSubtopicFileSelect(sub.id, e.target.files)}
+                          />
+
+                          <div
+                            onClick={() => {
+                              document.getElementById(subFileInputId)?.click();
+                            }}
+                            className="cursor-pointer border border-dashed border-border rounded-xl p-4 text-center hover:border-primary/50 hover:bg-muted/30 transition-all bg-muted/10"
+                          >
+                            <p className="text-xs font-medium text-foreground">
+                              Click or drop .pdf or .pptx files to add under &ldquo;
+                              {sub.name.trim() || `Subtopic ${index + 1}`}&rdquo;
+                            </p>
+                          </div>
+
+                          {/* List of Files in this Subtopic */}
+                          {sub.files.length > 0 && (
+                            <div className="space-y-2 mt-3">
+                              {sub.files.map((fileItem) => (
+                                <div
+                                  key={fileItem.id}
+                                  className="p-3 rounded-xl border border-border bg-card flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+                                >
+                                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                    <Badge
+                                      className={`font-mono text-[9px] font-bold uppercase shrink-0 ${
+                                        fileItem.format === "pdf"
+                                          ? "bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30"
+                                          : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                                      }`}
+                                    >
+                                      .{fileItem.format}
+                                    </Badge>
+
+                                    <div className="flex-1 min-w-0 space-y-1">
+                                      <Input
+                                        value={fileItem.title}
+                                        onChange={(e) =>
+                                          updateSubtopicFileField(
+                                            sub.id,
+                                            fileItem.id,
+                                            "title",
+                                            e.target.value
+                                          )
+                                        }
+                                        placeholder="Material title"
+                                        className="h-7 text-xs font-semibold rounded-md"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                                    <span className="text-[10px] text-muted-foreground font-mono">
+                                      {(fileItem.size / (1024 * 1024)).toFixed(2)} MB
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => removeSubtopicFile(sub.id, fileItem.id)}
+                                      className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md"
+                                      title="Remove"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                );
+              })}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addSubtopic}
+                className="w-full h-11 border-dashed border-border hover:border-primary/50 text-xs font-semibold gap-1.5 rounded-xl"
+              >
+                <Plus className="w-4 h-4" />
+                Add Another Subtopic
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* SECTION 4: Shared Metadata & Publishing Options */}
+        <Card className="rounded-2xl border-border bg-card shadow-xs">
+          <CardHeader className="border-b border-border/50 pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+              4. Publication Settings & Metadata
+            </CardTitle>
+          </CardHeader>
+
+          <CardContent className="p-6 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="academic-level" className="text-xs font-semibold">
+                  Academic Level
+                </Label>
+                <select
+                  id="academic-level"
+                  value={academicLevel}
+                  onChange={(e) => setAcademicLevel(e.target.value)}
+                  className="mt-1 w-full h-10 px-3 text-xs rounded-xl border border-border bg-card text-foreground"
+                >
+                  <option value="School / Beginner">School / Beginner</option>
+                  <option value="Undergraduate">Undergraduate</option>
+                  <option value="Postgraduate">Postgraduate</option>
+                  <option value="Research / Professional">Research / Professional</option>
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="topic-lang" className="text-xs font-semibold">
+                  Language
+                </Label>
+                <select
+                  id="topic-lang"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="mt-1 w-full h-10 px-3 text-xs rounded-xl border border-border bg-card text-foreground"
+                >
+                  <option value="en">English (en)</option>
+                  <option value="hi">Hindi (hi)</option>
+                  <option value="es">Spanish (es)</option>
+                  <option value="fr">French (fr)</option>
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="topic-tags" className="text-xs font-semibold">
+                  Tags / Keywords
                 </Label>
                 <Input
-                  id="ppt-tags"
+                  id="topic-tags"
                   value={tagsInput}
                   onChange={(e) => setTagsInput(e.target.value)}
-                  placeholder="e.g. machine-learning, cnn, deep-learning, computer-vision"
-                  className="mt-1.5 h-11"
+                  placeholder="e.g. deep-learning, cnn, ai"
+                  className="mt-1 h-10 text-xs rounded-xl"
                 />
               </div>
+            </div>
 
-              {/* Optional Cover Image / Thumbnail */}
+            <div className="pt-2 flex items-center gap-6 text-xs">
+              <span className="font-semibold text-foreground">Publication Status:</span>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="publishStatus"
+                  value="published"
+                  checked={publishStatus === "published"}
+                  onChange={() => setPublishStatus("published")}
+                  className="accent-primary"
+                />
+                <span>Publish Immediately (Visible to students)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="publishStatus"
+                  value="draft"
+                  checked={publishStatus === "draft"}
+                  onChange={() => setPublishStatus("draft")}
+                  className="accent-primary"
+                />
+                <span>Save as Draft</span>
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* STICKY BOTTOM ACTION BAR */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-md border-t border-border p-4 shadow-lg">
+          <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <div>
-                <Label className="text-sm font-semibold">Optional Cover Image / Thumbnail</Label>
-                <div className="mt-1.5 flex items-center gap-4">
-                  <input
-                    ref={thumbInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleThumbChange}
-                    className="hidden"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => thumbInputRef.current?.click()}
-                    className="gap-2 text-xs"
-                  >
-                    <ImageIcon className="w-4 h-4" />
-                    {thumbnailFile ? "Change Thumbnail" : "Choose Thumbnail"}
-                  </Button>
-                  {thumbnailFile && (
-                    <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <CheckCircle className="w-3.5 h-3.5 text-primary" />
-                      {thumbnailFile.name}
-                    </span>
-                  )}
-                </div>
+                <span className="font-bold text-foreground">
+                  {topicMode === "new"
+                    ? mainTopicTitle || "New Topic"
+                    : existingTopic?.name || "Existing Topic"}
+                </span>
+                <span className="mx-2">•</span>
+                <span>{mainTopicFiles.length} Direct Materials</span>
+                <span className="mx-2">•</span>
+                <span>
+                  {activeSubtopicsCount} Subtopics ({totalSubtopicFiles} Materials)
+                </span>
+                <span className="mx-2">•</span>
+                <span className="font-semibold text-foreground">
+                  {totalAllFiles} Total File{totalAllFiles === 1 ? "" : "s"}
+                </span>
               </div>
+            </div>
 
-              {/* Publish Status Radio */}
-              <div>
-                <Label className="text-sm font-semibold">Publish Status</Label>
-                <div className="flex items-center gap-6 mt-2">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input
-                      type="radio"
-                      name="status"
-                      checked={status === "published"}
-                      onChange={() => setStatus("published")}
-                      className="text-primary focus:ring-primary"
-                    />
-                    <span>Publish Immediately</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input
-                      type="radio"
-                      name="status"
-                      checked={status === "draft"}
-                      onChange={() => setStatus("draft")}
-                      className="text-primary focus:ring-primary"
-                    />
-                    <span>Save as Draft</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Submit Button & Progress */}
-              <div className="pt-4 border-t border-border flex items-center justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => navigate(-1)}
-                  disabled={uploading}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={uploading || !selectedFile || !title.trim() || !selectedTopicId}
-                  className="min-w-36 gap-2"
-                >
-                  {uploading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Uploading ({uploadProgress}%)
-                    </>
-                  ) : status === "published" ? (
-                    `Upload & Publish ${uploadType === "pdf" ? "PDF" : "Presentation"}`
-                  ) : (
-                    "Save as Draft"
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </form>
-      </div>
-
-      {/* Category & Subtopic Creation Modal */}
-      <Dialog open={showCategoryModal} onOpenChange={setShowCategoryModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {modalMode === "topic" ? "Create New Category / Topic" : "Create New Subtopic"}
-            </DialogTitle>
-            <DialogDescription>
-              {modalMode === "topic"
-                ? "Add a high-level category to organize study materials."
-                : "Add a specific subtopic under the selected category."}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleCreateCategorySubmit} className="space-y-4 py-2">
-            {modalMode === "topic" ? (
-              <>
-                <div>
-                  <Label className="text-xs font-semibold">Category Name *</Label>
-                  <Input
-                    value={modalTopicName}
-                    onChange={(e) => setModalTopicName(e.target.value)}
-                    placeholder="e.g. Operating Systems"
-                    className="mt-1"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs font-semibold">Description (Optional)</Label>
-                  <Textarea
-                    value={modalTopicDesc}
-                    onChange={(e) => setModalTopicDesc(e.target.value)}
-                    placeholder="Brief description of this academic topic..."
-                    className="mt-1 resize-none"
-                    rows={2}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <Label className="text-xs font-semibold">Parent Category *</Label>
-                  <select
-                    value={modalParentTopicId}
-                    onChange={(e) => setModalParentTopicId(e.target.value)}
-                    className="mt-1 w-full h-9 px-2 text-xs rounded-md border border-border bg-card"
-                    required
-                  >
-                    {topics.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-xs font-semibold">Subtopic Name *</Label>
-                  <Input
-                    value={modalSubtopicName}
-                    onChange={(e) => setModalSubtopicName(e.target.value)}
-                    placeholder="e.g. Memory Management"
-                    className="mt-1"
-                    required
-                  />
-                </div>
-              </>
-            )}
-
-            <DialogFooter>
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => setShowCategoryModal(false)}
-                disabled={submittingCategory}
+                size="sm"
+                onClick={handleResetForm}
+                disabled={isPublishing}
+                className="text-xs"
               >
-                Cancel
+                Reset
               </Button>
-              <Button type="submit" disabled={submittingCategory}>
-                {submittingCategory ? "Creating..." : `Create ${modalMode === "topic" ? "Category" : "Subtopic"}`}
+
+              <Button
+                type="button"
+                size="default"
+                onClick={handlePublishTopic}
+                disabled={isPublishing}
+                className="gap-2 font-semibold px-6 shadow-md"
+              >
+                {isPublishing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Publishing ({overallProgress}%)...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Publish Entire Topic
+                  </>
+                )}
               </Button>
-            </DialogFooter>
-          </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* MULTI-STEP PUBLICATION PROGRESS MODAL */}
+      <Dialog
+        open={showProgressModal}
+        onOpenChange={(open) => {
+          if (!isPublishing && !open) setShowProgressModal(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {publishSuccess ? (
+                <>
+                  <CheckCircle className="w-5 h-5 text-emerald-500" />
+                  Publication Complete!
+                </>
+              ) : (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  Publishing Topic & Materials...
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {publishSuccess
+                ? "All learning materials and subtopics have been published and linked to the library."
+                : "Please wait while your main topic, subtopics, and documents are securely processed and uploaded."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Progress bar */}
+          <div className="space-y-2 py-2">
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span>Overall Progress</span>
+              <span className="font-mono">{overallProgress}%</span>
+            </div>
+            <Progress value={overallProgress} className="h-2" />
+          </div>
+
+          {/* Live Steps Checklist */}
+          <div className="max-h-60 overflow-y-auto space-y-2 pr-1 text-xs">
+            {publishSteps.map((step) => (
+              <div
+                key={step.id}
+                className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 ${
+                  step.status === "success"
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                    : step.status === "in_progress"
+                    ? "bg-primary/10 border-primary/30 text-primary font-semibold"
+                    : step.status === "error"
+                    ? "bg-destructive/10 border-destructive/20 text-destructive"
+                    : "bg-muted/30 border-border/40 text-muted-foreground"
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  {step.status === "success" && (
+                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                  )}
+                  {step.status === "in_progress" && (
+                    <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />
+                  )}
+                  {step.status === "error" && (
+                    <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
+                  )}
+                  {step.status === "pending" && (
+                    <div className="w-4 h-4 rounded-full border border-border shrink-0" />
+                  )}
+                  <span className="truncate">{step.label}</span>
+                </div>
+
+                <Badge
+                  variant={
+                    step.status === "success"
+                      ? "default"
+                      : step.status === "in_progress"
+                      ? "secondary"
+                      : "outline"
+                  }
+                  className="text-[10px] shrink-0 uppercase font-mono"
+                >
+                  {step.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="pt-3">
+            {publishSuccess ? (
+              <div className="flex items-center justify-end gap-2 w-full">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleResetForm}
+                  className="text-xs"
+                >
+                  Create Another Topic
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setShowProgressModal(false);
+                    if (publishedTopicId) {
+                      navigate(`/ppt-library?topic=${publishedTopicId}`);
+                    } else {
+                      navigate("/ppt-library");
+                    }
+                  }}
+                  className="gap-1.5 text-xs font-semibold"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  View Topic in Library
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={isPublishing}
+                onClick={() => setShowProgressModal(false)}
+                className="text-xs"
+              >
+                Close
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -198,10 +198,16 @@ export async function getMyResources(req: AuthRequest, res: Response, next: Next
 export async function createTopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new AppError(401, "Authentication required");
-    const topic = await pptService.createTopic({
-      ...req.body,
-      createdById: req.user.id,
-    });
+    const orGet = req.query.orGet === "true" || req.body?.orGet === true;
+    const topic = orGet
+      ? await pptService.createOrGetTopic({
+          ...req.body,
+          createdById: req.user.id,
+        })
+      : await pptService.createTopic({
+          ...req.body,
+          createdById: req.user.id,
+        });
     res.status(201).json({ success: true, data: topic });
   } catch (err) {
     next(err);
@@ -224,10 +230,15 @@ export async function updateTopic(req: AuthRequest, res: Response, next: NextFun
 export async function deleteTopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new AppError(401, "Authentication required");
-    const result = await pptService.deleteTopic(req.params.topicId, {
-      id: req.user.id,
-      role: req.user.role,
-    });
+    const cascade = req.query.cascade === "true" || req.body?.cascade === true;
+    const result = await pptService.deleteTopic(
+      req.params.topicId,
+      {
+        id: req.user.id,
+        role: req.user.role,
+      },
+      cascade
+    );
     res.json({ success: true, message: result.message });
   } catch (err) {
     next(err);
@@ -237,10 +248,16 @@ export async function deleteTopic(req: AuthRequest, res: Response, next: NextFun
 export async function createSubtopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new AppError(401, "Authentication required");
-    const subtopic = await pptService.createSubtopic({
-      ...req.body,
-      createdById: req.user.id,
-    });
+    const orGet = req.query.orGet === "true" || req.body?.orGet === true;
+    const subtopic = orGet
+      ? await pptService.createOrGetSubtopic({
+          ...req.body,
+          createdById: req.user.id,
+        })
+      : await pptService.createSubtopic({
+          ...req.body,
+          createdById: req.user.id,
+        });
     res.status(201).json({ success: true, data: subtopic });
   } catch (err) {
     next(err);
@@ -263,10 +280,15 @@ export async function updateSubtopic(req: AuthRequest, res: Response, next: Next
 export async function deleteSubtopic(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new AppError(401, "Authentication required");
-    const result = await pptService.deleteSubtopic(req.params.subtopicId, {
-      id: req.user.id,
-      role: req.user.role,
-    });
+    const cascade = req.query.cascade === "true" || req.body?.cascade === true;
+    const result = await pptService.deleteSubtopic(
+      req.params.subtopicId,
+      {
+        id: req.user.id,
+        role: req.user.role,
+      },
+      cascade
+    );
     res.json({ success: true, message: result.message });
   } catch (err) {
     next(err);
