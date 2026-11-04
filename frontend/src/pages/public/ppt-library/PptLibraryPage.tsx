@@ -35,6 +35,7 @@ import {
   Share2,
   Check,
 } from "lucide-react";
+import { DEFAULT_PPT_TOPICS } from "@/lib/pptLibrary/defaultTopics";
 import {
   fetchLibraryResources,
   fetchLibraryTopics,
@@ -155,10 +156,11 @@ export function PptLibraryPage() {
   const [editMaterialTags, setEditMaterialTags] = useState("");
   const [savingMaterial, setSavingMaterial] = useState(false);
 
-  // TanStack Query for topics — instant cached render across navigation
-  const { data: topics = [], isLoading: isTopicsLoading, refetch: refetchTopics } = useQuery({
+  // TanStack Query for topics — instant cached render with curated defaults (0ms delay)
+  const { data: topics = DEFAULT_PPT_TOPICS, isLoading: isTopicsLoading, refetch: refetchTopics } = useQuery({
     queryKey: ["ppt-library", "topics"],
     queryFn: () => fetchLibraryTopics(),
+    placeholderData: (prev) => prev || DEFAULT_PPT_TOPICS,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });

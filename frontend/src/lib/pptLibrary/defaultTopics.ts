@@ -1,0 +1,110 @@
+import { PPTTopic } from "./api";
+
+/**
+ * Curated standard academic topics used for instantaneous (0ms) frame-1 rendering.
+ * As soon as the background query resolves, real-time counts and custom instructor topics are merged.
+ */
+export const DEFAULT_PPT_TOPICS: PPTTopic[] = [
+  {
+    id: "topic-programming",
+    name: "Programming",
+    slug: "programming",
+    description: "Core programming languages, syntax, algorithms, and fundamental computer science concepts.",
+    icon: "code",
+    displayOrder: 1,
+    isActive: true,
+    resourceCount: 0,
+    subtopics: [
+      { id: "sub-python", topicId: "topic-programming", name: "Python", slug: "python", displayOrder: 1, isActive: true, resourceCount: 0 },
+      { id: "sub-java", topicId: "topic-programming", name: "Java", slug: "java", displayOrder: 2, isActive: true, resourceCount: 0 },
+      { id: "sub-c", topicId: "topic-programming", name: "C Programming", slug: "c-programming", displayOrder: 3, isActive: true, resourceCount: 0 },
+      { id: "sub-cpp", topicId: "topic-programming", name: "C++", slug: "cpp", displayOrder: 4, isActive: true, resourceCount: 0 },
+      { id: "sub-dsa", topicId: "topic-programming", name: "Data Structures and Algorithms", slug: "dsa", displayOrder: 5, isActive: true, resourceCount: 0 },
+    ],
+  },
+  {
+    id: "topic-ai",
+    name: "Artificial Intelligence",
+    slug: "artificial-intelligence",
+    description: "AI paradigms, deep learning, NLP, computer vision, and foundation models.",
+    icon: "brain",
+    displayOrder: 2,
+    isActive: true,
+    resourceCount: 0,
+    subtopics: [
+      { id: "sub-ai-fund", topicId: "topic-ai", name: "Artificial Intelligence Fundamentals", slug: "ai-fundamentals", displayOrder: 1, isActive: true, resourceCount: 0 },
+      { id: "sub-ml", topicId: "topic-ai", name: "Machine Learning", slug: "machine-learning", displayOrder: 2, isActive: true, resourceCount: 0 },
+      { id: "sub-dl", topicId: "topic-ai", name: "Deep Learning", slug: "deep-learning", displayOrder: 3, isActive: true, resourceCount: 0 },
+      { id: "sub-nlp", topicId: "topic-ai", name: "Natural Language Processing", slug: "nlp", displayOrder: 4, isActive: true, resourceCount: 0 },
+      { id: "sub-genai", topicId: "topic-ai", name: "Generative AI", slug: "generative-ai", displayOrder: 5, isActive: true, resourceCount: 0 },
+      { id: "sub-cv", topicId: "topic-ai", name: "Computer Vision", slug: "computer-vision", displayOrder: 6, isActive: true, resourceCount: 0 },
+    ],
+  },
+  {
+    id: "topic-datascience",
+    name: "Data Science",
+    slug: "data-science",
+    description: "Data analysis, statistical modeling, data visualization, and querying techniques.",
+    icon: "database",
+    displayOrder: 3,
+    isActive: true,
+    resourceCount: 0,
+    subtopics: [
+      { id: "sub-stats", topicId: "topic-datascience", name: "Statistics", slug: "statistics", displayOrder: 1, isActive: true, resourceCount: 0 },
+      { id: "sub-da", topicId: "topic-datascience", name: "Data Analytics", slug: "data-analytics", displayOrder: 2, isActive: true, resourceCount: 0 },
+      { id: "sub-dv", topicId: "topic-datascience", name: "Data Visualization", slug: "data-visualization", displayOrder: 3, isActive: true, resourceCount: 0 },
+      { id: "sub-sql", topicId: "topic-datascience", name: "SQL", slug: "sql", displayOrder: 4, isActive: true, resourceCount: 0 },
+      { id: "sub-pyds", topicId: "topic-datascience", name: "Python for Data Science", slug: "python-for-data-science", displayOrder: 5, isActive: true, resourceCount: 0 },
+    ],
+  },
+  {
+    id: "topic-webdev",
+    name: "Web Development",
+    slug: "web-development",
+    description: "Modern full-stack web technologies, frontend frameworks, APIs, and client-server systems.",
+    icon: "globe",
+    displayOrder: 4,
+    isActive: true,
+    resourceCount: 0,
+    subtopics: [
+      { id: "sub-htmlcss", topicId: "topic-webdev", name: "HTML and CSS", slug: "html-css", displayOrder: 1, isActive: true, resourceCount: 0 },
+      { id: "sub-js", topicId: "topic-webdev", name: "JavaScript", slug: "javascript", displayOrder: 2, isActive: true, resourceCount: 0 },
+      { id: "sub-react", topicId: "topic-webdev", name: "React.js", slug: "react", displayOrder: 3, isActive: true, resourceCount: 0 },
+      { id: "sub-node", topicId: "topic-webdev", name: "Node.js", slug: "node", displayOrder: 4, isActive: true, resourceCount: 0 },
+      { id: "sub-fullstack", topicId: "topic-webdev", name: "Full Stack Development", slug: "full-stack", displayOrder: 5, isActive: true, resourceCount: 0 },
+    ],
+  },
+  {
+    id: "topic-dbms",
+    name: "Database Management",
+    slug: "database-management",
+    description: "Relational and NoSQL database management, schema design, and query optimization.",
+    icon: "database",
+    displayOrder: 5,
+    isActive: true,
+    resourceCount: 0,
+    subtopics: [
+      { id: "sub-rdbms", topicId: "topic-dbms", name: "Relational Databases", slug: "relational-databases", displayOrder: 1, isActive: true, resourceCount: 0 },
+      { id: "sub-nosql", topicId: "topic-dbms", name: "NoSQL Databases", slug: "nosql-databases", displayOrder: 2, isActive: true, resourceCount: 0 },
+      { id: "sub-postgre", topicId: "topic-dbms", name: "PostgreSQL", slug: "postgresql", displayOrder: 3, isActive: true, resourceCount: 0 },
+      { id: "sub-mongo", topicId: "topic-dbms", name: "MongoDB", slug: "mongodb", displayOrder: 4, isActive: true, resourceCount: 0 },
+    ],
+  },
+  {
+    id: "topic-cloud",
+    name: "Cloud Computing",
+    slug: "cloud-computing",
+    description: "Cloud architectures, virtualization, cloud infrastructure providers, and DevOps practices.",
+    icon: "server",
+    displayOrder: 6,
+    isActive: true,
+    resourceCount: 0,
+    subtopics: [
+      { id: "sub-cloudfund", topicId: "topic-cloud", name: "Cloud Fundamentals", slug: "cloud-fundamentals", displayOrder: 1, isActive: true, resourceCount: 0 },
+      { id: "sub-aws", topicId: "topic-cloud", name: "AWS", slug: "aws", displayOrder: 2, isActive: true, resourceCount: 0 },
+      { id: "sub-azure", topicId: "topic-cloud", name: "Azure", slug: "azure", displayOrder: 3, isActive: true, resourceCount: 0 },
+      { id: "sub-devops", topicId: "topic-cloud", name: "DevOps", slug: "devops", displayOrder: 4, isActive: true, resourceCount: 0 },
+    ],
+  },
+];
+
