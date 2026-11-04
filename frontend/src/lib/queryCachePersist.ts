@@ -48,6 +48,7 @@ export function isPublicQueryKey(queryKey: readonly unknown[]): boolean {
   if (first === "courses" && (second === "browse" || second === "public" || second === "featured" || second === "")) return true;
   if (first === "learning-universes" && (second === "browse" || second === "public" || second === "catalog")) return true;
   if (first === "resources" && second !== "instructor" && second !== "admin") return true;
+  if (first === "ppt-library" && second !== "instructor" && second !== "admin") return true;
 
   return false;
 }

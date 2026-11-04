@@ -89,9 +89,9 @@ export function prefetchPptLibraryData(queryClient: QueryClient): void {
     staleTime: 5 * 60 * 1000,
   });
   void queryClient.prefetchQuery({
-    queryKey: ["ppt-library", "resources", 1, "", "", "", "newest"],
+    queryKey: ["ppt-library", "resources", 1, "", "", "", "newest", "all"],
     queryFn: () => fetchLibraryResources({ page: 1, limit: 12, sort: "newest" }),
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

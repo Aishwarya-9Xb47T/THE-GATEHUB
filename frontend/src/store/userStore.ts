@@ -113,6 +113,7 @@ export const useUserStore = create<UserState>()(
       clearAuth: () => {
         localStorage.removeItem("lms_token");
         sessionStorage.removeItem("lms_token");
+        localStorage.removeItem("lms-auth");
         set({ user: null, token: null });
       },
 
@@ -132,7 +133,12 @@ export const useUserStore = create<UserState>()(
         }
         localStorage.removeItem("lms_token");
         sessionStorage.removeItem("lms_token");
-        set({ user: null, token: null });
+        localStorage.removeItem("lms-auth");
+        try {
+          const { clearUserQueryCache } = await import("@/lib/queryCachePersist");
+          clearUserQueryCache();
+        } catch {}
+        set({ user: null, token: null, isLoading: false });
       },
 
       fetchUser: async () => {
@@ -144,6 +150,7 @@ export const useUserStore = create<UserState>()(
           if (!token) {
             setUser(null);
             setToken(null);
+            setLoading(false);
             return;
           }
 
@@ -159,30 +166,44 @@ export const useUserStore = create<UserState>()(
             },
           });
 
-          if (!response.ok) {
-            if (response.status === 401) {
-              setUser(null);
-              setToken(null);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.user) {
+              setUser(data.user);
+              setToken(token);
+              setLoading(false);
               return;
             }
-            throw new Error("Failed to fetch user");
           }
 
-          const data = await response.json();
+          if (response.status === 401) {
+            try {
+              const refreshRes = await fetch(apiUrl("/api/auth/refresh"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token }),
+              });
+              if (refreshRes.ok) {
+                const refreshData = await refreshRes.json();
+                if (refreshData.success && refreshData.token && refreshData.user) {
+                  setToken(refreshData.token);
+                  setUser(refreshData.user);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch (refErr) {
+              console.warn("[Auth] fetchUser silent refresh failed:", refErr);
+            }
 
-          if (data.success && data.user) {
-            setUser(data.user);
-            setToken(token);
-          } else {
             setUser(null);
             setToken(null);
+            return;
           }
+
+          // For 500/502/503 during cold boot: retain cached user session
         } catch (error: any) {
-          console.error("Error fetching user:", error);
-          if (!get().user) {
-            setUser(null);
-            setToken(null);
-          }
+          console.warn("[Auth] Network error during session fetch (retaining offline session):", error);
         } finally {
           setLoading(false);
         }

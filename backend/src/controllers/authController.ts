@@ -222,3 +222,18 @@ export async function googleCallback(req: Request, res: Response) {
     return res.redirect(`${clientUrl}/auth/google/callback?error=${encodeURIComponent(code)}`);
   }
 }
+
+
+export async function refreshToken(req: Request, res: Response) {
+  const authHeader = req.headers.authorization;
+  let token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token && typeof req.body?.token === "string") {
+    token = req.body.token;
+  }
+  if (!token) {
+    throw new AppError(400, "Token is required");
+  }
+
+  const result = await authService.refreshToken(token, req as any);
+  res.json({ success: true, ...result });
+}

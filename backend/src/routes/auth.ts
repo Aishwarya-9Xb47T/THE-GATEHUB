@@ -72,6 +72,13 @@ const resendVerifyLimiter = makeLimiter({
   message: "Too many verification emails requested. Please wait before trying again.",
 });
 
+const refreshLimiter = makeLimiter({
+  windowMs: 60 * 1000,
+  maxProd: 60,
+  maxDev: 120,
+  message: "Too many refresh attempts. Please try again shortly.",
+});
+
 const emailChangeLimiter = makeLimiter({
   windowMs: 60 * 60 * 1000,
   maxProd: 5,
@@ -121,6 +128,7 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
 authRouter.get("/registration-options", authController.registrationOptions);
 authRouter.post("/register", signupLimiter, authController.register);
 authRouter.post("/login", loginLimiter, authController.login);
+authRouter.post("/refresh", refreshLimiter, authController.refreshToken);
 authRouter.post("/logout", authenticate, authController.logout);
 authRouter.get("/me", authenticate, authController.me);
 authRouter.post("/forgot-password", forgotLimiter, authController.forgotPassword);
