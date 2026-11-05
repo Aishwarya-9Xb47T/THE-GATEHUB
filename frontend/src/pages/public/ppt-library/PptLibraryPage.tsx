@@ -70,6 +70,18 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+// Helper to format dates cleanly
+function formatDate(dateString?: string): string {
+  if (!dateString) return "";
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
 // Helper to render topic icons dynamically
 function getTopicIcon(iconName?: string | null, className = "w-5 h-5") {
   const name = (iconName || "").toLowerCase();
@@ -215,20 +227,6 @@ export function PptLibraryPage() {
     if (!currentTopicId || currentSubtopicId) return [];
     return resources.filter((r) => !r.subtopicId || r.subtopicId === "");
   }, [resources, currentTopicId, currentSubtopicId]);
-
-  // Subtopic materials when viewing a main topic
-  const subtopicMaterials = useMemo(() => {
-    if (!currentTopicId || currentSubtopicId) return [];
-    return resources.filter((r) => r.subtopicId && r.subtopicId !== "");
-  }, [resources, currentTopicId, currentSubtopicId]);
-
-  // Materials to render in the bottom grid
-  const displayResources = useMemo(() => {
-    if (currentTopicId && !currentSubtopicId && !currentSearch) {
-      return subtopicMaterials;
-    }
-    return resources;
-  }, [currentTopicId, currentSubtopicId, currentSearch, subtopicMaterials, resources]);
 
   // Search & Navigation Handlers
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -609,11 +607,40 @@ export function PptLibraryPage() {
           <CardContent className="p-5 space-y-3">
             {/* Hierarchical Topic Path Badge */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs">
-              <span className="font-semibold text-primary">{ppt.topic?.name || "Uncategorized"}</span>
+              {ppt.topic ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTopicClick(ppt.topic!.id);
+                  }}
+                  className="font-semibold text-primary hover:underline transition-colors"
+                >
+                  {ppt.topic.name}
+                </button>
+              ) : (
+                <span className="font-semibold text-primary">Uncategorized</span>
+              )}
               <span className="text-muted-foreground">•</span>
-              <span className="text-muted-foreground font-medium">
-                {ppt.subtopic?.name || "Direct Material"}
-              </span>
+              {ppt.subtopic ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newParams = new URLSearchParams(searchParams);
+                    newParams.set("topicId", ppt.topicId || ppt.topic?.id || "");
+                    newParams.set("subtopicId", ppt.subtopicId || ppt.subtopic?.id || "");
+                    newParams.delete("search");
+                    newParams.set("page", "1");
+                    setSearchParams(newParams);
+                  }}
+                  className="text-muted-foreground hover:text-foreground font-medium hover:underline transition-colors"
+                >
+                  {ppt.subtopic.name}
+                </button>
+              ) : (
+                <span className="text-muted-foreground font-medium">Direct Topic Material</span>
+              )}
             </div>
 
             {/* Title */}
@@ -646,18 +673,26 @@ export function PptLibraryPage() {
           </CardContent>
         </div>
 
-        {/* Card Footer: Instructor info & Action buttons */}
+        {/* Card Footer: Instructor info, Upload date & Action buttons */}
         <div className="p-5 pt-0 border-t border-border/40 mt-2 space-y-3">
           <div className="flex items-center justify-between text-xs text-muted-foreground pt-3">
             <div className="flex items-center gap-2">
               <UnifiedAvatar
                 user={ppt.instructor as any}
                 size="sm"
-                className="ring-1 ring-border"
+                className="ring-1 ring-border shrink-0"
               />
-              <span className="font-medium text-foreground">
-                {ppt.instructor ? `${ppt.instructor.firstName} ${ppt.instructor.lastName}` : "Instructor"}
-              </span>
+              <div className="flex flex-col">
+                <span className="font-medium text-foreground leading-tight">
+                  {ppt.instructor ? `${ppt.instructor.firstName} ${ppt.instructor.lastName}` : "Instructor"}
+                </span>
+                {ppt.createdAt && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <Calendar className="w-2.5 h-2.5" />
+                    {formatDate(ppt.createdAt)}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1" title="Views">
@@ -799,7 +834,7 @@ export function PptLibraryPage() {
           </form>
 
           {/* Breadcrumbs Navigation Bar (visible when navigating topics, subtopics, or searching) */}
-          {(currentTopicId || currentSearch) && (
+          {(currentTopicId || currentSearch || currentFileType !== "all") && (
             <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground overflow-x-auto pb-1 scrollbar-none">
               <button
                 type="button"
@@ -807,8 +842,11 @@ export function PptLibraryPage() {
                   const newParams = new URLSearchParams(searchParams);
                   newParams.delete("topicId");
                   newParams.delete("subtopicId");
+                  newParams.delete("search");
+                  newParams.delete("fileType");
                   newParams.set("page", "1");
                   setSearchParams(newParams);
+                  setSearchInput("");
                 }}
                 className="hover:text-foreground font-medium flex items-center gap-1.5 transition-colors"
               >
@@ -825,6 +863,7 @@ export function PptLibraryPage() {
                       const newParams = new URLSearchParams(searchParams);
                       newParams.set("topicId", activeTopic.id);
                       newParams.delete("subtopicId");
+                      newParams.delete("search");
                       newParams.set("page", "1");
                       setSearchParams(newParams);
                     }}
@@ -862,7 +901,7 @@ export function PptLibraryPage() {
       {/* Main Hierarchical Browsing Content */}
       <section className="app-workspace max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-12">
         {/* LEVEL 1: MAIN TOPICS FIRST (When browsing root library without specific topic or search) */}
-        {!currentTopicId && !currentSearch && (
+        {!currentTopicId && !currentSearch && currentFileType === "all" && (
           <div className="space-y-6">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -1168,208 +1207,384 @@ export function PptLibraryPage() {
           </div>
         )}
 
-        {/* LEVEL 3: SUBTOPIC SELECTED — SHOW SUBTOPIC HEADER & MATERIALS */}
-        {currentTopicId && currentSubtopicId && activeTopic && activeSubtopic && !currentSearch && (
+        {/* LEVEL 3: SUBTOPIC SELECTED — SHOW SUBTOPIC HEADER & MATERIALS (Box 3 in handwritten diagram) */}
+        {currentTopicId && currentSubtopicId && !currentSearch && (
           <div className="space-y-8">
-            <div className="p-6 rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/5 via-card to-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                  <span>Topic:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleSubtopicClick("")}
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    {activeTopic.name}
-                  </button>
-                </div>
-                <h2 className="text-2xl font-display font-bold text-foreground">
-                  {activeSubtopic.name}
-                </h2>
-                {activeSubtopic.description && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {activeSubtopic.description}
-                  </p>
-                )}
-              </div>
+            {activeTopic && activeSubtopic ? (
+              <>
+                {/* Subtopic Header Banner */}
+                <div className="p-6 sm:p-8 rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 shadow-sm">
+                  <div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1.5">
+                      <span>Topic:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleSubtopicClick("")}
+                        className="font-semibold text-primary hover:underline transition-colors"
+                      >
+                        {activeTopic.name}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl sm:text-3xl font-display font-bold text-foreground">
+                        {activeSubtopic.name}
+                      </h2>
+                      {canUpload && (
+                        <button
+                          type="button"
+                          onClick={(e) => openEditSubtopic(activeSubtopic, e)}
+                          className="text-muted-foreground hover:text-primary transition-colors p-1"
+                          title="Rename / Edit Subtopic"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {activeSubtopic.description && (
+                      <p className="text-sm text-muted-foreground mt-2 max-w-2xl leading-relaxed">
+                        {activeSubtopic.description}
+                      </p>
+                    )}
+                  </div>
 
-              <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 self-start sm:self-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSubtopicClick("")}
+                      className="gap-1.5 text-xs h-9"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      Back to {activeTopic.name}
+                    </Button>
+                    {canUpload && (
+                      <Button
+                        size="sm"
+                        onClick={() => navigate(`/ppt-library/upload?topicId=${activeTopic.id}&subtopicId=${activeSubtopic.id}`)}
+                        className="gap-1.5 text-xs h-9 shadow-xs"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload to {activeSubtopic.name}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Subtopic Materials Listing (Matching Box 3 in handwritten diagram!) */}
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border/40">
+                    <div className="text-sm text-muted-foreground">
+                      {loading ? (
+                        <span>Loading materials...</span>
+                      ) : (
+                        <span>
+                          Showing <strong className="text-foreground">{resources.length}</strong> of{" "}
+                          <strong className="text-foreground">{pagination.total}</strong> study material
+                          {pagination.total === 1 ? "" : "s"} in{" "}
+                          <strong className="text-foreground">{activeSubtopic.name}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Sort Controls */}
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
+                      <span className="text-muted-foreground shrink-0 flex items-center gap-1">
+                        <Filter className="w-3.5 h-3.5" /> Sort:
+                      </span>
+                      <div className="flex items-center rounded-lg bg-card border border-border p-0.5 text-xs">
+                        {(["newest", "oldest", "popular", "views", "title"] as const).map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => handleSortChange(s)}
+                            className={`px-3 py-1.5 rounded-md transition-colors ${
+                              currentSort === s
+                                ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {s === "newest"
+                              ? "Newest"
+                              : s === "oldest"
+                              ? "Oldest"
+                              : s === "popular"
+                              ? "Most Downloaded"
+                              : s === "views"
+                              ? "Most Viewed"
+                              : "A-Z"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grid of Materials */}
+                  {loading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <Card key={i} className="animate-pulse bg-card/60 border-border/40 overflow-hidden rounded-2xl">
+                          <div className="h-44 bg-muted/50 w-full" />
+                          <CardContent className="p-5 space-y-3">
+                            <div className="h-4 bg-muted/70 rounded w-1/3" />
+                            <div className="h-5 bg-muted rounded w-4/5" />
+                            <div className="h-3 bg-muted/60 rounded w-full" />
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : isResourcesError && !resourceData ? (
+                    <div className="text-center py-16 px-4 bg-card/40 rounded-3xl border border-border/60">
+                      <div className="w-14 h-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto mb-4">
+                        <AlertTriangle className="w-7 h-7" />
+                      </div>
+                      <h3 className="text-lg font-semibold font-display text-foreground">Could not load study materials</h3>
+                      <p className="mt-1.5 text-sm text-muted-foreground max-w-md mx-auto">
+                        {resourcesError instanceof Error ? resourcesError.message : "A connection issue occurred while fetching study materials."}
+                      </p>
+                      <Button variant="outline" size="sm" onClick={() => refetchResources()} className="mt-5 gap-2">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Try Again
+                      </Button>
+                    </div>
+                  ) : resources.length === 0 ? (
+                    <div className="text-center py-16 px-4 bg-card/20 rounded-3xl border border-dashed border-border">
+                      <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground mb-4">
+                        <BookOpen className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-xl font-semibold font-display text-foreground">
+                        No study materials in {activeSubtopic.name} yet
+                      </h3>
+                      <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
+                        {currentFileType !== "all"
+                          ? `No ${currentFileType === "presentation" ? "presentation decks" : "PDF documents"} match this filter in ${activeSubtopic.name}.`
+                          : `Instructors haven't uploaded documents under ${activeSubtopic.name} yet.`}
+                      </p>
+                      {canUpload && (
+                        <Button
+                          size="sm"
+                          onClick={() => navigate(`/ppt-library/upload?topicId=${activeTopic.id}&subtopicId=${activeSubtopic.id}`)}
+                          className="mt-6 gap-2"
+                        >
+                          <Upload className="w-4 h-4" />
+                          Upload First Material to {activeSubtopic.name}
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {resources.map((ppt) => renderMaterialCard(ppt))}
+                    </div>
+                  )}
+
+                  {/* Pagination Controls */}
+                  {pagination.totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-8">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage <= 1}
+                        className="text-xs h-8"
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-xs text-muted-foreground px-2">
+                        Page {currentPage} of {pagination.totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage >= pagination.totalPages}
+                        className="text-xs h-8"
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-16 px-4 bg-card/30 rounded-2xl border border-border">
+                <AlertTriangle className="w-10 h-10 text-muted-foreground mx-auto mb-2 opacity-50" />
+                <h3 className="text-lg font-bold text-foreground">Subtopic not found</h3>
+                <p className="text-xs text-muted-foreground mt-1">The requested subtopic could not be located.</p>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => handleSubtopicClick("")}
-                  className="gap-1.5 text-xs h-9"
+                  className="mt-4 gap-1.5 text-xs"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  Back to {activeTopic.name}
+                  Back to Topic
                 </Button>
-                {canUpload && (
-                  <Button
-                    size="sm"
-                    onClick={() => navigate(`/ppt-library/upload?topicId=${activeTopic.id}&subtopicId=${activeSubtopic.id}`)}
-                    className="gap-1.5 text-xs h-9"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    Upload to {activeSubtopic.name}
-                  </Button>
-                )}
               </div>
-            </div>
+            )}
           </div>
         )}
 
-        {/* MATERIALS LISTING & SORTING (Rendered for All Levels & Search) */}
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border/40">
-            <div className="text-sm text-muted-foreground">
-              {loading ? (
-                <span>Loading materials...</span>
-              ) : (
-                <span>
+        {/* SEARCH RESULTS OR GLOBAL FILE-TYPE FILTER */}
+        {(currentSearch || (!currentTopicId && currentFileType !== "all")) && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border/40">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-foreground flex items-center gap-2">
+                  <Search className="w-5 h-5 text-primary" />
+                  {currentSearch ? (
+                    <>Search Results for &ldquo;{currentSearch}&rdquo;</>
+                  ) : (
+                    <>All {currentFileType === "presentation" ? "Presentation Decks" : "PDF Documents"}</>
+                  )}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
                   Showing <strong className="text-foreground">{resources.length}</strong> of{" "}
                   <strong className="text-foreground">{pagination.total}</strong> study material
                   {pagination.total === 1 ? "" : "s"}
-                  {currentSearch && (
-                    <span>
-                      {" "}
-                      for &ldquo;<strong className="text-foreground">{currentSearch}</strong>&rdquo;
-                    </span>
-                  )}
-                  {currentTopicId && activeTopic && !currentSearch && (
-                    <span>
-                      {" "}
-                      in <strong className="text-foreground">{activeTopic.name}</strong>
-                      {currentSubtopicId && activeSubtopic && (
-                        <span> &gt; <strong className="text-foreground">{activeSubtopic.name}</strong></span>
-                      )}
-                    </span>
-                  )}
-                </span>
-              )}
-            </div>
+                </p>
+              </div>
 
-            {/* Sort Controls */}
-            <div className="flex items-center gap-2 text-sm flex-wrap">
-              <span className="text-muted-foreground shrink-0 flex items-center gap-1">
-                <Filter className="w-3.5 h-3.5" /> Sort:
-              </span>
-              <div className="flex items-center rounded-lg bg-card border border-border p-0.5 text-xs">
-                {(["newest", "oldest", "popular", "views", "title"] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => handleSortChange(s)}
-                    className={`px-3 py-1.5 rounded-md transition-colors ${
-                      currentSort === s
-                        ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {s === "newest"
-                      ? "Newest"
-                      : s === "oldest"
-                      ? "Oldest"
-                      : s === "popular"
-                      ? "Most Downloaded"
-                      : s === "views"
-                      ? "Most Viewed"
-                      : "A-Z"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Grid of Materials */}
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Card key={i} className="animate-pulse bg-card/60 border-border/40 overflow-hidden rounded-2xl">
-                  <div className="h-44 bg-muted/50 w-full" />
-                  <CardContent className="p-5 space-y-3">
-                    <div className="h-4 bg-muted/70 rounded w-1/3" />
-                    <div className="h-5 bg-muted rounded w-4/5" />
-                    <div className="h-3 bg-muted/60 rounded w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : isResourcesError && !resourceData ? (
-            <div className="text-center py-16 px-4 bg-card/40 rounded-3xl border border-border/60">
-              <div className="w-14 h-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="w-7 h-7" />
-              </div>
-              <h3 className="text-lg font-semibold font-display text-foreground">Could not load study materials</h3>
-              <p className="mt-1.5 text-sm text-muted-foreground max-w-md mx-auto">
-                {resourcesError instanceof Error ? resourcesError.message : "A connection issue occurred while fetching study materials."}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetchResources()}
-                className="mt-5 gap-2"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Try Again
-              </Button>
-            </div>
-          ) : displayResources.length === 0 && directMaterials.length > 0 ? (
-            null
-          ) : displayResources.length === 0 ? (
-            <div className="text-center py-16 px-4">
-              <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground mb-4">
-                <BookOpen className="w-8 h-8" />
-              </div>
-              <h3 className="text-xl font-semibold font-display text-foreground">No study materials found</h3>
-              <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-                {currentSearch || currentTopicId || currentFileType !== "all"
-                  ? "Try adjusting your search terms or selecting a different filter."
-                  : "No study materials have been published yet in this category. Check back soon!"}
-              </p>
-              {(currentSearch || currentTopicId || currentFileType !== "all") && (
+              <div className="flex items-center gap-3">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setSearchParams(new URLSearchParams())}
+                  onClick={() => {
+                    const newParams = new URLSearchParams(searchParams);
+                    newParams.delete("search");
+                    newParams.delete("fileType");
+                    newParams.set("page", "1");
+                    setSearchParams(newParams);
+                    setSearchInput("");
+                  }}
+                  className="gap-1.5 text-xs h-8"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  View All Topics
+                </Button>
+              </div>
+            </div>
+
+            {/* Sort Controls */}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground shrink-0 flex items-center gap-1">
+                  <Filter className="w-3.5 h-3.5" /> Sort:
+                </span>
+                <div className="flex items-center rounded-lg bg-card border border-border p-0.5 text-xs">
+                  {(["newest", "oldest", "popular", "views", "title"] as const).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleSortChange(s)}
+                      className={`px-3 py-1.5 rounded-md transition-colors ${
+                        currentSort === s
+                          ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {s === "newest"
+                        ? "Newest"
+                        : s === "oldest"
+                        ? "Oldest"
+                        : s === "popular"
+                        ? "Most Downloaded"
+                        : s === "views"
+                        ? "Most Viewed"
+                        : "A-Z"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Grid of Materials */}
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Card key={i} className="animate-pulse bg-card/60 border-border/40 overflow-hidden rounded-2xl">
+                    <div className="h-44 bg-muted/50 w-full" />
+                    <CardContent className="p-5 space-y-3">
+                      <div className="h-4 bg-muted/70 rounded w-1/3" />
+                      <div className="h-5 bg-muted rounded w-4/5" />
+                      <div className="h-3 bg-muted/60 rounded w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : isResourcesError && !resourceData ? (
+              <div className="text-center py-16 px-4 bg-card/40 rounded-3xl border border-border/60">
+                <div className="w-14 h-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-semibold font-display text-foreground">Could not load study materials</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground max-w-md mx-auto">
+                  {resourcesError instanceof Error ? resourcesError.message : "A connection issue occurred while fetching study materials."}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => refetchResources()} className="mt-5 gap-2">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Try Again
+                </Button>
+              </div>
+            ) : resources.length === 0 ? (
+              <div className="text-center py-16 px-4 bg-card/20 rounded-3xl border border-dashed border-border">
+                <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground mb-4">
+                  <Search className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-semibold font-display text-foreground">No matching study materials found</h3>
+                <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
+                  {currentSearch
+                    ? `No materials matched "${currentSearch}". Try a different keyword, topic name, or reset your search.`
+                    : "No materials found for the selected file type."}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const newParams = new URLSearchParams(searchParams);
+                    newParams.delete("search");
+                    newParams.delete("fileType");
+                    newParams.set("page", "1");
+                    setSearchParams(newParams);
+                    setSearchInput("");
+                  }}
                   className="mt-6"
                 >
-                  Reset All Filters
+                  Clear Search & View Topics
                 </Button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {displayResources.map((ppt) => renderMaterialCard(ppt))}
-            </div>
-          )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {resources.map((ppt) => renderMaterialCard(ppt))}
+              </div>
+            )}
 
-          {/* Pagination Controls */}
-          {pagination.totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-8">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage <= 1}
-                className="text-xs h-8"
-              >
-                Previous
-              </Button>
-              <span className="text-xs text-muted-foreground px-2">
-                Page {currentPage} of {pagination.totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage >= pagination.totalPages}
-                className="text-xs h-8"
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </div>
+            {/* Pagination Controls */}
+            {pagination.totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-8">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  className="text-xs h-8"
+                >
+                  Previous
+                </Button>
+                <span className="text-xs text-muted-foreground px-2">
+                  Page {currentPage} of {pagination.totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage >= pagination.totalPages}
+                  className="text-xs h-8"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* MODAL 1: Create / Edit Topic Dialog */}
