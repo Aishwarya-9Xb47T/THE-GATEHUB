@@ -118,40 +118,27 @@ describe("PptLibraryPage Hierarchical Public Browsing", () => {
     vi.clearAllMocks();
   });
 
-  it("renders page header, topics filter, and material cards", async () => {
-    renderWithClient(
-      <MemoryRouter>
-        <PptLibraryPage />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText(/Study Materials/i)).toBeTruthy();
-
-    await waitFor(() => {
-      expect(screen.getByText("Docker & Container Fundamentals")).toBeTruthy();
-    });
-
-    expect(screen.getAllByText("Cloud Computing").length).toBeGreaterThan(0);
-    expect(screen.getByText("24 slides")).toBeTruthy();
-    expect(screen.getAllByText("Shoeb Ahmad").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("View Slides").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Download").length).toBeGreaterThan(0);
-  });
-
-  it("renders main topic cards with subtopic and resource counts", async () => {
+  it("Level 1: renders page header, search bar, and main topics cards with subtopic and resource counts without leaking materials", async () => {
     renderWithClient(
       <MemoryRouter initialEntries={["/ppt-library"]}>
         <PptLibraryPage />
       </MemoryRouter>
     );
 
+    expect(screen.getByText(/Study Materials/i)).toBeTruthy();
+    expect(screen.getByText(/Main Topics & Categories/i)).toBeTruthy();
+
     await waitFor(() => {
+      expect(screen.getAllByText("Cloud Computing").length).toBeGreaterThan(0);
       expect(screen.getByText("1 Subtopic")).toBeTruthy();
       expect(screen.getByText("2 Materials")).toBeTruthy();
     });
+
+    // Level 1 must not display material cards directly
+    expect(screen.queryByText("Docker & Container Fundamentals")).toBeNull();
   });
 
-  it("navigates into main topic and shows subtopics and direct materials with breadcrumbs", async () => {
+  it("Level 2: navigates into main topic and shows subtopics and direct materials with breadcrumbs", async () => {
     renderWithClient(
       <MemoryRouter initialEntries={["/ppt-library?topicId=topic-1"]}>
         <PptLibraryPage />
@@ -161,15 +148,56 @@ describe("PptLibraryPage Hierarchical Public Browsing", () => {
     await waitFor(() => {
       // Breadcrumbs
       expect(screen.getByRole("button", { name: "Study Materials" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Cloud Computing" })).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: "Cloud Computing" }).length).toBeGreaterThan(0);
     });
 
-    // Subtopic listed
+    // Subtopic listed (Matching Box 2 in diagram: CNN, ANN, DevOps...)
     expect(screen.getByText(/Subtopics in Cloud Computing/i)).toBeTruthy();
     expect(screen.getAllByText("DevOps").length).toBeGreaterThan(0);
 
     // Direct materials section
     expect(screen.getByText(/Direct Materials under Cloud Computing/i)).toBeTruthy();
     expect(screen.getByText("Direct Cloud Overview")).toBeTruthy();
+
+    // Subtopic material is not shown on Level 2 until subtopic is clicked
+    expect(screen.queryByText("Docker & Container Fundamentals")).toBeNull();
+  });
+
+  it("Level 3: navigates into subtopic and shows subtopic materials with preview and download actions", async () => {
+    renderWithClient(
+      <MemoryRouter initialEntries={["/ppt-library?topicId=topic-1&subtopicId=sub-1"]}>
+        <PptLibraryPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Docker & Container Fundamentals")).toBeTruthy();
+    });
+
+    // Subtopic banner
+    expect(screen.getByRole("button", { name: "Back to Cloud Computing" })).toBeTruthy();
+    expect(screen.getAllByText(/study material/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("DevOps").length).toBeGreaterThan(0);
+
+    // Material card details
+    expect(screen.getByText("24 slides")).toBeTruthy();
+    expect(screen.getAllByText("Shoeb Ahmad").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("View Slides").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Download").length).toBeGreaterThan(0);
+  });
+
+  it("Search: renders global search results across materials with topic and subtopic breadcrumbs", async () => {
+    renderWithClient(
+      <MemoryRouter initialEntries={["/ppt-library?search=Docker"]}>
+        <PptLibraryPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Docker & Container Fundamentals")).toBeTruthy();
+    });
+
+    expect(screen.getByText(/Search Results for “Docker”/i)).toBeTruthy();
+    expect(screen.getByText("View All Topics")).toBeTruthy();
   });
 });
