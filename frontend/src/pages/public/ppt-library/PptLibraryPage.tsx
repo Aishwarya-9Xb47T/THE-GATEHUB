@@ -491,8 +491,8 @@ export function PptLibraryPage() {
   const editModalTopic = topics.find((t) => t.id === editMaterialTopicId);
   const editModalSubtopics = editModalTopic?.subtopics || [];
 
-  // Card component renderer for single material item
-  const renderMaterialCard = (ppt: PPTResource) => {
+  // Compact horizontal document row renderer for study materials (matching Box 3 in handwritten spec)
+  const renderMaterialRow = (ppt: PPTResource) => {
     const ext = ppt.originalFileName.toLowerCase();
     const isPdf = ppt.fileType === "pdf" || ext.endsWith(".pdf");
     const isPptx = ppt.fileType === "pptx" || ext.endsWith(".pptx");
@@ -501,227 +501,143 @@ export function PptLibraryPage() {
       (isAdminRole(user.role) || (user.id === ppt.instructorId && user.role === "instructor"));
 
     return (
-      <Card
+      <div
         key={ppt.id}
-        className="group flex flex-col justify-between overflow-hidden bg-card border-border hover:border-primary/40 hover:shadow-md transition-all duration-300 rounded-2xl"
+        className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 bg-card hover:bg-muted/40 border border-border rounded-2xl transition-all duration-200 gap-4 shadow-xs"
       >
-        <div>
-          {/* Preview Header / Thumbnail */}
+        <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+          {/* Format Icon / Badge */}
           <div
-            className={`relative aspect-video w-full overflow-hidden flex items-center justify-center border-b border-border/40 ${
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
               isPdf
-                ? "bg-gradient-to-br from-rose-500/10 via-red-500/5 to-muted/40"
-                : "bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-muted/40"
+                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25"
+                : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25"
             }`}
           >
-            {ppt.thumbnailUrl ? (
-              <img
-                src={ppt.thumbnailUrl}
-                alt={ppt.title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                loading="lazy"
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                {isPdf ? (
-                  <>
-                    <FileText className="w-12 h-12 text-rose-500/80" />
-                    <span className="text-xs font-semibold tracking-wider uppercase mt-2 text-rose-600 dark:text-rose-400">
-                      PDF Document
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Presentation className="w-12 h-12 text-amber-500/80" />
-                    <span className="text-xs font-semibold tracking-wider uppercase mt-2 text-amber-600 dark:text-amber-400">
-                      {isPptx ? "PowerPoint Deck" : "Presentation"}
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
+            {isPdf ? <FileText className="w-5 h-5" /> : <Presentation className="w-5 h-5" />}
+          </div>
 
-            {/* File format badge */}
-            <div className="absolute top-3 left-3 flex items-center gap-1.5">
-              {isPdf ? (
-                <Badge className="font-mono text-[10px] font-bold uppercase tracking-wider backdrop-blur-md bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-                  .PDF
-                </Badge>
-              ) : (
-                <Badge className="font-mono text-[10px] font-bold uppercase tracking-wider backdrop-blur-md bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                  {isPptx ? ".PPTX" : ".PPT"}
-                </Badge>
-              )}
+          {/* Details */}
+          <div className="min-w-0 space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge
+                className={`text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 ${
+                  isPdf
+                    ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                }`}
+              >
+                {isPdf ? ".PDF" : isPptx ? ".PPTX" : ".PPT"}
+              </Badge>
               {ppt.academicLevel && (
-                <Badge variant="outline" className="text-[10px] backdrop-blur-md bg-background/70">
+                <Badge variant="outline" className="text-[10px] text-muted-foreground">
                   {ppt.academicLevel}
                 </Badge>
               )}
-            </div>
-
-            {/* Slide / Page count / size indicator */}
-            <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
-              {isPdf && ppt.pageCount ? (
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-background/90 backdrop-blur-md text-foreground shadow-xs flex items-center gap-1">
-                  <FileText className="w-3 h-3 text-rose-500" />
-                  {ppt.pageCount} {ppt.pageCount === 1 ? "page" : "pages"}
+              {/* Show topic & subtopic breadcrumbs in Search or Top-level context */}
+              {(currentSearch || (!currentTopicId && !currentSubtopicId)) && ppt.topic && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <span>{ppt.topic.name}</span>
+                  {ppt.subtopic && (
+                    <>
+                      <span>›</span>
+                      <span className="text-foreground font-medium">{ppt.subtopic.name}</span>
+                    </>
+                  )}
                 </span>
-              ) : ppt.slideCount ? (
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-background/90 backdrop-blur-md text-foreground shadow-xs flex items-center gap-1">
-                  <Layers className="w-3 h-3 text-amber-500" />
-                  {ppt.slideCount} slides
-                </span>
-              ) : null}
-              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-background/90 backdrop-blur-md text-muted-foreground shadow-xs">
-                {formatFileSize(ppt.fileSize)}
-              </span>
-            </div>
-
-            {/* Instructor Quick Actions */}
-            {canManageMaterial && (
-              <div className="absolute top-3 right-3 flex items-center gap-1 bg-background/80 backdrop-blur-md rounded-lg p-1 shadow-xs border border-border/50">
-                <button
-                  type="button"
-                  onClick={(e) => openEditMaterialModal(ppt, e)}
-                  className="p-1 hover:text-primary transition-colors text-muted-foreground"
-                  title="Edit Material Details"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget({ type: "material", id: ppt.id, name: ppt.title });
-                  }}
-                  className="p-1 hover:text-destructive transition-colors text-muted-foreground"
-                  title="Delete Material"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Card Content */}
-          <CardContent className="p-5 space-y-3">
-            {/* Hierarchical Topic Path Badge */}
-            <div className="flex items-center gap-1.5 flex-wrap text-xs">
-              {ppt.topic ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleTopicClick(ppt.topic!.id);
-                  }}
-                  className="font-semibold text-primary hover:underline transition-colors"
-                >
-                  {ppt.topic.name}
-                </button>
-              ) : (
-                <span className="font-semibold text-primary">Uncategorized</span>
-              )}
-              <span className="text-muted-foreground">•</span>
-              {ppt.subtopic ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const newParams = new URLSearchParams(searchParams);
-                    newParams.set("topicId", ppt.topicId || ppt.topic?.id || "");
-                    newParams.set("subtopicId", ppt.subtopicId || ppt.subtopic?.id || "");
-                    newParams.delete("search");
-                    newParams.set("page", "1");
-                    setSearchParams(newParams);
-                  }}
-                  className="text-muted-foreground hover:text-foreground font-medium hover:underline transition-colors"
-                >
-                  {ppt.subtopic.name}
-                </button>
-              ) : (
-                <span className="text-muted-foreground font-medium">Direct Topic Material</span>
               )}
             </div>
 
-            {/* Title */}
-            <h3 className="font-display font-bold text-lg text-foreground group-hover:text-primary transition-colors line-clamp-2">
-              <Link to={`/ppt-library/${ppt.id}/view`} className="focus:outline-hidden">
+            <h4 className="font-semibold text-foreground text-base group-hover:text-primary transition-colors leading-snug">
+              <Link to={`/ppt-library/${ppt.id}/view`} className="hover:underline">
                 {ppt.title}
               </Link>
-            </h3>
+            </h4>
 
-            {/* Short Description */}
             {ppt.description && (
-              <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+              <p className="text-xs text-muted-foreground line-clamp-1 max-w-2xl leading-relaxed">
                 {ppt.description}
               </p>
             )}
 
-            {/* Tags */}
-            {ppt.tags && ppt.tags.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                {ppt.tags.slice(0, 3).map((tag, idx) => (
-                  <span
-                    key={idx}
-                    className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium"
-                  >
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </div>
-
-        {/* Card Footer: Instructor info, Upload date & Action buttons */}
-        <div className="p-5 pt-0 border-t border-border/40 mt-2 space-y-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground pt-3">
-            <div className="flex items-center gap-2">
-              <UnifiedAvatar
-                user={ppt.instructor as any}
-                size="sm"
-                className="ring-1 ring-border shrink-0"
-              />
-              <div className="flex flex-col">
-                <span className="font-medium text-foreground leading-tight">
+            <div className="flex items-center gap-3 sm:gap-4 text-xs text-muted-foreground flex-wrap pt-0.5">
+              <div className="flex items-center gap-1.5">
+                <UnifiedAvatar user={ppt.instructor as any} size="sm" className="ring-1 ring-border shrink-0" />
+                <span className="font-medium text-foreground">
                   {ppt.instructor ? `${ppt.instructor.firstName} ${ppt.instructor.lastName}` : "Instructor"}
                 </span>
-                {ppt.createdAt && (
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                    <Calendar className="w-2.5 h-2.5" />
-                    {formatDate(ppt.createdAt)}
-                  </span>
-                )}
               </div>
+              {ppt.createdAt && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-muted-foreground" />
+                  {formatDate(ppt.createdAt)}
+                </span>
+              )}
+              {isPdf && ppt.pageCount ? (
+                <>
+                  <span className="text-muted-foreground/60">•</span>
+                  <span>{ppt.pageCount} {ppt.pageCount === 1 ? "page" : "pages"}</span>
+                </>
+              ) : ppt.slideCount ? (
+                <>
+                  <span className="text-muted-foreground/60">•</span>
+                  <span>{ppt.slideCount} slides</span>
+                </>
+              ) : null}
+              {ppt.fileSize ? (
+                <>
+                  <span className="text-muted-foreground/60">•</span>
+                  <span>{formatFileSize(ppt.fileSize)}</span>
+                </>
+              ) : null}
             </div>
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1" title="Views">
-                <Eye className="w-3 h-3" />
-                {ppt.viewCount || 0}
-              </span>
-              <span className="flex items-center gap-1" title="Downloads">
-                <Download className="w-3 h-3" />
-                {ppt.downloadCount || 0}
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <Button size="sm" variant="outline" asChild className="w-full text-xs gap-1.5 h-8">
-              <a href={getPptDownloadUrl(ppt.id)} download={ppt.originalFileName}>
-                <Download className="w-3.5 h-3.5" />
-                Download
-              </a>
-            </Button>
-            <Button size="sm" asChild className="w-full text-xs gap-1.5 h-8 shadow-xs">
-              <Link to={`/ppt-library/${ppt.id}/view`}>
-                <Eye className="w-3.5 h-3.5" />
-                {isPdf ? "View Document" : "View Slides"}
-              </Link>
-            </Button>
           </div>
         </div>
-      </Card>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          {canManageMaterial && (
+            <div className="flex items-center gap-1 mr-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={(e) => openEditMaterialModal(ppt, e)}
+                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                title="Edit Material"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteTarget({ type: "material", id: ppt.id, name: ppt.title });
+                }}
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                title="Delete Material"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
+
+          <Button size="sm" variant="outline" asChild className="text-xs gap-1.5 h-8">
+            <a href={getPptDownloadUrl(ppt.id)} download={ppt.originalFileName}>
+              <Download className="w-3.5 h-3.5" />
+              Download
+            </a>
+          </Button>
+          <Button size="sm" asChild className="text-xs gap-1.5 h-8 shadow-xs">
+            <Link to={`/ppt-library/${ppt.id}/view`}>
+              <Eye className="w-3.5 h-3.5" />
+              {isPdf ? "View Document" : "View Slides"}
+            </Link>
+          </Button>
+        </div>
+      </div>
     );
   };
 
@@ -927,17 +843,17 @@ export function PptLibraryPage() {
               )}
             </div>
 
-            {/* Grid of Main Topic Cards */}
+            {/* Clean Folder-Style List of Main Topics (Matching Level 1 & Handwritten Spec) */}
             {isTopicsLoading && topics.length === 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="animate-pulse p-6 rounded-2xl border border-border bg-card/60 h-44 flex flex-col justify-between">
-                    <div className="space-y-3">
-                      <div className="w-12 h-12 rounded-xl bg-muted/60" />
-                      <div className="h-5 bg-muted rounded w-2/3" />
-                      <div className="h-3 bg-muted/60 rounded w-5/6" />
+              <div className="border border-border rounded-2xl bg-card overflow-hidden divide-y divide-border/60 shadow-xs">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="animate-pulse p-4 sm:p-5 flex items-center justify-between">
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      <div className="w-6 h-4 bg-muted/60 rounded" />
+                      <div className="w-5 h-5 rounded bg-muted/60" />
+                      <div className="h-5 bg-muted rounded w-44" />
                     </div>
-                    <div className="h-3 bg-muted/40 rounded w-1/3" />
+                    <div className="h-4 bg-muted/40 rounded w-20" />
                   </div>
                 ))}
               </div>
@@ -948,32 +864,53 @@ export function PptLibraryPage() {
                 <p className="text-xs text-muted-foreground mt-1">Create a topic to organize study materials.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {topics.map((topic) => {
-                const isCreatorOrAdmin =
-                  !isPlaceholderData &&
-                  user &&
-                  (isAdminRole(user.role) || (topic as any).createdById === user.id);
+              <div className="border border-border rounded-2xl bg-card overflow-hidden divide-y divide-border/60 shadow-xs">
+                {topics.map((topic, index) => {
+                  const isCreatorOrAdmin =
+                    !isPlaceholderData &&
+                    user &&
+                    (isAdminRole(user.role) || (topic as any).createdById === user.id);
 
-                return (
-                  <div
-                    key={topic.id}
-                    onClick={() => {
-                      if (!isPlaceholderData) {
-                        handleTopicClick(topic.id);
-                      }
-                    }}
-                    className={`group p-6 rounded-2xl border border-border bg-card transition-all duration-300 relative flex flex-col justify-between ${
-                      isPlaceholderData ? "cursor-default opacity-90" : "cursor-pointer hover:border-primary/50 hover:shadow-lg"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-3 mb-4">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center group-hover:scale-110 group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300 shadow-xs">
-                          {getTopicIcon(topic.icon || topic.name, "w-6 h-6")}
+                  return (
+                    <div
+                      key={topic.id}
+                      onClick={() => {
+                        if (!isPlaceholderData) {
+                          handleTopicClick(topic.id);
+                        }
+                      }}
+                      className={`group p-4 sm:p-5 flex items-center justify-between transition-colors ${
+                        isPlaceholderData ? "cursor-default opacity-80" : "cursor-pointer hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        {/* Topic Number matching handwritten diagram: 1., 2., 3. */}
+                        <span className="font-mono text-sm sm:text-base font-semibold text-muted-foreground w-6 sm:w-8 shrink-0">
+                          {index + 1}.
+                        </span>
+
+                        <Folder className="w-5 h-5 text-primary shrink-0" />
+
+                        <div className="min-w-0">
+                          <span className="font-semibold text-base sm:text-lg text-foreground group-hover:text-primary transition-colors">
+                            {topic.name}
+                          </span>
+                          {topic.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                              {topic.description}
+                            </p>
+                          )}
                         </div>
+                      </div>
 
-                        {/* Instructor quick topic edit/delete */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Badge variant="secondary" className="text-xs font-normal">
+                          {topic.subtopics.length} Subtopic{topic.subtopics.length === 1 ? "" : "s"}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs font-normal hidden sm:inline-flex">
+                          {topic.resourceCount || 0} Material{(topic.resourceCount || 0) === 1 ? "" : "s"}
+                        </Badge>
+
                         {isCreatorOrAdmin && (
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
@@ -1002,36 +939,12 @@ export function PptLibraryPage() {
                             </button>
                           </div>
                         )}
+
+                        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
                       </div>
-
-                      <h3 className="text-lg font-bold font-display text-foreground group-hover:text-primary transition-colors">
-                        {topic.name}
-                      </h3>
-
-                      <p className="mt-2 text-xs sm:text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-                        {topic.description || "Structured learning materials, presentations and PDF notes curated for this topic."}
-                      </p>
                     </div>
-
-                    <div className="mt-6 pt-4 border-t border-border/40 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-[11px] font-medium gap-1">
-                          <Folder className="w-3 h-3 text-muted-foreground" />
-                          {topic.subtopics.length} Subtopic{topic.subtopics.length === 1 ? "" : "s"}
-                        </Badge>
-                        <Badge variant="outline" className="text-[11px] font-medium gap-1">
-                          <FileText className="w-3 h-3 text-muted-foreground" />
-                          {topic.resourceCount || 0} Material{topic.resourceCount === 1 ? "" : "s"}
-                        </Badge>
-                      </div>
-
-                      <span className="text-primary font-semibold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                        Explore <ArrowRight className="w-3.5 h-3.5" />
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1131,57 +1044,64 @@ export function PptLibraryPage() {
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {activeTopic.subtopics.map((sub) => (
+                <div className="border border-border rounded-2xl bg-card overflow-hidden divide-y divide-border/60 shadow-xs">
+                  {activeTopic.subtopics.map((sub, idx) => (
                     <div
                       key={sub.id}
                       onClick={() => handleSubtopicClick(sub.id)}
-                      className="group cursor-pointer p-4 rounded-xl border border-border bg-card hover:border-primary/50 hover:shadow-sm transition-all flex flex-col justify-between"
+                      className="group cursor-pointer p-4 sm:p-5 flex items-center justify-between hover:bg-muted/50 transition-colors"
                     >
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        {/* Letter index matching handwritten spec: a. CNN, b. ANN */}
+                        <span className="font-mono text-sm sm:text-base font-semibold text-muted-foreground w-6 shrink-0">
+                          {String.fromCharCode(97 + (idx % 26))}.
+                        </span>
+                        <Folder className="w-5 h-5 text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <span className="font-semibold text-base text-foreground group-hover:text-primary transition-colors">
                             {sub.name}
                           </span>
-                          {canUpload && (
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                type="button"
-                                onClick={(e) => openEditSubtopic(sub, e)}
-                                className="p-0.5 text-muted-foreground hover:text-primary"
-                                title="Edit Subtopic"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDeleteTarget({
-                                    type: "subtopic",
-                                    id: sub.id,
-                                    name: sub.name,
-                                    itemCount: sub.resourceCount || 0,
-                                  });
-                                }}
-                                className="p-0.5 text-muted-foreground hover:text-destructive"
-                                title="Delete Subtopic"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
+                          {sub.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                              {sub.description}
+                            </p>
                           )}
                         </div>
-                        {sub.description && (
-                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                            {sub.description}
-                          </p>
-                        )}
                       </div>
 
-                      <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{sub.resourceCount || 0} materials</span>
-                        <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform text-primary" />
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Badge variant="secondary" className="text-xs font-normal">
+                          {sub.resourceCount || 0} material{(sub.resourceCount || 0) === 1 ? "" : "s"}
+                        </Badge>
+                        {canUpload && (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => openEditSubtopic(sub, e)}
+                              className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                              title="Edit Subtopic"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget({
+                                  type: "subtopic",
+                                  id: sub.id,
+                                  name: sub.name,
+                                  itemCount: sub.resourceCount || 0,
+                                });
+                              }}
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Delete Subtopic"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
                       </div>
                     </div>
                   ))}
@@ -1189,18 +1109,23 @@ export function PptLibraryPage() {
               )}
             </div>
 
-            {/* Direct Materials under this Main Topic */}
+            {/* Direct Materials under this Main Topic (Only shown when direct materials exist) */}
             {directMaterials.length > 0 && (
               <div className="space-y-4 pt-4 border-t border-border/40">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-primary" />
-                    Direct Materials under {activeTopic.name} ({directMaterials.length})
-                  </h3>
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-primary" />
+                      Main Topic Materials &bull; Direct Materials under {activeTopic.name} ({directMaterials.length})
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Documents uploaded directly under this topic without a specific subtopic.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {directMaterials.map((ppt) => renderMaterialCard(ppt))}
+                <div className="space-y-3">
+                  {directMaterials.map((ppt) => renderMaterialRow(ppt))}
                 </div>
               </div>
             )}
@@ -1318,18 +1243,20 @@ export function PptLibraryPage() {
                     </div>
                   </div>
 
-                  {/* Grid of Materials */}
+                  {/* Clean Horizontal Document Rows (Matching Box 3 in handwritten spec) */}
                   {loading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <Card key={i} className="animate-pulse bg-card/60 border-border/40 overflow-hidden rounded-2xl">
-                          <div className="h-44 bg-muted/50 w-full" />
-                          <CardContent className="p-5 space-y-3">
-                            <div className="h-4 bg-muted/70 rounded w-1/3" />
-                            <div className="h-5 bg-muted rounded w-4/5" />
-                            <div className="h-3 bg-muted/60 rounded w-full" />
-                          </CardContent>
-                        </Card>
+                    <div className="space-y-3 mt-6">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="animate-pulse p-4 sm:p-5 rounded-2xl border border-border bg-card/60 h-24 flex items-center justify-between">
+                          <div className="flex items-center gap-3 sm:gap-4">
+                            <div className="w-11 h-11 rounded-xl bg-muted/60" />
+                            <div className="space-y-2">
+                              <div className="h-4 bg-muted rounded w-48 sm:w-64" />
+                              <div className="h-3 bg-muted/60 rounded w-32 sm:w-40" />
+                            </div>
+                          </div>
+                          <div className="h-8 bg-muted/40 rounded w-24 sm:w-32" />
+                        </div>
                       ))}
                     </div>
                   ) : isResourcesError && !resourceData ? (
@@ -1371,8 +1298,8 @@ export function PptLibraryPage() {
                       )}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {resources.map((ppt) => renderMaterialCard(ppt))}
+                    <div className="space-y-3">
+                      {resources.map((ppt) => renderMaterialRow(ppt))}
                     </div>
                   )}
 
@@ -1496,18 +1423,20 @@ export function PptLibraryPage() {
               </div>
             </div>
 
-            {/* Grid of Materials */}
+            {/* Clean Horizontal Document Rows for Search */}
             {loading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Card key={i} className="animate-pulse bg-card/60 border-border/40 overflow-hidden rounded-2xl">
-                    <div className="h-44 bg-muted/50 w-full" />
-                    <CardContent className="p-5 space-y-3">
-                      <div className="h-4 bg-muted/70 rounded w-1/3" />
-                      <div className="h-5 bg-muted rounded w-4/5" />
-                      <div className="h-3 bg-muted/60 rounded w-full" />
-                    </CardContent>
-                  </Card>
+              <div className="space-y-3 mt-6">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="animate-pulse p-4 sm:p-5 rounded-2xl border border-border bg-card/60 h-24 flex items-center justify-between">
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      <div className="w-11 h-11 rounded-xl bg-muted/60" />
+                      <div className="space-y-2">
+                        <div className="h-4 bg-muted rounded w-48 sm:w-64" />
+                        <div className="h-3 bg-muted/60 rounded w-32 sm:w-40" />
+                      </div>
+                    </div>
+                    <div className="h-8 bg-muted/40 rounded w-24 sm:w-32" />
+                  </div>
                 ))}
               </div>
             ) : isResourcesError && !resourceData ? (
@@ -1552,8 +1481,8 @@ export function PptLibraryPage() {
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {resources.map((ppt) => renderMaterialCard(ppt))}
+              <div className="space-y-3">
+                {resources.map((ppt) => renderMaterialRow(ppt))}
               </div>
             )}
 
