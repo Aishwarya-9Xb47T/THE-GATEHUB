@@ -177,7 +177,11 @@ export function PptLibraryPage() {
     gcTime: 30 * 60 * 1000,
   });
 
-  // TanStack Query for resources with stale-while-revalidate
+  // Determine whether we are viewing Level 2 (topic overview requiring only direct main-topic materials)
+  const isLevel2DirectView = Boolean(currentTopicId && !currentSubtopicId && !currentSearch);
+  const shouldFetchResources = Boolean(currentTopicId || currentSearch || currentFileType !== "all");
+
+  // TanStack Query for resources with stale-while-revalidate & strict topic/subtopic isolation
   const {
     data: resourceData,
     isLoading: isResourcesLoading,
@@ -194,39 +198,72 @@ export function PptLibraryPage() {
       currentSubtopicId,
       currentSort,
       currentFileType,
+      isLevel2DirectView ? "direct-only" : "standard",
     ],
     queryFn: () =>
       fetchLibraryResources({
-        page: currentPage,
-        limit: 12,
+        page: isLevel2DirectView ? 1 : currentPage,
+        limit: isLevel2DirectView ? 50 : 12,
         search: currentSearch,
         topicId: currentTopicId,
-        subtopicId: currentSubtopicId,
+        // At Level 2, strictly request ONLY direct main-topic materials (subtopicId IS NULL)
+        subtopicId: isLevel2DirectView ? "null" : currentSubtopicId,
         sort: currentSort,
         fileType: currentFileType !== "all" ? currentFileType : undefined,
       }),
+    enabled: shouldFetchResources,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
-    placeholderData: (prev) => prev,
+    // Only preserve placeholderData within the exact same topic/subtopic/search scope to prevent stale document leaks
+    placeholderData: (prev, prevQuery) => {
+      const key = prevQuery?.queryKey;
+      if (
+        Array.isArray(key) &&
+        key[3] === currentSearch &&
+        key[4] === currentTopicId &&
+        key[5] === currentSubtopicId
+      ) {
+        return prev;
+      }
+      return undefined;
+    },
     retry: 1,
   });
 
   const resources = resourceData?.data ?? [];
   const pagination = resourceData?.pagination ?? { page: 1, limit: 12, total: 0, totalPages: 1 };
-  const loading = !resourceData && isResourcesLoading;
+  const loading = shouldFetchResources && !resourceData && isResourcesLoading;
 
   // Derive active topic & subtopic objects from memory
   const activeTopic = useMemo(() => topics.find((t) => t.id === currentTopicId), [topics, currentTopicId]);
+  const activeSubtopics = useMemo(() => {
+    if (!activeTopic) return [];
+    return (activeTopic.subtopics || []).filter(
+      (sub) => !sub.topicId || sub.topicId === activeTopic.id
+    );
+  }, [activeTopic]);
   const activeSubtopic = useMemo(
-    () => activeTopic?.subtopics.find((s) => s.id === currentSubtopicId),
-    [activeTopic, currentSubtopicId]
+    () => activeSubtopics.find((s) => s.id === currentSubtopicId),
+    [activeSubtopics, currentSubtopicId]
   );
 
-  // Direct materials under active main topic (no subtopic assigned)
+  // Strict frontend isolation: Level 2 Direct materials (topicId === selectedTopicId AND subtopicId IS NULL)
   const directMaterials = useMemo(() => {
-    if (!currentTopicId || currentSubtopicId) return [];
-    return resources.filter((r) => !r.subtopicId || r.subtopicId === "");
-  }, [resources, currentTopicId, currentSubtopicId]);
+    if (!currentTopicId || currentSubtopicId || currentSearch) return [];
+    return resources.filter(
+      (r) =>
+        r.topicId === currentTopicId &&
+        (r.subtopicId === null || r.subtopicId === undefined || r.subtopicId === "")
+    );
+  }, [resources, currentTopicId, currentSubtopicId, currentSearch]);
+
+  // Strict frontend isolation: Level 3 Subtopic materials (topicId === selectedTopicId AND subtopicId === selectedSubtopicId)
+  const subtopicMaterials = useMemo(() => {
+    if (!currentTopicId || !currentSubtopicId || currentSearch) return [];
+    return resources.filter(
+      (r) => r.topicId === currentTopicId && r.subtopicId === currentSubtopicId
+    );
+  }, [resources, currentTopicId, currentSubtopicId, currentSearch]);
 
   // Search & Navigation Handlers
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -1017,16 +1054,37 @@ export function PptLibraryPage() {
               </div>
             </div>
 
-            {/* Subtopics Grid in this Topic */}
-            <div className="space-y-4">
+            {/* SECTION 1: MAIN TOPIC MATERIALS FIRST (Only shown when direct materials with subtopicId === NULL exist) */}
+            {directMaterials.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-primary" />
+                      Main Topic Materials ({directMaterials.length})
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Direct Materials under {activeTopic.name} &mdash; Documents uploaded directly under this topic without a subtopic.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {directMaterials.map((ppt) => renderMaterialRow(ppt))}
+                </div>
+              </div>
+            )}
+
+            {/* SECTION 2: SUBTOPICS SECOND (Always shown after Main Topic Materials, or first if no direct materials exist) */}
+            <div className={`space-y-4 ${directMaterials.length > 0 ? "pt-4 border-t border-border/40" : ""}`}>
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
                   <FolderOpen className="w-4 h-4 text-primary" />
-                  Subtopics in {activeTopic.name} ({activeTopic.subtopics.length})
+                  Subtopics in {activeTopic.name} ({activeSubtopics.length})
                 </h3>
               </div>
 
-              {activeTopic.subtopics.length === 0 ? (
+              {activeSubtopics.length === 0 ? (
                 <div className="text-center py-8 px-4 rounded-2xl border border-dashed border-border bg-card/40">
                   <p className="text-sm text-muted-foreground">
                     No subtopics created yet in this topic.
@@ -1045,7 +1103,7 @@ export function PptLibraryPage() {
                 </div>
               ) : (
                 <div className="border border-border rounded-2xl bg-card overflow-hidden divide-y divide-border/60 shadow-xs">
-                  {activeTopic.subtopics.map((sub, idx) => (
+                  {activeSubtopics.map((sub, idx) => (
                     <div
                       key={sub.id}
                       onClick={() => handleSubtopicClick(sub.id)}
@@ -1108,27 +1166,6 @@ export function PptLibraryPage() {
                 </div>
               )}
             </div>
-
-            {/* Direct Materials under this Main Topic (Only shown when direct materials exist) */}
-            {directMaterials.length > 0 && (
-              <div className="space-y-4 pt-4 border-t border-border/40">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-display font-bold text-foreground flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-primary" />
-                      Main Topic Materials &bull; Direct Materials under {activeTopic.name} ({directMaterials.length})
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Documents uploaded directly under this topic without a specific subtopic.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {directMaterials.map((ppt) => renderMaterialRow(ppt))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1203,9 +1240,9 @@ export function PptLibraryPage() {
                         <span>Loading materials...</span>
                       ) : (
                         <span>
-                          Showing <strong className="text-foreground">{resources.length}</strong> of{" "}
-                          <strong className="text-foreground">{pagination.total}</strong> study material
-                          {pagination.total === 1 ? "" : "s"} in{" "}
+                          Showing <strong className="text-foreground">{subtopicMaterials.length}</strong> of{" "}
+                          <strong className="text-foreground">{pagination.totalPages > 1 ? pagination.total : subtopicMaterials.length}</strong> study material
+                          {(pagination.totalPages > 1 ? pagination.total : subtopicMaterials.length) === 1 ? "" : "s"} in{" "}
                           <strong className="text-foreground">{activeSubtopic.name}</strong>
                         </span>
                       )}
@@ -1273,7 +1310,7 @@ export function PptLibraryPage() {
                         Try Again
                       </Button>
                     </div>
-                  ) : resources.length === 0 ? (
+                  ) : subtopicMaterials.length === 0 ? (
                     <div className="text-center py-16 px-4 bg-card/20 rounded-3xl border border-dashed border-border">
                       <div className="w-16 h-16 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground mb-4">
                         <BookOpen className="w-8 h-8" />
@@ -1299,7 +1336,7 @@ export function PptLibraryPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {resources.map((ppt) => renderMaterialRow(ppt))}
+                      {subtopicMaterials.map((ppt) => renderMaterialRow(ppt))}
                     </div>
                   )}
 
