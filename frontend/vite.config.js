@@ -40,6 +40,12 @@ export default defineConfig({
                     if (id.includes("node_modules/marked") || id.includes("react-markdown")) {
                         return "markdown";
                     }
+                    if (id.includes("node_modules/mermaid")) {
+                        return "mermaid";
+                    }
+                    if (id.includes("node_modules/cytoscape")) {
+                        return "cytoscape";
+                    }
                     if (id.includes("node_modules/@tanstack/react-query")) {
                         return "tanstack-query";
                     }

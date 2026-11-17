@@ -343,7 +343,7 @@ export async function list(req: AuthRequest, res: Response) {
       subcategoryId: true,
       categoryRel: { select: { id: true, name: true, slug: true } },
       instructor: { select: { id: true, firstName: true, lastName: true, avatar: true } },
-      _count: { select: { enrollments: true, reviews: true } },
+      ...(featuredOnly ? {} : { _count: { select: { enrollments: true, reviews: true } } }),
     },
     orderBy: { createdAt: "desc" },
     take: limit,

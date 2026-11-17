@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, Clock } from "lucide-react";
@@ -18,13 +18,28 @@ import {
 
 export function LandingExploreCoursesSection() {
   const navigate = useNavigate();
+  const [isTimedOut, setIsTimedOut] = useState(false);
   const universesQuery = useQuery<LandingUniversesResponse>(landingUniversesQueryOptions);
   const coursesQuery = useQuery<LandingCoursesResponse>(landingCoursesQueryOptions);
 
   const items = mergeLandingExploreItems(universesQuery.data, coursesQuery.data?.courses);
   const hasAnyData = items.length > 0;
+
+  // Prevent infinite skeleton loading state if network stalls
+  useEffect(() => {
+    if (hasAnyData) {
+      setIsTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setIsTimedOut(true);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [hasAnyData]);
+
   const isInitialLoading =
     !hasAnyData &&
+    !isTimedOut &&
     (universesQuery.isLoading ||
       coursesQuery.isLoading ||
       universesQuery.isPending ||
@@ -32,7 +47,7 @@ export function LandingExploreCoursesSection() {
   const isError =
     !hasAnyData &&
     !isInitialLoading &&
-    (universesQuery.isError || coursesQuery.isError);
+    (universesQuery.isError || coursesQuery.isError || isTimedOut);
 
   useEffect(() => {
     if (items.length > 0) {
