@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { isInstructorApproved, useUserStore } from "@/store/userStore";
+import { isInstructorApproved, isSuperAdminRole, useUserStore } from "@/store/userStore";
 import { InstructorApprovalNotice } from "../InstructorApprovalNotice";
 import { ApprovedInstructorRoute } from "@/components/auth/ApprovedInstructorRoute";
 
@@ -44,6 +44,23 @@ describe("Instructor Approval Frontend Workflow Suite", () => {
     it("returns false for students", () => {
       const studentUser: any = { id: "s1", role: "student", instructorApprovalStatus: null };
       expect(isInstructorApproved(studentUser)).toBe(false);
+    });
+  });
+
+  describe("isSuperAdminRole authorization helper", () => {
+    it("returns true only for super_admin role", () => {
+      expect(isSuperAdminRole("super_admin")).toBe(true);
+    });
+
+    it("returns false for standard admin role", () => {
+      expect(isSuperAdminRole("admin")).toBe(false);
+    });
+
+    it("returns false for instructor, student, and unauthenticated roles", () => {
+      expect(isSuperAdminRole("instructor")).toBe(false);
+      expect(isSuperAdminRole("student")).toBe(false);
+      expect(isSuperAdminRole(null)).toBe(false);
+      expect(isSuperAdminRole(undefined)).toBe(false);
     });
   });
 

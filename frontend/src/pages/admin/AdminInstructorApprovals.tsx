@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToastStore } from "@/store/toastStore";
+import { useUserStore, isSuperAdminRole } from "@/store/userStore";
 import { UnifiedAvatar } from "@/components/common/UnifiedAvatar";
 import {
   Users,
@@ -63,6 +64,8 @@ interface CountsData {
 export function AdminInstructorApprovals() {
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.add);
+  const user = useUserStore((s) => s.user);
+  const isSuperAdmin = isSuperAdminRole(user?.role);
 
   const [activeTab, setActiveTab] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("PENDING");
   const [search, setSearch] = useState("");
@@ -259,6 +262,15 @@ export function AdminInstructorApprovals() {
           </p>
         </div>
       </div>
+
+      {!isSuperAdmin && (
+        <div className="flex items-center gap-2.5 p-3.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            <strong>Read-Only Mode:</strong> Reviewing, approving, rejecting, and revoking instructor permissions requires Super Admin authorization. Standard administrators have read-only visibility.
+          </span>
+        </div>
+      )}
 
       {/* Metrics Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -550,45 +562,65 @@ export function AdminInstructorApprovals() {
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-2">
                             {isPending && (
-                              <>
+                              isSuperAdmin ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      setApprovingInstructor(instructor);
+                                      setApprovalNotes("");
+                                    }}
+                                    className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3 shadow-sm"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setRejectingInstructor(instructor);
+                                      setRejectionReason("");
+                                    }}
+                                    className="h-8 gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-xs px-3"
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    Reject
+                                  </Button>
+                                </>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 font-medium bg-amber-100/70 dark:bg-amber-950/40 px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-800"
+                                  title="Super Admin approval required"
+                                >
+                                  <Clock className="h-3 w-3" />
+                                  Super Admin Review
+                                </span>
+                              )
+                            )}
+
+                            {isRejected && (
+                              isSuperAdmin ? (
                                 <Button
                                   size="sm"
                                   onClick={() => {
                                     setApprovingInstructor(instructor);
-                                    setApprovalNotes("");
+                                    setApprovalNotes("Re-approved following review");
                                   }}
-                                  className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3 shadow-sm"
+                                  className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3"
                                 >
-                                  <Check className="h-3.5 w-3.5" />
-                                  Approve
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  Re-Approve
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setRejectingInstructor(instructor);
-                                    setRejectionReason("");
-                                  }}
-                                  className="h-8 gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-xs px-3"
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 text-xs text-rose-700 dark:text-rose-400 font-medium bg-rose-100/70 dark:bg-rose-950/40 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800"
+                                  title="Super Admin authorization required"
                                 >
-                                  <XCircle className="h-3.5 w-3.5" />
-                                  Reject
-                                </Button>
-                              </>
-                            )}
-
-                            {isRejected && (
-                              <Button
-                                size="sm"
-                                onClick={() => {
-                                  setApprovingInstructor(instructor);
-                                  setApprovalNotes("Re-approved following review");
-                                }}
-                                className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3"
-                              >
-                                <Sparkles className="h-3.5 w-3.5" />
-                                Re-Approve
-                              </Button>
+                                  <XCircle className="h-3 w-3" />
+                                  Super Admin Only
+                                </span>
+                              )
                             )}
 
                             {isApproved && (
@@ -597,19 +629,21 @@ export function AdminInstructorApprovals() {
                                   <ShieldCheck className="h-4 w-4" />
                                   Approved
                                 </span>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setRevokingInstructor(instructor);
-                                    setRevokeReason("");
-                                  }}
-                                  className="h-8 gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-xs px-2.5"
-                                  title="Revoke instructor course creation permissions"
-                                >
-                                  <XCircle className="h-3.5 w-3.5" />
-                                  Revoke
-                                </Button>
+                                {isSuperAdmin && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setRevokingInstructor(instructor);
+                                      setRevokeReason("");
+                                    }}
+                                    className="h-8 gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-xs px-2.5"
+                                    title="Revoke instructor course creation permissions"
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    Revoke
+                                  </Button>
+                                )}
                               </div>
                             )}
                           </div>

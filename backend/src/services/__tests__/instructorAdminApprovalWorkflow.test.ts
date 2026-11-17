@@ -45,6 +45,8 @@ const { requireInstructorApproved, requireApprovedInstructor } = await import(
   "../../middlewares/instructorApproval.js"
 );
 
+const { requireSuperAdmin } = await import("../../middlewares/auth.js");
+
 describe("Instructor Admin Approval Workflow Suite", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -346,6 +348,83 @@ describe("Instructor Admin Approval Workflow Suite", () => {
           }),
         })
       );
+    });
+  });
+
+  describe("Super Admin Authorization Guards on Approval Mutations", () => {
+    it("should allow super_admin to perform approval actions", () => {
+      const superAdminReq: any = {
+        user: { id: "super-1", role: "super_admin", email: "super@gatehub.com" },
+      };
+      const res: any = {};
+      const next = jest.fn();
+
+      const middleware = requireSuperAdmin();
+      middleware(superAdminReq, res, next);
+
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it("should return HTTP 403 for normal admin attempting approval actions", () => {
+      const normalAdminReq: any = {
+        user: { id: "admin-1", role: "admin", email: "admin@gatehub.com" },
+      };
+      const res: any = {};
+      const next = jest.fn();
+
+      const middleware = requireSuperAdmin();
+      middleware(normalAdminReq, res, next);
+
+      expect(next).toHaveBeenCalled();
+      const err = (next as any).mock.calls[0][0];
+      expect(err?.statusCode).toBe(403);
+      expect(err?.message).toBe("Super admin access required");
+    });
+
+    it("should return HTTP 403 for instructor attempting approval actions", () => {
+      const instructorReq: any = {
+        user: { id: "inst-1", role: "instructor", email: "inst@gatehub.com" },
+      };
+      const res: any = {};
+      const next = jest.fn();
+
+      const middleware = requireSuperAdmin();
+      middleware(instructorReq, res, next);
+
+      expect(next).toHaveBeenCalled();
+      const err = (next as any).mock.calls[0][0];
+      expect(err?.statusCode).toBe(403);
+      expect(err?.message).toBe("Super admin access required");
+    });
+
+    it("should return HTTP 403 for student attempting approval actions", () => {
+      const studentReq: any = {
+        user: { id: "student-1", role: "student", email: "student@gatehub.com" },
+      };
+      const res: any = {};
+      const next = jest.fn();
+
+      const middleware = requireSuperAdmin();
+      middleware(studentReq, res, next);
+
+      expect(next).toHaveBeenCalled();
+      const err = (next as any).mock.calls[0][0];
+      expect(err?.statusCode).toBe(403);
+      expect(err?.message).toBe("Super admin access required");
+    });
+
+    it("should return HTTP 401 for unauthenticated request attempting approval actions", () => {
+      const unauthReq: any = {};
+      const res: any = {};
+      const next = jest.fn();
+
+      const middleware = requireSuperAdmin();
+      middleware(unauthReq, res, next);
+
+      expect(next).toHaveBeenCalled();
+      const err = (next as any).mock.calls[0][0];
+      expect(err?.statusCode).toBe(401);
+      expect(err?.message).toBe("Authentication required");
     });
   });
 
