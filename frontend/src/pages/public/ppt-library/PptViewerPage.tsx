@@ -36,6 +36,7 @@ import {
   calculateAutoFit,
   extractSvgDimensions,
   normalizeSlideSvg,
+  DocumentDimensions,
 } from "@/lib/pptLibrary/autoFit";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,13 +54,27 @@ export function PptViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Cached slide interface for instantaneous PPT navigation
+  interface CachedSlide {
+    rawSvg: string;
+    normalizedSvg: string;
+    dimensions: DocumentDimensions;
+  }
+
+  const MAX_SLIDE_CACHE = 40;
+
   // Deck State for PPT/PPTX
   const [slideCount, setSlideCount] = useState<number>(0);
   const [currentSlide, setCurrentSlide] = useState<number>(0); // 0-indexed
   const [currentSlideSvg, setCurrentSlideSvg] = useState<string | null>(null);
+  const [currentSlideData, setCurrentSlideData] = useState<CachedSlide | null>(null);
   const [deckLoading, setDeckLoading] = useState(false);
   const [deckError, setDeckError] = useState<string | null>(null);
   const [isLegacyPpt, setIsLegacyPpt] = useState(false);
+
+  // In-memory slide cache and preheating timer for instantaneous slide navigation
+  const slideCacheRef = useRef<Map<number, CachedSlide>>(new Map());
+  const preheatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // PDF-specific state
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -74,6 +89,11 @@ export function PptViewerPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const passwordCallbackRef = useRef<((password: string) => void) | null>(null);
+
+  // Dimension cache per page for PDF to prevent double-render feedback loops
+  const pageDimensionsMapRef = useRef<
+    Map<number, { width: number; height: number; aspectRatio: number }>
+  >(new Map());
 
   // Measured natural PDF page dimensions (updated per page load)
   const [pdfPageDimensions, setPdfPageDimensions] = useState<{
@@ -156,20 +176,22 @@ export function PptViewerPage() {
     updateStageMeasurements();
 
     const observers: ResizeObserver[] = [];
-    if (stageRef.current) {
-      const ro = new ResizeObserver(() => updateStageMeasurements());
-      ro.observe(stageRef.current);
-      observers.push(ro);
-    }
-    if (pdfStageRef.current) {
-      const roPdf = new ResizeObserver(() => updateStageMeasurements());
-      roPdf.observe(pdfStageRef.current);
-      observers.push(roPdf);
-    }
-    if (containerRef.current) {
-      const roCont = new ResizeObserver(() => updateStageMeasurements());
-      roCont.observe(containerRef.current);
-      observers.push(roCont);
+    if (typeof ResizeObserver !== "undefined") {
+      if (stageRef.current) {
+        const ro = new ResizeObserver(() => updateStageMeasurements());
+        ro.observe(stageRef.current);
+        observers.push(ro);
+      }
+      if (pdfStageRef.current) {
+        const roPdf = new ResizeObserver(() => updateStageMeasurements());
+        roPdf.observe(pdfStageRef.current);
+        observers.push(roPdf);
+      }
+      if (containerRef.current) {
+        const roCont = new ResizeObserver(() => updateStageMeasurements());
+        roCont.observe(containerRef.current);
+        observers.push(roCont);
+      }
     }
 
     window.addEventListener("resize", updateStageMeasurements);
@@ -181,6 +203,18 @@ export function PptViewerPage() {
       window.removeEventListener("orientationchange", updateStageMeasurements);
     };
   }, [isFullscreen, isPdf, updateStageMeasurements]);
+
+  // Reset document caches when switching materials
+  useEffect(() => {
+    slideCacheRef.current.clear();
+    pageDimensionsMapRef.current.clear();
+    setCurrentSlideData(null);
+    setCurrentSlideSvg(null);
+    if (preheatTimerRef.current) {
+      clearTimeout(preheatTimerRef.current);
+      preheatTimerRef.current = null;
+    }
+  }, [pptId]);
 
   // 1. Fetch metadata
   useEffect(() => {
@@ -202,6 +236,68 @@ export function PptViewerPage() {
         setLoading(false);
       });
   }, [pptId]);
+
+  // Helper to render, normalize, dimension-extract, and cache a slide
+  const getOrRenderSlide = useCallback(
+    (index: number, renderer: any): CachedSlide | null => {
+      if (!renderer || index < 0) return null;
+      const cached = slideCacheRef.current.get(index);
+      if (cached) return cached;
+
+      try {
+        const raw = renderer.renderSlideSvg(index);
+        const dimensions = extractSvgDimensions(raw);
+        const normalizedSvg = normalizeSlideSvg(raw);
+        const entry: CachedSlide = { rawSvg: raw, normalizedSvg, dimensions };
+
+        // Evict slide furthest from current index if cache limit reached
+        if (slideCacheRef.current.size >= MAX_SLIDE_CACHE) {
+          let furthestKey = -1;
+          let maxDist = -1;
+          for (const key of slideCacheRef.current.keys()) {
+            const dist = Math.abs(key - index);
+            if (dist > maxDist) {
+              maxDist = dist;
+              furthestKey = key;
+            }
+          }
+          if (furthestKey !== -1) {
+            slideCacheRef.current.delete(furthestKey);
+          }
+        }
+
+        slideCacheRef.current.set(index, entry);
+        return entry;
+      } catch (err) {
+        console.warn(`[PPT_VIEWER] Failed to render slide ${index}:`, err);
+        return null;
+      }
+    },
+    []
+  );
+
+  // Background preheating for adjacent slides (next, prev, next+1)
+  const schedulePreheat = useCallback(
+    (activeIdx: number, totalSlides: number) => {
+      if (preheatTimerRef.current) {
+        clearTimeout(preheatTimerRef.current);
+      }
+      preheatTimerRef.current = setTimeout(() => {
+        const renderer = rendererRef.current;
+        if (!renderer || totalSlides <= 1) return;
+
+        // Priority order: next slide, prev slide, 2 slides ahead
+        const targets = [activeIdx + 1, activeIdx - 1, activeIdx + 2].filter(
+          (i) => i >= 0 && i < totalSlides && !slideCacheRef.current.has(i)
+        );
+
+        for (const target of targets) {
+          getOrRenderSlide(target, renderer);
+        }
+      }, 15);
+    },
+    [getOrRenderSlide]
+  );
 
   // 2. Load Presentation into pptx-svg (only for PPT/PPTX)
   useEffect(() => {
@@ -247,10 +343,16 @@ export function PptViewerPage() {
         setSlideCount(loaded.slideCount);
         setCurrentSlide(0);
 
-        // Render first slide
+        // Render first slide immediately and cache it
         if (loaded.slideCount > 0) {
-          const svg = renderer.renderSlideSvg(0);
-          setCurrentSlideSvg(svg);
+          const entry = getOrRenderSlide(0, renderer);
+          if (entry) {
+            setCurrentSlideData(entry);
+            setCurrentSlideSvg(entry.rawSvg);
+          }
+          if (loaded.slideCount > 1) {
+            schedulePreheat(0, loaded.slideCount);
+          }
         }
       } catch (err: any) {
         console.warn("[PPT_VIEWER] pptx-svg rendering warning:", err);
@@ -269,8 +371,11 @@ export function PptViewerPage() {
 
     return () => {
       active = false;
+      if (preheatTimerRef.current) {
+        clearTimeout(preheatTimerRef.current);
+      }
     };
-  }, [resource, isLegacyPpt, isPdf]);
+  }, [resource, isLegacyPpt, isPdf, getOrRenderSlide, schedulePreheat]);
 
   // 3. Load PDF directly into memory as Uint8Array for native react-pdf rendering
   useEffect(() => {
@@ -323,62 +428,87 @@ export function PptViewerPage() {
     };
   }, [resource, isPdf]);
 
-  // Render current slide when slide index changes
-  const renderSlide = useCallback((index: number) => {
-    if (!rendererRef.current) return;
-    try {
-      const svg = rendererRef.current.renderSlideSvg(index);
-      setCurrentSlideSvg(svg);
-    } catch (err) {
-      console.error("Failed to render slide:", err);
-    }
-  }, []);
+  // Fast slide navigation with in-memory caching and background preheating
+  const goToSlide = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= slideCount) return;
+      setCurrentSlide(index);
 
-  const goToSlide = (index: number) => {
-    if (index < 0 || index >= slideCount) return;
-    setCurrentSlide(index);
-    renderSlide(index);
-    setZoomLevel(100); // Auto-fit default on slide change
-  };
+      const renderer = rendererRef.current;
+      if (renderer) {
+        const entry = getOrRenderSlide(index, renderer);
+        if (entry) {
+          setCurrentSlideData(entry);
+          setCurrentSlideSvg(entry.rawSvg);
+        }
+        schedulePreheat(index, slideCount);
+      }
+      // Note: User zoom and fit settings are preserved across slides
+    },
+    [slideCount, getOrRenderSlide, schedulePreheat]
+  );
 
-  const nextSlide = () => {
+  const nextSlide = useCallback(() => {
     if (currentSlide < slideCount - 1) {
       goToSlide(currentSlide + 1);
     }
-  };
+  }, [currentSlide, slideCount, goToSlide]);
 
-  const prevSlide = () => {
+  const prevSlide = useCallback(() => {
     if (currentSlide > 0) {
       goToSlide(currentSlide - 1);
     }
-  };
+  }, [currentSlide, goToSlide]);
 
   // PDF Page Navigation
-  const goToPdfPage = (page: number) => {
-    if (page < 1 || page > pdfNumPages) return;
-    setPdfCurrentPage(page);
-    setZoomLevel(100); // Auto-fit default on page change
-    if (pdfViewMode === "continuous" && pdfScrollRef.current) {
-      const pageEl = pdfScrollRef.current.querySelector(`[data-page-number="${page}"]`);
-      if (pageEl) {
-        pageEl.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  };
+  const goToPdfPage = useCallback(
+    (page: number) => {
+      if (page < 1 || page > pdfNumPages) return;
+      setPdfCurrentPage(page);
+      // Note: User zoom and fit settings are preserved across pages
 
-  const nextPdfPage = () => {
+      if (pdfViewMode === "continuous" && pdfScrollRef.current) {
+        const pageEl = pdfScrollRef.current.querySelector(`[data-page-number="${page}"]`);
+        if (pageEl) {
+          pageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    },
+    [pdfNumPages, pdfViewMode]
+  );
+
+  const nextPdfPage = useCallback(() => {
     if (pdfCurrentPage < pdfNumPages) {
       goToPdfPage(pdfCurrentPage + 1);
     }
-  };
+  }, [pdfCurrentPage, pdfNumPages, goToPdfPage]);
 
-  const prevPdfPage = () => {
+  const prevPdfPage = useCallback(() => {
     if (pdfCurrentPage > 1) {
       goToPdfPage(pdfCurrentPage - 1);
     }
-  };
+  }, [pdfCurrentPage, goToPdfPage]);
 
-  // Password-protected PDF handler
+  // Windowed pages in Single Page Mode: keeps [currentPage - 1, currentPage, currentPage + 1]
+  // Pre-renders adjacent pages so next/prev navigation is instant (0 ms visual delay)
+  const visiblePdfPages = useMemo(() => {
+    if (pdfNumPages <= 0) return [];
+    const minPage = Math.max(1, pdfCurrentPage - 1);
+    const maxPage = Math.min(pdfNumPages, pdfCurrentPage + 1);
+    const pages: number[] = [];
+    for (let p = minPage; p <= maxPage; p++) {
+      pages.push(p);
+    }
+    return pages;
+  }, [pdfCurrentPage, pdfNumPages]);
+
+  // Stable PDF document load success handler (prevents page resets on re-render)
+  const handleDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
+    setPasswordRequired(false);
+    setPasswordError(null);
+    setPdfNumPages(numPages);
+    setPdfCurrentPage((prev) => (prev >= 1 && prev <= numPages ? prev : 1));
+  }, []);
   const handlePassword = useCallback(
     (callback: (password: string) => void, reason: number) => {
       passwordCallbackRef.current = callback;
@@ -428,7 +558,7 @@ export function PptViewerPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSlide, slideCount, pdfCurrentPage, pdfNumPages, isFullscreen, isPdf]);
+  }, [currentSlide, slideCount, pdfCurrentPage, pdfNumPages, isFullscreen, isPdf, nextPdfPage, prevPdfPage, nextSlide, prevSlide]);
 
   // Fullscreen controls
   const toggleFullscreen = () => {
@@ -467,12 +597,14 @@ export function PptViewerPage() {
 
   // PPT Auto-Fit calculations based on exact stage measurements
   const slideDimensions = useMemo(() => {
+    if (currentSlideData?.dimensions) return currentSlideData.dimensions;
     return extractSvgDimensions(currentSlideSvg);
-  }, [currentSlideSvg]);
+  }, [currentSlideData, currentSlideSvg]);
 
   const normalizedSlideSvg = useMemo(() => {
+    if (currentSlideData?.normalizedSvg) return currentSlideData.normalizedSvg;
     return normalizeSlideSvg(currentSlideSvg);
-  }, [currentSlideSvg]);
+  }, [currentSlideData, currentSlideSvg]);
 
   const pptAutoFit = useMemo(() => {
     return calculateAutoFit(stageDimensions, slideDimensions, {
@@ -759,12 +891,7 @@ export function PptViewerPage() {
                     <Document
                       file={pdfBlobUrl}
                       onPassword={handlePassword}
-                      onLoadSuccess={({ numPages }) => {
-                        setPasswordRequired(false);
-                        setPasswordError(null);
-                        setPdfNumPages(numPages);
-                        setPdfCurrentPage(1);
-                      }}
+                      onLoadSuccess={handleDocumentLoadSuccess}
                       onLoadError={(err) => {
                         console.error("PDF load error:", err);
                         setPdfError(err.message || "Failed to render PDF pages");
@@ -804,32 +931,77 @@ export function PptViewerPage() {
                           </form>
                         </div>
                       ) : pdfViewMode === "single" ? (
-                        /* Single Page Mode: Perfectly Fitted to Available Viewport */
+                        /* Single Page Mode: Windowed Adjacent Pre-rendering with Instant Navigation */
                         <div className="relative w-full h-full min-h-0 flex-1 flex flex-col items-center justify-center p-2 sm:p-4">
                           <div
-                            className="shadow-2xl rounded-xs overflow-hidden bg-white max-w-full flex items-center justify-center transition-all duration-150 ease-out"
+                            className="relative shadow-2xl rounded-xs overflow-hidden bg-white max-w-full flex items-center justify-center transition-all duration-150 ease-out"
                             style={{
                               width: `${pdfAutoFit.fittedWidth}px`,
                               height: `${pdfAutoFit.fittedHeight}px`,
                             }}
                           >
-                            <Page
-                              pageNumber={pdfCurrentPage}
-                              width={pdfAutoFit.fittedWidth}
-                              onLoadSuccess={(page: any) => {
-                                const vp = page.getViewport({ scale: 1 });
-                                if (vp && vp.width > 0 && vp.height > 0) {
-                                  setPdfPageDimensions({
-                                    width: vp.width,
-                                    height: vp.height,
-                                    aspectRatio: vp.width / vp.height,
-                                  });
-                                }
-                              }}
-                              renderTextLayer
-                              renderAnnotationLayer
-                              className="max-w-full block"
-                            />
+                            {visiblePdfPages.map((pageNumber) => {
+                              const isCurrent = pageNumber === pdfCurrentPage;
+                              return (
+                                <div
+                                  key={`pdf-page-${pageNumber}`}
+                                  className="w-full h-full flex items-center justify-center"
+                                  style={
+                                    isCurrent
+                                      ? {
+                                          position: "relative",
+                                          zIndex: 10,
+                                          opacity: 1,
+                                          pointerEvents: "auto",
+                                        }
+                                      : {
+                                          position: "absolute",
+                                          top: 0,
+                                          left: 0,
+                                          zIndex: 0,
+                                          opacity: 0,
+                                          pointerEvents: "none",
+                                        }
+                                  }
+                                >
+                                  <Page
+                                    pageNumber={pageNumber}
+                                    width={pdfAutoFit.fittedWidth}
+                                    onLoadSuccess={(page: any) => {
+                                      const vp = page.getViewport({ scale: 1 });
+                                      if (vp && vp.width > 0 && vp.height > 0) {
+                                        const prev = pageDimensionsMapRef.current.get(pageNumber);
+                                        pageDimensionsMapRef.current.set(pageNumber, {
+                                          width: vp.width,
+                                          height: vp.height,
+                                          aspectRatio: vp.width / vp.height,
+                                        });
+                                        // Only update state if active page natural aspect ratio differs by >1%
+                                        // This eliminates the double-render canvas cancellation loop
+                                        if (
+                                          pageNumber === pdfCurrentPage &&
+                                          (!prev || Math.abs(prev.aspectRatio - (vp.width / vp.height)) > 0.01)
+                                        ) {
+                                          setPdfPageDimensions({
+                                            width: vp.width,
+                                            height: vp.height,
+                                            aspectRatio: vp.width / vp.height,
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    loading={
+                                      <div className="flex items-center justify-center w-full h-full p-8 text-slate-400">
+                                        <Loader2 className="w-8 h-8 animate-spin text-primary/70" />
+                                      </div>
+                                    }
+                                    renderTextLayer
+                                    renderAnnotationLayer
+                                    className="max-w-full block"
+                                  />
+                                </div>
+                              );
+                            })}
                           </div>
 
                           {/* Left / Right Floating Navigation Arrows for Single Mode */}
