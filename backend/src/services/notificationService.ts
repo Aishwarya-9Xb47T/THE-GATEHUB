@@ -6,7 +6,11 @@ export type NotificationType =
   | "project_feedback"
   | "certificate_earned"
   | "certificate_issued"
-  | "certificate_revoked";
+  | "certificate_revoked"
+  | "instructor_application_submitted"
+  | "instructor_approved"
+  | "instructor_rejected"
+  | "instructor_revoked";
 
 interface CreateNotificationInput {
   userId: string;

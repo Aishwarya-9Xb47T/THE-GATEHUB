@@ -81,5 +81,5 @@ courseRouter.post("/ai-authoring-preview", authenticate, requireInstructorApprov
 courseRouter.post("/create-with-authoring", authenticate, requireInstructorApproved, coursesController.createCourseWithAuthoring);
 courseRouter.post("/generate-ai", authenticate, requireInstructorApproved, coursesController.generateAICourse);
 courseRouter.post("/:id/generate-landing", authenticate, requireInstructorApproved, coursesController.generateAILandingPage);
-courseRouter.patch("/:id", authenticate, coursesController.update);
-courseRouter.delete("/:id", authenticate, coursesController.remove);
+courseRouter.patch("/:id", authenticate, requireInstructorApproved, coursesController.update);
+courseRouter.delete("/:id", authenticate, requireInstructorApproved, coursesController.remove);

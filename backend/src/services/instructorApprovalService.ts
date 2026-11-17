@@ -211,6 +211,21 @@ export async function approveInstructor(
     ipAddress: reqIp,
   });
 
+  try {
+    const { createNotification } = await import("./notificationService.js");
+    await createNotification({
+      userId: instructorId,
+      type: "instructor_approved",
+      title: "Instructor Account Approved",
+      message: notes?.trim()
+        ? `Congratulations! Your instructor account has been approved: ${notes.trim()}. You can now create and publish courses.`
+        : "Congratulations! Your instructor account has been approved by the Super Admin. You can now create and publish courses.",
+      link: "/instructor/courses/new",
+    });
+  } catch (err) {
+    console.error("Failed to create approval notification:", err);
+  }
+
   return updated;
 }
 
@@ -265,6 +280,92 @@ export async function rejectInstructor(
     },
     ipAddress: reqIp,
   });
+
+  try {
+    const { createNotification } = await import("./notificationService.js");
+    await createNotification({
+      userId: instructorId,
+      type: "instructor_rejected",
+      title: "Instructor Application Status",
+      message: reason?.trim()
+        ? `Your instructor application was rejected: ${reason.trim()}`
+        : "Your instructor application was rejected by the Super Admin.",
+      link: "/instructor",
+    });
+  } catch (err) {
+    console.error("Failed to create rejection notification:", err);
+  }
+
+  return updated;
+}
+
+/**
+ * Admin revokes instructor approval. Course creation and publishing are revoked.
+ */
+export async function revokeInstructor(
+  instructorId: string,
+  adminId: string,
+  reason?: string,
+  reqIp?: string
+) {
+  const target = await prisma.user.findUnique({
+    where: { id: instructorId },
+    select: { id: true, role: true, email: true, instructorApprovalStatus: true },
+  });
+
+  if (!target) {
+    throw new AppError(404, "Instructor account not found");
+  }
+
+  if (target.role !== "instructor") {
+    throw new AppError(400, "Target user is not an instructor");
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: instructorId },
+    data: {
+      instructorApprovalStatus: INSTRUCTOR_APPROVAL_STATUS.REJECTED,
+      instructorRejectionReason:
+        reason?.trim() || "Instructor course-creation permission revoked by administrator.",
+    },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      instructorApprovalStatus: true,
+      instructorRejectionReason: true,
+    },
+  });
+
+  await logAuditEvent({
+    adminId,
+    action: AUDIT_ACTIONS.INSTRUCTOR_REVOKED,
+    targetId: instructorId,
+    targetType: "user",
+    details: {
+      previousStatus: target.instructorApprovalStatus,
+      newStatus: INSTRUCTOR_APPROVAL_STATUS.REJECTED,
+      reason: reason?.trim() || null,
+    },
+    ipAddress: reqIp,
+  });
+
+  try {
+    const { createNotification } = await import("./notificationService.js");
+    await createNotification({
+      userId: instructorId,
+      type: "instructor_revoked",
+      title: "Instructor Permissions Revoked",
+      message:
+        reason?.trim() ||
+        "Your course creation and publishing permissions have been revoked by an administrator.",
+      link: "/instructor",
+    });
+  } catch (err) {
+    console.error("Failed to create revocation notification:", err);
+  }
 
   return updated;
 }

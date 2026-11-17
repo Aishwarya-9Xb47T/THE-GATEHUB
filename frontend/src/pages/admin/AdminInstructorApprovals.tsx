@@ -76,6 +76,10 @@ export function AdminInstructorApprovals() {
   const [rejectingInstructor, setRejectingInstructor] = useState<InstructorRecord | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
+  // Revoke dialog state
+  const [revokingInstructor, setRevokingInstructor] = useState<InstructorRecord | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
+
   // Fetch counts
   const { data: countsData } = useQuery<CountsData>({
     queryKey: ["admin", "instructor-approvals", "counts"],
@@ -179,6 +183,40 @@ export function AdminInstructorApprovals() {
     },
   });
 
+  // Revoke mutation
+  const revokeMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
+      const res = await api<{ success: boolean; message: string }>(
+        `/admin/instructor-approvals/${id}/revoke`,
+        {
+          method: "POST",
+          body: { reason },
+        }
+      );
+      if (res.error) throw new Error(res.error);
+      return res.data;
+    },
+    onSuccess: () => {
+      toast({
+        title: "Instructor Approval Revoked",
+        description: "Course creation permissions have been revoked.",
+        variant: "default",
+      });
+      setRevokingInstructor(null);
+      setRevokeReason("");
+      queryClient.invalidateQueries({ queryKey: ["admin", "instructor-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "instructor-approvals", "counts"] });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Revocation Failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleApproveSubmit = () => {
     if (!approvingInstructor) return;
     approveMutation.mutate({
@@ -192,6 +230,14 @@ export function AdminInstructorApprovals() {
     rejectMutation.mutate({
       id: rejectingInstructor.id,
       reason: rejectionReason,
+    });
+  };
+
+  const handleRevokeSubmit = () => {
+    if (!revokingInstructor) return;
+    revokeMutation.mutate({
+      id: revokingInstructor.id,
+      reason: revokeReason,
     });
   };
 
@@ -546,10 +592,25 @@ export function AdminInstructorApprovals() {
                             )}
 
                             {isApproved && (
-                              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-1">
-                                <ShieldCheck className="h-4 w-4" />
-                                Verified Permanent
-                              </span>
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                  <ShieldCheck className="h-4 w-4" />
+                                  Approved
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setRevokingInstructor(instructor);
+                                    setRevokeReason("");
+                                  }}
+                                  className="h-8 gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-xs px-2.5"
+                                  title="Revoke instructor course creation permissions"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  Revoke
+                                </Button>
+                              </div>
                             )}
                           </div>
                         </td>
@@ -737,6 +798,77 @@ export function AdminInstructorApprovals() {
               variant="destructive"
             >
               {rejectMutation.isPending ? "Rejecting..." : "Reject Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke Confirmation Dialog */}
+      <Dialog
+        open={!!revokingInstructor}
+        onOpenChange={(open) => {
+          if (!open) setRevokingInstructor(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+              <AlertTriangle className="h-5 w-5" />
+              Revoke Instructor Approval
+            </DialogTitle>
+            <DialogDescription>
+              Revoke course-creation permissions for this instructor. Their course authoring access will be immediately blocked and set to Rejected status.
+            </DialogDescription>
+          </DialogHeader>
+
+          {revokingInstructor && (
+            <div className="space-y-4 py-2">
+              <div className="p-3 rounded-xl bg-muted/60 border border-border/60 flex items-center gap-3">
+                <UnifiedAvatar
+                  user={revokingInstructor as any}
+                  size="md"
+                />
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground text-sm truncate">
+                    {revokingInstructor.firstName} {revokingInstructor.lastName}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {revokingInstructor.email}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">
+                  Reason for Revoking (Optional):
+                </label>
+                <Input
+                  placeholder="e.g. Terms violation or credential audit"
+                  value={revokeReason}
+                  onChange={(e) => setRevokeReason(e.target.value)}
+                  className="text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  This explanation will be recorded in the audit log and shown to the instructor.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setRevokingInstructor(null)}
+              disabled={revokeMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRevokeSubmit}
+              disabled={revokeMutation.isPending}
+              variant="destructive"
+            >
+              {revokeMutation.isPending ? "Revoking..." : "Revoke Permissions"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -169,7 +169,9 @@ export default function App() {
             path="/manage-courses/new"
             element={
               <ProtectedRoute roles={["instructor", "admin", "super_admin"]}>
-                <Pages.CreateFreeLearningCoursePage />
+                <ApprovedInstructorRoute>
+                  <Pages.CreateFreeLearningCoursePage />
+                </ApprovedInstructorRoute>
               </ProtectedRoute>
             }
           />
@@ -177,7 +179,9 @@ export default function App() {
             path="/manage-courses/new/branding"
             element={
               <ProtectedRoute roles={["instructor", "admin", "super_admin"]}>
-                <Pages.FreeLearningBrandingPage />
+                <ApprovedInstructorRoute>
+                  <Pages.FreeLearningBrandingPage />
+                </ApprovedInstructorRoute>
               </ProtectedRoute>
             }
           />
@@ -185,7 +189,9 @@ export default function App() {
             path="/manage-courses/branding"
             element={
               <ProtectedRoute roles={["instructor", "admin", "super_admin"]}>
-                <Pages.FreeLearningBrandingPage />
+                <ApprovedInstructorRoute>
+                  <Pages.FreeLearningBrandingPage />
+                </ApprovedInstructorRoute>
               </ProtectedRoute>
             }
           />
@@ -256,7 +262,7 @@ export default function App() {
               path="courses/new/academic"
               element={<Navigate to="/instructor/courses/new/branding?studio=academic&productType=premium-course" replace />}
             />
-            <Route path="course/:courseId/edit" element={<Pages.CurriculumBuilderPage />} />
+            <Route path="course/:courseId/edit" element={<ApprovedInstructorRoute><Pages.CurriculumBuilderPage /></ApprovedInstructorRoute>} />
             <Route path="course/:courseId/lectures/:lectureId/quiz" element={<Pages.QuizBuilderPage />} />
             <Route path="learning-universe/new" element={<ApprovedInstructorRoute><Pages.CreateLearningUniversePage /></ApprovedInstructorRoute>} />
             <Route path="learning-universe/new/branding" element={<ApprovedInstructorRoute><Pages.CourseBrandingSetupPage /></ApprovedInstructorRoute>} />
@@ -340,10 +346,10 @@ export default function App() {
             }
           >
             <Route path="/instructor/course/:courseId/lectures/:lectureId/notes" element={<Pages.NotesEditorPage />} />
-            <Route path="/instructor/latex-editor" element={<Pages.TeacherLatexEditorPage />} />
-            <Route path="/instructor/latex-editor/:projectId" element={<Pages.TeacherLatexEditorPage />} />
+            <Route path="/instructor/latex-editor" element={<ApprovedInstructorRoute><Pages.TeacherLatexEditorPage /></ApprovedInstructorRoute>} />
+            <Route path="/instructor/latex-editor/:projectId" element={<ApprovedInstructorRoute><Pages.TeacherLatexEditorPage /></ApprovedInstructorRoute>} />
             <Route path="/instructor/learning-universe/new/academic" element={<ApprovedInstructorRoute><Pages.AcademicAuthoringStudioPage /></ApprovedInstructorRoute>} />
-            <Route path="/teacher/latex-editor" element={<Pages.TeacherLatexEditorPage />} />
+            <Route path="/teacher/latex-editor" element={<ApprovedInstructorRoute><Pages.TeacherLatexEditorPage /></ApprovedInstructorRoute>} />
           </Route>
 
           <Route
