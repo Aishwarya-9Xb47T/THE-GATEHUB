@@ -28,12 +28,46 @@ export const SEED_LANDING_COURSES: LandingCoursesResponse = {
 };
 
 export const LANDING_CACHE_VERSION = "v2";
-export const LANDING_CACHE_TTL_MS = 10 * 60 * 1000;
+export const LANDING_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (stale-while-revalidate)
 
 interface StoredLandingCache<T> {
   version: string;
   savedAt: number;
   data: T;
+}
+
+export function getCachedLandingCoursesSavedAt(): number {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const stored = localStorage.getItem("gatehub_landing_featured_courses");
+      if (stored) {
+        const parsed = JSON.parse(stored) as StoredLandingCache<LandingCoursesResponse>;
+        if (parsed && typeof parsed === "object" && typeof parsed.savedAt === "number") {
+          return parsed.savedAt;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return 0;
+}
+
+export function getCachedLandingUniversesSavedAt(): number {
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const stored = localStorage.getItem("gatehub_landing_universes");
+      if (stored) {
+        const parsed = JSON.parse(stored) as StoredLandingCache<any[]>;
+        if (parsed && typeof parsed === "object" && typeof parsed.savedAt === "number") {
+          return parsed.savedAt;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return 0;
 }
 
 export function getCachedLandingCourses(): LandingCoursesResponse | undefined {
@@ -114,12 +148,12 @@ export const landingCoursesQueryOptions = {
   },
   initialData: getCachedLandingCourses,
   initialDataUpdatedAt: () => 0,
-  staleTime: 60 * 1000,
+  staleTime: LANDING_STALE_MS,
   gcTime: LANDING_GC_MS,
-  retry: 2,
+  retry: 1,
   retryDelay: 1000,
   refetchOnMount: "always" as const,
-  refetchOnWindowFocus: true,
+  refetchOnWindowFocus: false,
 };
 
 export type LandingUniversesResponse = any[];
@@ -211,29 +245,33 @@ export function normalizeLandingUniverses(payload: unknown): any[] {
 export const landingUniversesQueryOptions = {
   queryKey: ["landing", "learning-universes"] as const,
   queryFn: async (): Promise<LandingUniversesResponse> => {
-    const res = await getLandingShowcaseLearningUniverses();
-    if (res.error) throw new Error(res.error);
-    const data = normalizeLandingUniverses(res.data);
-    if (typeof window !== "undefined" && window.localStorage && Array.isArray(data)) {
-      try {
-        localStorage.setItem(
-          "gatehub_landing_universes",
-          JSON.stringify({ version: LANDING_CACHE_VERSION, savedAt: Date.now(), data })
-        );
-      } catch {
-        /* ignore */
+    try {
+      const res = await getLandingShowcaseLearningUniverses();
+      if (res.error) throw new Error(res.error);
+      const data = normalizeLandingUniverses(res.data);
+      if (typeof window !== "undefined" && window.localStorage && Array.isArray(data)) {
+        try {
+          localStorage.setItem(
+            "gatehub_landing_universes",
+            JSON.stringify({ version: LANDING_CACHE_VERSION, savedAt: Date.now(), data })
+          );
+        } catch {
+          /* ignore */
+        }
       }
+      return data;
+    } catch {
+      return getCachedLandingUniverses() || [];
     }
-    return data;
   },
   initialData: getCachedLandingUniverses,
   initialDataUpdatedAt: () => 0,
-  staleTime: 60 * 1000,
+  staleTime: LANDING_STALE_MS,
   gcTime: LANDING_GC_MS,
-  retry: 2,
+  retry: 1,
   retryDelay: 1000,
   refetchOnMount: "always" as const,
-  refetchOnWindowFocus: true,
+  refetchOnWindowFocus: false,
 };
 
 /** Warm landing JS + API caches before navigation (home hover / focus / idle). */

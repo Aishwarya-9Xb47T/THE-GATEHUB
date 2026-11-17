@@ -73,6 +73,7 @@ export function BrowseCourses() {
       if (res.error) throw new Error(res.error);
       return res.data!;
     },
+    placeholderData: (prev) => prev,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
@@ -99,6 +100,7 @@ export function BrowseCourses() {
             : [];
       return items;
     },
+    placeholderData: (prev) => prev,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
