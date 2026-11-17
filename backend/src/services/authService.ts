@@ -49,7 +49,11 @@ export function sanitizeUser(user: {
   role: string;
   avatar: string | null;
   emailVerified?: boolean;
+  createdAt?: Date | string | null;
   instructorApprovalStatus?: string | null;
+  instructorApprovedAt?: Date | string | null;
+  instructorApprovalNotes?: string | null;
+  instructorRejectionReason?: string | null;
 }) {
   return {
     id: user.id,
@@ -59,8 +63,12 @@ export function sanitizeUser(user: {
     role: user.role,
     avatar: user.avatar,
     emailVerified: !!user.emailVerified,
+    createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : undefined,
     instructorApprovalStatus:
       user.instructorApprovalStatus ?? (user.role === "instructor" ? "PENDING" : undefined),
+    instructorApprovedAt: user.instructorApprovedAt ? new Date(user.instructorApprovedAt).toISOString() : undefined,
+    instructorApprovalNotes: user.instructorApprovalNotes ?? undefined,
+    instructorRejectionReason: user.instructorRejectionReason ?? undefined,
   };
 }
 
@@ -209,6 +217,7 @@ export async function register(data: RegisterInput, req?: ReqLike) {
         avatar: true,
         tokenVersion: true,
         emailVerified: true,
+        createdAt: true,
         instructorApprovalStatus: true,
       },
     });
@@ -264,11 +273,47 @@ export async function register(data: RegisterInput, req?: ReqLike) {
     /* optional */
   }
 
+  if (requestedRole === "instructor") {
+    try {
+      const { createNotification } = await import("./notificationService.js");
+      await createNotification({
+        userId: user.id,
+        type: "instructor_application_submitted",
+        title: "Instructor Application Submitted",
+        message:
+          "Your instructor account has been created successfully! Your request is awaiting Super Admin approval. You will be notified once your account is approved.",
+        link: "/instructor",
+      });
+    } catch {
+      /* optional */
+    }
+
+    try {
+      const { logAuditEvent, AUDIT_ACTIONS } = await import("./auditLogService.js");
+      await logAuditEvent({
+        adminId: user.id,
+        action: AUDIT_ACTIONS.INSTRUCTOR_APPLICATION_SUBMITTED,
+        targetId: user.id,
+        targetType: "user",
+        details: {
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`.trim(),
+        },
+        ipAddress: meta.ip,
+      });
+    } catch {
+      /* optional */
+    }
+  }
+
   return {
     user: sanitizeUser(user),
     token: await signToken({ ...user, sessionId: session.id }),
     requiresEmailVerification: false,
-    message: "Account created successfully.",
+    message:
+      requestedRole === "instructor"
+        ? "Your instructor account has been created successfully! Your request is awaiting Super Admin approval. You will be notified once your account is approved."
+        : "Account created successfully.",
   };
 }
 

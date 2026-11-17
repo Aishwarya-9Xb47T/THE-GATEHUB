@@ -50,3 +50,8 @@ export async function requireInstructorApproved(
     next(new AppError(500, "Failed to verify instructor course-creation permission"));
   }
 }
+
+/**
+ * Reusable alias matching the specification requirement.
+ */
+export const requireApprovedInstructor = requireInstructorApproved;

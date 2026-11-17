@@ -435,7 +435,7 @@ router.post("/draft", authenticate, requireInstructorApproved, async (req: AuthR
   }
 });
 
-router.patch("/:id/branding", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
+router.patch("/:id/branding", authenticate, requireRole("instructor", "admin"), requireInstructorApproved, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) throw new AppError(401, "Unauthorized");
@@ -748,7 +748,7 @@ router.post("/:id/duplicate", authenticate, requireInstructorApproved, async (re
   }
 });
 
-router.delete("/:id", authenticate, requireRole("instructor", "admin"), async (req: AuthRequest, res) => {
+router.delete("/:id", authenticate, requireRole("instructor", "admin"), requireInstructorApproved, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) throw new AppError(401, "Unauthorized");

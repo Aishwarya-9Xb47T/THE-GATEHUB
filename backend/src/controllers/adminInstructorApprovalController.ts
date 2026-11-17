@@ -8,6 +8,7 @@ import {
   getInstructorApprovalCounts,
   approveInstructor,
   rejectInstructor,
+  revokeInstructor,
 } from "../services/instructorApprovalService.js";
 
 const approveSchema = z.object({
@@ -15,6 +16,10 @@ const approveSchema = z.object({
 });
 
 const rejectSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+const revokeSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
@@ -89,5 +94,25 @@ export async function rejectInstructorAdmin(req: AuthRequest, res: Response) {
     success: true,
     user: updated,
     message: "Instructor request rejected",
+  });
+}
+
+/**
+ * Revoke course creation permission from an approved instructor.
+ */
+export async function revokeInstructorAdmin(req: AuthRequest, res: Response) {
+  if (!req.user) {
+    throw new AppError(401, "Authentication required");
+  }
+
+  const { id } = req.params;
+  const { reason } = revokeSchema.parse(req.body);
+
+  const updated = await revokeInstructor(id, req.user.id, reason, getClientIp(req));
+
+  res.json({
+    success: true,
+    user: updated,
+    message: "Instructor course-creation permission revoked",
   });
 }

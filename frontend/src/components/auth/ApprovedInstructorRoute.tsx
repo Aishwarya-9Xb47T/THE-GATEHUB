@@ -94,8 +94,13 @@ export function ApprovedInstructorRoute({ children }: ApprovedInstructorRoutePro
               <Clock className="h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-foreground">
-                Awaiting Admin Approval
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs px-2 py-0.5 rounded bg-amber-200/90 dark:bg-amber-900/80 text-amber-950 dark:text-amber-200 font-semibold">
+                  &lt;Status: Awaiting Admin Approval&gt;
+                </span>
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-foreground mt-1">
+                Awaiting Super Admin Approval
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">
                 Instructor Account Verification
@@ -105,8 +110,13 @@ export function ApprovedInstructorRoute({ children }: ApprovedInstructorRoutePro
 
           <div className="p-4 rounded-xl bg-background/80 border border-border/60 text-sm space-y-3">
             <p className="font-semibold text-foreground text-base">
-              Your instructor account is awaiting admin approval. You will be able to create courses once your permission is approved.
+              "Your instructor application is currently under review by the Super Admin."
             </p>
+            {user.createdAt && (
+              <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+                Application submitted: {new Date(user.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
+              </p>
+            )}
             <p className="text-muted-foreground text-xs leading-relaxed">
               To preserve academic quality, all instructor registrations require a single, one-time verification by our platform administrators. Once approved, you will have permanent, unrestricted access to all course-creation studios:
             </p>

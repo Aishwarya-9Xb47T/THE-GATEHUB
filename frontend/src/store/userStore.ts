@@ -22,6 +22,8 @@ export interface User {
   avatarTimestamp?: number;
   emailVerified?: boolean;
   pendingEmail?: string | null;
+  createdAt?: string | null;
+  instructorAppliedAt?: string | null;
   instructorApprovalStatus?: "PENDING" | "APPROVED" | "REJECTED" | string | null;
   instructorApprovedAt?: string | null;
   instructorApprovalNotes?: string | null;

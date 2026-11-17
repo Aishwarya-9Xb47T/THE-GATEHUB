@@ -131,7 +131,17 @@ export function RegisterPage() {
         setToken(res.data.token);
         setUser(res.data.user);
         navigate(getHomeRoute(res.data.user.role), { replace: true });
-        toast({ title: "Account created!", variant: "success" });
+        if (res.data.user.role === "instructor") {
+          toast({
+            title: "Instructor Application Submitted",
+            description:
+              res.data.message ||
+              "Your instructor account has been created successfully! Your request is awaiting Super Admin approval. You will be notified once your account is approved.",
+            variant: "success",
+          });
+        } else {
+          toast({ title: "Account created!", variant: "success" });
+        }
       }
     } finally {
       setLoading(false);

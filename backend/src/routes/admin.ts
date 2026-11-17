@@ -17,6 +17,7 @@ adminRouter.get("/instructor-approvals", lazyHandler(instructorApprovalCtrl, "li
 adminRouter.get("/instructor-approvals/counts", lazyHandler(instructorApprovalCtrl, "getInstructorApprovalCountsAdmin"));
 adminRouter.post("/instructor-approvals/:id/approve", lazyHandler(instructorApprovalCtrl, "approveInstructorAdmin"));
 adminRouter.post("/instructor-approvals/:id/reject", lazyHandler(instructorApprovalCtrl, "rejectInstructorAdmin"));
+adminRouter.post("/instructor-approvals/:id/revoke", lazyHandler(instructorApprovalCtrl, "revokeInstructorAdmin"));
 
 // Dashboard & analytics (admin + super_admin)
 adminRouter.get("/dashboard", lazyHandler(adminCtrl, "dashboard"));
